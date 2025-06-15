@@ -6,7 +6,7 @@ class Config:
     DATABASE_NAME = 'engteklif'
     
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'your-super-secret-jwt-key-change-in-production')
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-super-secret-key-change-in-production')

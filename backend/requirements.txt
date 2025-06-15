@@ -1,5 +1,5 @@
-# requirements.txt - EngTeklif API (Python 3.11 COMPLETE)
-# Son güncelleme: 2025-01-01
+# requirements.txt - EngTeklif API (Python 3.11 COMPLETE WITH MATERIAL ANALYSIS)
+# Son güncelleme: 2025-01-01 - Material Analysis Integration
 
 # =============================================
 # CORE FRAMEWORK
@@ -53,6 +53,14 @@ scipy>=1.10.0,<2.0.0
 pandas>=2.0.0,<3.0.0
 
 # =============================================
+# CAD & 3D PROCESSING - FULL ACTIVE
+# =============================================
+cadquery>=2.3.1,<3.0.0
+matplotlib>=3.7.0,<4.0.0
+trimesh>=4.0.0,<5.0.0
+open3d>=0.18.0
+
+# =============================================
 # EXCEL & DATA EXPORT
 # =============================================
 openpyxl>=3.1.0,<4.0.0
@@ -64,6 +72,35 @@ xlsxwriter>=3.0.0,<4.0.0
 Levenshtein>=0.20.0
 rapidfuzz>=3.0.0
 fuzzywuzzy==0.18.0
+
+# =============================================
+# GELIŞMIŞ DOCUMENT PROCESSING - YENİ
+# =============================================
+striprtf>=0.0.26  # RTF dosyaları için (CMM converter)
+
+# =============================================
+# WEBSOCKET SUPPORT - YENİ (Eski app.py'den)
+# =============================================
+Flask-SocketIO>=5.3.0
+python-socketio>=5.11.0
+
+# =============================================
+# GMAIL API - YENİ (Mail kontrolü için)
+# =============================================
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+
+# =============================================
+# XML & HTML PROCESSING
+# =============================================
+lxml>=5.0.0
+beautifulsoup4>=4.12.0
+
+# =============================================
+# SUBPROCESS & SYSTEM INTEGRATION
+# =============================================
+psutil>=5.9.0  # Sistem monitoring için
 
 # =============================================
 # NETWORKING & HTTP
@@ -83,8 +120,8 @@ click>=8.0.0
 # File type detection
 python-magic>=0.4.24
 
-# Unique ID generation
-uuid
+# Unique ID generation (built-in Python 3.11)
+# uuid
 
 # =============================================
 # PRODUCTION SERVER
@@ -92,61 +129,75 @@ uuid
 gunicorn>=21.0.0
 
 # =============================================
-# OPTIONAL PACKAGES (Uncomment if needed)
+# ADVANCED OCR - OPSIYONEL (2GB+ İNDİRME)
 # =============================================
+# paddlepaddle>=2.5.0     # Çin OCR motoru
+# paddleocr>=2.7.0        # PaddlePaddle OCR
 
-# Advanced OCR (2GB+ download)
-# paddlepaddle>=2.5.0
-# paddleocr>=2.7.0
-
-# CAD Processing (System dependencies required)
-# trimesh>=4.0.0
-# open3d>=0.18.0
-
-# Gmail API Integration
-# google-api-python-client>=2.100.0
-# google-auth-httplib2>=0.2.0
-# google-auth-oauthlib>=1.2.0
-
-# WebSocket Support
-# Flask-SocketIO>=5.3.0
-# python-socketio>=5.11.0
-
-# Additional Document Processing
-# striprtf>=0.0.26
-# lxml>=5.0.0
-
-# Development Tools
+# =============================================
+# DEVELOPMENT TOOLS (Development için)
+# =============================================
 # pytest>=7.0.0
 # black>=23.0.0
 # flake8>=6.0.0
+# mypy>=1.0.0
 
 # =============================================
-# SYSTEM REQUIREMENTS
+# SYSTEM REQUIREMENTS & DEPENDENCIES
 # =============================================
 # Ubuntu/Debian:
 # sudo apt-get update
-# sudo apt-get install tesseract-ocr tesseract-ocr-tur
+# sudo apt-get install tesseract-ocr tesseract-ocr-tur tesseract-ocr-eng
 # sudo apt-get install poppler-utils
 # sudo apt-get install python3-opencv
+# sudo apt-get install libreoffice  # DOC/DOCX dönüştürme için
+# sudo apt-get install libgl1-mesa-glx  # CadQuery için
+# sudo apt-get install libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 #
 # macOS:
 # brew install tesseract tesseract-lang
 # brew install poppler
+# brew install libreoffice
+# brew install qt@5  # CadQuery için
 #
 # Windows:
-# Download and install Tesseract from GitHub
-# Download and install Poppler from oschwartz10612/poppler-windows
-# Add both to PATH environment variable
+# Download Tesseract: https://github.com/UB-Mannheim/tesseract/wiki
+# Download Poppler: https://github.com/oschwartz10612/poppler-windows
+# Download LibreOffice: https://www.libreoffice.org/download/
+# Install Visual C++ Redistributable for CadQuery
+# Add all to PATH environment variable
 #
 # =============================================
-# INSTALLATION STEPS
+# MATERIAL ANALYSIS SYSTEM KURULUM
 # =============================================
-# 1. Install system dependencies (above)
+# 1. Sistem bağımlılıklarını yükle (yukarıda)
 # 2. python -m venv engteklif_env
 # 3. source engteklif_env/bin/activate  # Linux/macOS
 #    engteklif_env\Scripts\activate     # Windows
-# 4. pip install --upgrade pip
+# 4. pip install --upgrade pip setuptools wheel
 # 5. pip install -r requirements.txt
-# 6. Test: python -c "import pdf2image; print('OK')"
+# 6. Test komutları:
+#    python -c "import pdf2image; print('PDF2Image: OK')"
+#    python -c "import pytesseract; print('Tesseract: OK')"
+#    python -c "import cadquery; print('CadQuery: OK')"
+#    python -c "import cv2; print('OpenCV: OK')"
+#    python -c "from docx import Document; print('Python-docx: OK')"
+#
+# =============================================
+# PERFORMANS NOTLARI
+# =============================================
+# - CadQuery: 3D işlemler için OpenGL gerektirir
+# - Tesseract: Türkçe dil paketi önerilir
+# - PaddleOCR: 2GB+ model indirimi (opsiyonel)
+# - LibreOffice: DOC->DOCX dönüştürme için headless mod
+# - OpenCV: Görüntü işleme için optimize edilmiş sürüm
+#
+# =============================================
+# PRODUCTION ENVIRONMENT
+# =============================================
+# Production ortamında aşağıdaki environment variables ayarlayın:
+# TESSERACT_CMD=/usr/bin/tesseract
+# LIBREOFFICE_PATH=/usr/bin/libreoffice
+# OPENCV_LOG_LEVEL=ERROR
+# CADQUERY_DISABLE_JUPYTER=1
 # =============================================

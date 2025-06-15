@@ -10,6 +10,9 @@ from typing import List, Dict, Any
 from models.user import User
 from models.file_analysis import FileAnalysis, FileAnalysisCreate
 from services.pdf_analysis_service import PDFAnalysisService
+from services.material_analysis import MaterialAnalysisService, CostEstimationService
+
+print("[INFO] ✅ Material Analysis servisleri aktif - Full STEP processing mevcut")
 
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
 
@@ -233,7 +236,7 @@ def upload_multiple_files():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file(analysis_id):
-    """Yüklenmiş dosyayı analiz et"""
+    """Yüklenmiş dosyayı analiz et - Yeni Material Analysis ile"""
     try:
         current_user = get_current_user()
         
@@ -275,74 +278,300 @@ def analyze_uploaded_file(analysis_id):
         
         start_time = time.time()
         
-        # Dosya türüne göre analiz
-        if analysis['file_type'] == 'pdf':
-            result = PDFAnalysisService.analyze_pdf_file(
-                analysis['file_path'], 
-                current_user['id']
-            )
-        elif analysis['file_type'] == 'document':
-            # DOC/DOCX analizi - gelecekte implement edilecek
-            result = {
-                "success": True,
-                "message": "DOC/DOCX analizi yakında eklenecek",
-                "matches": [],
-                "analysis_type": "document"
-            }
-        elif analysis['file_type'] == 'step':
-            # STEP analizi - gelecekte implement edilecek
-            result = {
-                "success": True,
-                "message": "STEP analizi yakında eklenecek",
-                "step_analysis": {"info": "STEP analizi geliştiriliyor"},
-                "analysis_type": "step"
-            }
-        else:
-            result = {
-                "success": False,
-                "message": "Desteklenmeyen dosya türü"
-            }
-        
-        processing_time = time.time() - start_time
-        
-        # Sonuçları güncelle
-        update_data = {
-            "processing_time": processing_time,
-            "analysis_status": "completed" if result['success'] else "failed"
-        }
-        
-        if result['success']:
-            update_data.update({
-                "material_matches": result.get('matches', []),
-                "best_material_block": result.get('best_block'),
-                "rotation_count": result.get('rotation_count', 0),
-                "step_analysis": result.get('step_analysis', {})
+        # Material Analysis Service - Full Active
+        try:
+            material_service = MaterialAnalysisService()
+            
+            # Kapsamlı analiz yap
+            if analysis['file_type'] in ['pdf', 'document', 'step']:
+                result = material_service.analyze_document_comprehensive(
+                    analysis['file_path'], 
+                    analysis['file_type'],
+                    current_user['id']
+                )
+                
+                # Başarılı analiz
+                analysis_success = not result.get('error')
+                
+                if analysis_success:
+                    processing_time = time.time() - start_time
+                    
+                    # Sonuçları güncelle
+                    update_data = {
+                        "analysis_status": "completed",
+                        "processing_time": processing_time,
+                        "material_matches": result.get('material_matches', []),
+                        "best_material_block": result.get('best_block', ''),
+                        "rotation_count": result.get('rotation_count', 0),
+                        "step_analysis": result.get('step_analysis', {}),
+                        "cost_estimation": result.get('cost_estimation', {}),
+                        "ai_price_prediction": result.get('ai_price_prediction', {}),
+                        "isometric_view": result.get('isometric_view'),
+                        "processing_log": result.get('processing_log', []),
+                        "step_file_hash": result.get('step_file_hash')
+                    }
+                    
+                    FileAnalysis.update_analysis(analysis_id, update_data)
+                    
+                    # Güncellenmiş analizi döndür
+                    updated_analysis = FileAnalysis.find_by_id(analysis_id)
+                    
+                    return jsonify({
+                        "success": True,
+                        "message": "Analiz başarıyla tamamlandı",
+                        "analysis": updated_analysis,
+                        "processing_time": processing_time,
+                        "analysis_details": {
+                            "material_matches_count": len(result.get('material_matches', [])),
+                            "step_analysis_available": bool(result.get('step_analysis')),
+                            "cost_estimation_available": bool(result.get('cost_estimation')),
+                            "processing_steps": len(result.get('processing_log', []))
+                        }
+                    }), 200
+                    
+                else:
+                    # Analiz hatası
+                    FileAnalysis.update_analysis(analysis_id, {
+                        "analysis_status": "failed",
+                        "error_message": result.get('error', 'Bilinmeyen analiz hatası'),
+                        "processing_time": time.time() - start_time
+                    })
+                    
+                    return jsonify({
+                        "success": False,
+                        "message": f"Analiz hatası: {result.get('error', 'Bilinmeyen hata')}",
+                        "error_details": result.get('processing_log', [])
+                    }), 500
+            else:
+                # Desteklenmeyen dosya türü
+                FileAnalysis.update_analysis(analysis_id, {
+                    "analysis_status": "failed",
+                    "error_message": "Desteklenmeyen dosya türü"
+                })
+                
+                return jsonify({
+                    "success": False,
+                    "message": "Desteklenmeyen dosya türü"
+                }), 400
+                
+        except Exception as analysis_error:
+            # Full Material Analysis hatası
+            error_message = f"Material Analysis hatası: {str(analysis_error)}"
+            print(f"[ERROR] {error_message}")
+            
+            FileAnalysis.update_analysis(analysis_id, {
+                "analysis_status": "failed",
+                "error_message": error_message,
+                "processing_time": time.time() - start_time
             })
-        else:
-            update_data["error_message"] = result.get('message', 'Bilinmeyen hata')
+            
+            return jsonify({
+                "success": False,
+                "message": error_message
+            }), 500
         
-        FileAnalysis.update_analysis(analysis_id, update_data)
+    except Exception as e:
+        # Genel hata durumunda analiz durumunu güncelle
+        try:
+            FileAnalysis.update_analysis(analysis_id, {
+                "analysis_status": "failed",
+                "error_message": str(e)
+            })
+        except:
+            pass
+            
+        return jsonify({
+            "success": False,
+            "message": f"Beklenmeyen analiz hatası: {str(e)}"
+        }), 500
+
+@upload_bp.route('/material-matches/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_material_matches(analysis_id):
+    """Analiz sonucu malzeme eşleşmelerini getir"""
+    try:
+        current_user = get_current_user()
         
-        # Güncellenmiş analizi döndür
-        updated_analysis = FileAnalysis.find_by_id(analysis_id)
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz bulunamadı"
+            }), 404
+        
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu analize erişim yetkiniz yok"
+            }), 403
+        
+        if analysis['analysis_status'] != 'completed':
+            return jsonify({
+                "success": False,
+                "message": "Analiz henüz tamamlanmamış",
+                "current_status": analysis['analysis_status']
+            }), 400
+        
+        # Malzeme eşleşmeleri ve detayları
+        material_matches = analysis.get('material_matches', [])
+        step_analysis = analysis.get('step_analysis', {})
+        cost_estimation = analysis.get('cost_estimation', {})
+        
+        # Ek maliyet hesaplamaları
+        additional_calculations = []
+        if step_analysis.get('volumes'):
+            try:
+                cost_service = CostEstimationService()
+                volume = step_analysis['volumes'].get('bounding_box_mm3', 0)
+                
+                for match in material_matches:
+                    material_name = match.split('(')[0].strip()
+                    material_calc = cost_service.calculate_material_cost(volume, material_name)
+                    if not material_calc.get('error'):
+                        additional_calculations.append({
+                            "material": material_name,
+                            **material_calc
+                        })
+            except Exception as e:
+                print(f"Additional calculations error: {e}")
         
         return jsonify({
             "success": True,
-            "message": "Analiz tamamlandı",
-            "analysis": updated_analysis,
-            "processing_time": processing_time
+            "analysis_id": analysis_id,
+            "material_matches": material_matches,
+            "step_analysis": step_analysis,
+            "cost_estimation": cost_estimation,
+            "additional_calculations": additional_calculations,
+            "processing_info": {
+                "processing_time": analysis.get('processing_time'),
+                "rotation_count": analysis.get('rotation_count', 0),
+                "processing_log": analysis.get('processing_log', [])
+            }
         }), 200
         
     except Exception as e:
-        # Hata durumunda analiz durumunu güncelle
+        return jsonify({
+            "success": False,
+            "message": f"Beklenmeyen hata: {str(e)}"
+        }), 500
+
+@upload_bp.route('/step-analysis/<analysis_id>', methods=['GET'])
+@jwt_required()  
+def get_step_analysis(analysis_id):
+    """STEP analiz sonuçlarını detaylı getir"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz bulunamadı"
+            }), 404
+        
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu analize erişim yetkiniz yok"
+            }), 403
+        
+        step_analysis = analysis.get('step_analysis', {})
+        if not step_analysis:
+            return jsonify({
+                "success": False,
+                "message": "STEP analizi bulunamadı"
+            }), 404
+        
+        # AI fiyat tahmini ve makine süresi hesaplamaları
+        ai_prediction = analysis.get('ai_price_prediction', {})
+        
+        return jsonify({
+            "success": True,
+            "analysis_id": analysis_id,
+            "step_analysis": step_analysis,
+            "ai_price_prediction": ai_prediction,
+            "isometric_view": analysis.get('isometric_view'),
+            "file_info": {
+                "original_filename": analysis.get('original_filename'),
+                "file_type": analysis.get('file_type'),
+                "step_file_hash": analysis.get('step_file_hash')
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Beklenmeyen hata: {str(e)}"
+        }), 500
+
+@upload_bp.route('/recalculate-cost/<analysis_id>', methods=['POST'])
+@jwt_required()
+def recalculate_cost(analysis_id):
+    """Malzeme değiştirerek maliyeti yeniden hesapla"""
+    try:
+        current_user = get_current_user()
+        data = request.get_json()
+        
+        if not data or 'material_name' not in data:
+            return jsonify({
+                "success": False,
+                "message": "Malzeme adı gerekli"
+            }), 400
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz bulunamadı"
+            }), 404
+        
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu analize erişim yetkiniz yok"
+            }), 403
+        
+        step_analysis = analysis.get('step_analysis', {})
+        if not step_analysis:
+            return jsonify({
+                "success": False,
+                "message": "STEP analizi bulunamadı"
+            }), 404
+        
+        # Yeni malzeme ile maliyet hesaplama
+        material_name = data['material_name']
+        hourly_rate = data.get('hourly_rate', 65)  # Default $65/hour
+        
+        cost_service = CostEstimationService()
+        
+        # Tek malzeme listesi oluştur
+        material_matches = [f"{material_name} (%100)"]
+        
+        new_cost_estimation = cost_service.calculate_comprehensive_cost(
+            step_analysis, 
+            material_matches, 
+            hourly_rate
+        )
+        
+        # Güncellenen maliyet tahminini kaydet
         FileAnalysis.update_analysis(analysis_id, {
-            "analysis_status": "failed",
-            "error_message": str(e)
+            "cost_estimation": new_cost_estimation,
+            "selected_material": material_name,
+            "hourly_rate": hourly_rate
         })
         
         return jsonify({
+            "success": True,
+            "message": "Maliyet yeniden hesaplandı",
+            "cost_estimation": new_cost_estimation,
+            "selected_material": material_name,
+            "hourly_rate": hourly_rate
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
             "success": False,
-            "message": f"Analiz hatası: {str(e)}"
+            "message": f"Maliyet hesaplama hatası: {str(e)}"
         }), 500
 
 @upload_bp.route('/status/<analysis_id>', methods=['GET'])
@@ -475,10 +704,17 @@ def get_supported_formats():
         "max_file_size_mb": MAX_FILE_SIZE // (1024 * 1024),
         "max_files_per_request": MAX_FILES_PER_REQUEST,
         "format_descriptions": {
-            "pdf": "PDF dökümanları - Malzeme analizi için",
-            "doc": "Microsoft Word belgeleri",
+            "pdf": "PDF dökümanları - Malzeme analizi ve gömülü STEP dosyaları için",
+            "doc": "Microsoft Word belgeleri - Malzeme spesifikasyonları için",
             "docx": "Microsoft Word belgeleri (yeni format)",
-            "step": "CAD STEP dosyaları - 3D analiz için",
-            "stp": "CAD STEP dosyaları - 3D analiz için"
+            "step": "CAD STEP dosyaları - 3D geometrik analiz için",
+            "stp": "CAD STEP dosyaları - 3D geometrik analiz için"
+        },
+        "analysis_capabilities": {
+            "material_recognition": "Akıllı malzeme tanıma sistemi",
+            "step_geometry": "3D geometrik analiz ve ölçüm",
+            "cost_estimation": "Malzeme ve işçilik maliyet tahmini", 
+            "ai_prediction": "AI destekli fiyat tahmini",
+            "visual_rendering": "STEP dosyası görselleştirme"
         }
     }), 200
