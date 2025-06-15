@@ -1,4 +1,4 @@
-# services/material_analysis.py
+# services/material_analysis.py - COMPLETE REWRITE with Material Calculations
 import re
 import os
 import time
@@ -11,46 +11,87 @@ from docx import Document
 import subprocess
 from utils.database import db
 
+print("[INFO] ✅ Material Analysis Service - Full Active with All Material Calculations")
+
 class MaterialAnalysisService:
     def __init__(self):
         self.database = db.get_db()
         self._ensure_materials_exist()
     
     def analyze_document_comprehensive(self, file_path, file_type, user_id):
-        """Ana analiz fonksiyonu"""
+        """Ana analiz fonksiyonu - TÜM MALZEME HESAPLAMALARI İLE"""
         result = {
             "material_matches": [],
             "step_analysis": {},
             "cost_estimation": {},
             "ai_price_prediction": {},
+            "all_material_calculations": [],  # ✅ BULUNAN MALZEMELER İÇİN
+            "material_options": [],           # ✅ TÜM MALZEMELER İÇİN
             "processing_log": []
         }
         
         try:
+            print(f"[DEBUG] Analiz başlatılıyor: {file_path} ({file_type})")
+            
             if file_type == 'pdf':
                 result = self._analyze_pdf(file_path, result)
             elif file_type in ['step', 'stp']:
                 result["step_analysis"] = self.analyze_step_file(file_path)
                 result["processing_log"].append("🔧 STEP analizi tamamlandı")
+                # STEP-only dosyalar için varsayılan malzeme
+                if not result.get("material_matches"):
+                    result["material_matches"] = ["6061-T6 (%default)"]
+            elif file_type in ['doc', 'docx']:
+                result = self._analyze_document(file_path, result)
             
-            # Maliyet hesaplama - STEP analizi varsa
-            if result.get("step_analysis"):
+            # ✅ MALZEME HESAPLAMA - STEP analizi varsa
+            step_analysis = result.get("step_analysis", {})
+            prizma_hacim = step_analysis.get("Prizma Hacmi (mm³)")
+            
+            if prizma_hacim and prizma_hacim > 0:
+                print(f"[DEBUG] Prizma hacim bulundu: {prizma_hacim} mm³")
+                
+                # Bulunan malzemeler için detaylı hesaplama
+                if result.get("material_matches"):
+                    result["all_material_calculations"] = self._calculate_found_materials(
+                        prizma_hacim, result["material_matches"]
+                    )
+                    result["processing_log"].append(f"🧮 {len(result['all_material_calculations'])} bulunan malzeme hesaplandı")
+                
+                # Tüm mevcut malzemeler için hesaplama
+                result["material_options"] = self._calculate_all_materials(prizma_hacim)
+                result["processing_log"].append(f"📊 {len(result['material_options'])} malzeme seçeneği hesaplandı")
+                
+            else:
+                result["processing_log"].append("⚠️ Hacim bilgisi yok, malzeme hesaplaması yapılamadı")
+            
+            # Maliyet hesaplama
+            if result.get("step_analysis") and not result["step_analysis"].get("error"):
                 cost_service = CostEstimationService()
                 result["cost_estimation"] = cost_service.calculate_cost(
-                    result["step_analysis"], result.get("material_matches", ["6061-T6 (%default)"])
+                    result["step_analysis"], 
+                    result.get("material_matches", ["6061-T6 (%default)"])
                 )
                 result["processing_log"].append("💰 Maliyet hesaplandı")
             
-            # AI fiyat tahmini - STEP analizi varsa
-            if result.get("step_analysis"):
-                result["ai_price_prediction"] = self._calculate_ai_price(result["step_analysis"])
+            # AI fiyat tahmini
+            if result.get("step_analysis") and not result["step_analysis"].get("error"):
+                result["ai_price_prediction"] = self._calculate_ai_price(
+                    result["step_analysis"], 
+                    result.get("all_material_calculations", [])
+                )
                 result["processing_log"].append("🤖 AI fiyat tahmini")
             
+            print(f"[SUCCESS] Analiz tamamlandı - {len(result.get('material_options', []))} malzeme seçeneği")
             return result
             
         except Exception as e:
-            result["error"] = str(e)
-            result["processing_log"].append(f"❌ HATA: {str(e)}")
+            import traceback
+            error_msg = f"Analiz hatası: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            print(f"[TRACEBACK] {traceback.format_exc()}")
+            result["error"] = error_msg
+            result["processing_log"].append(f"❌ HATA: {error_msg}")
             return result
     
     def _analyze_pdf(self, file_path, result):
@@ -64,21 +105,28 @@ class MaterialAnalysisService:
             result["step_analysis"] = self.analyze_step_file(step_paths[0])
         else:
             result["processing_log"].append("⚠️ PDF'de STEP bulunamadı, varsayılan boyutlar kullanılacak")
-            # STEP bulunamazsa varsayılan boyutlar
+            # Varsayılan STEP analizi
             result["step_analysis"] = {
+                "X (mm)": 90.0,
+                "Y (mm)": 40.0, 
+                "Z (mm)": 15.0,
                 "X+Pad (mm)": 100,
                 "Y+Pad (mm)": 50,
                 "Z+Pad (mm)": 25,
+                "Silindirik Çap (mm)": 90.0,
+                "Silindirik Yükseklik (mm)": 15.0,
                 "Prizma Hacmi (mm³)": 125000,
                 "Ürün Hacmi (mm³)": 100000,
                 "Talaş Hacmi (mm³)": 25000,
+                "Talaş Oranı (%)": 20.0,
                 "Toplam Yüzey Alanı (mm²)": 15000,
                 "method": "estimated_from_pdf"
             }
         
-        # Malzeme arama
+        # Malzeme arama (4 kez döndürme ile)
+        working_file = file_path
         for attempt in range(4):
-            text = self._extract_text_from_pdf(file_path)
+            text = self._extract_text_from_pdf(working_file)
             materials = self._find_materials_in_text(text)
             
             if materials:
@@ -87,7 +135,7 @@ class MaterialAnalysisService:
                 break
             
             if attempt < 3:
-                file_path = self._rotate_pdf(file_path)
+                working_file = self._rotate_pdf(working_file)
                 result["processing_log"].append(f"🔄 PDF döndürüldü ({attempt + 1})")
         
         # Malzeme bulunamazsa varsayılan
@@ -97,18 +145,432 @@ class MaterialAnalysisService:
         
         return result
     
+    def _analyze_document(self, file_path, result):
+        """DOC/DOCX analizi"""
+        result["processing_log"].append("📝 Document analizi başlatıldı")
+        
+        try:
+            if file_path.lower().endswith('.docx'):
+                text = self._extract_text_from_docx(file_path)
+            else:
+                text = self._extract_text_from_doc(file_path)
+            
+            # Malzeme arama
+            materials = self._find_materials_in_text(text)
+            if materials:
+                result["material_matches"] = materials
+                result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu")
+            else:
+                result["material_matches"] = ["6061-T6 (%estimated)"]
+                result["processing_log"].append("⚠️ Malzeme tespit edilemedi, varsayılan kullanıldı")
+            
+            # Varsayılan STEP analizi (document için)
+            result["step_analysis"] = {
+                "X (mm)": 50.0,
+                "Y (mm)": 30.0, 
+                "Z (mm)": 20.0,
+                "X+Pad (mm)": 60,
+                "Y+Pad (mm)": 40,
+                "Z+Pad (mm)": 30,
+                "Silindirik Çap (mm)": 50.0,
+                "Silindirik Yükseklik (mm)": 20.0,
+                "Prizma Hacmi (mm³)": 72000,
+                "Ürün Hacmi (mm³)": 56000,
+                "Talaş Hacmi (mm³)": 16000,
+                "Talaş Oranı (%)": 22.2,
+                "Toplam Yüzey Alanı (mm²)": 8800,
+                "method": "estimated_from_document"
+            }
+            
+        except Exception as e:
+            result["processing_log"].append(f"❌ Document analiz hatası: {e}")
+            
+        return result
+    
+    def analyze_step_file(self, step_path):
+        """STEP dosyası analizi - app.py referansıyla"""
+        try:
+            print(f"[DEBUG] STEP analizi başlıyor: {step_path}")
+            
+            assembly = cq.importers.importStep(step_path)
+            if not assembly.objects:
+                return {"error": "STEP dosyasında obje yok"}
+            
+            # Ana şekil ve bounding box
+            shapes = assembly.objects
+            sorted_shapes = sorted(shapes, key=lambda s: s.Volume(), reverse=True)
+            main_shape = sorted_shapes[0]
+            main_bbox = main_shape.BoundingBox()
+            
+            # İlgili şekilleri bul
+            relevant_shapes = [main_shape]
+            for shape in sorted_shapes[1:]:
+                bb = shape.BoundingBox()
+                intersects = (
+                    bb.xmax > main_bbox.xmin and bb.xmin < main_bbox.xmax and
+                    bb.ymax > main_bbox.ymin and bb.ymin < main_bbox.ymax and
+                    bb.zmax > main_bbox.zmin and bb.zmin < main_bbox.zmax
+                )
+                if intersects:
+                    relevant_shapes.append(shape)
+            
+            # Compound oluştur
+            part = cq.Compound.makeCompound(relevant_shapes)
+            
+            # Optimal yönlendirme bulma
+            min_volume = None
+            best_dims = (0, 0, 0)
+            
+            print(f"[DEBUG] Optimal yönlendirme hesaplanıyor...")
+            
+            for rx in [0, 90, 180, 270]:
+                for ry in [0, 90, 180, 270]:
+                    for rz in [0, 90, 180, 270]:
+                        try:
+                            rotated = part.rotate((0, 0, 0), (1, 0, 0), rx)\
+                                         .rotate((0, 0, 0), (0, 1, 0), ry)\
+                                         .rotate((0, 0, 0), (0, 0, 1), rz)
+                            bbox = rotated.BoundingBox()
+                            volume = bbox.xlen * bbox.ylen * bbox.zlen
+                            
+                            if (min_volume is None) or (volume < min_volume):
+                                min_volume = volume
+                                best_dims = (bbox.xlen, bbox.ylen, bbox.zlen)
+                        except Exception as rot_error:
+                            continue
+            
+            # Boyutları al
+            x, y, z = best_dims
+            
+            # Padding ekleme
+            def always_round_up(value):
+                return int(value) if abs(value - int(value)) < 0.01 else int(value) + 1
+            
+            x_pad = always_round_up(x + 10.0)
+            y_pad = always_round_up(y + 10.0)
+            z_pad = always_round_up(z + 10.0)
+            
+            # Hacim hesaplamaları
+            volume_padded = x_pad * y_pad * z_pad
+            product_volume = part.Volume()
+            waste_volume = volume_padded - product_volume
+            waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0.0
+            total_surface_area = part.Area()
+            
+            # Silindirik boyutlar
+            cylindrical_diameter = max(x, y)
+            cylindrical_height = z
+            
+            print(f"[SUCCESS] STEP analizi tamamlandı - X:{x:.1f}, Y:{y:.1f}, Z:{z:.1f}")
+            
+            return {
+                "X (mm)": round(x, 3),
+                "Y (mm)": round(y, 3),
+                "Z (mm)": round(z, 3),
+                "Silindirik Çap (mm)": round(cylindrical_diameter, 3),
+                "Silindirik Yükseklik (mm)": round(cylindrical_height, 3),
+                "X+Pad (mm)": round(x_pad, 3),
+                "Y+Pad (mm)": round(y_pad, 3),
+                "Z+Pad (mm)": round(z_pad, 3),
+                "Prizma Hacmi (mm³)": round(volume_padded, 3),
+                "Ürün Hacmi (mm³)": round(product_volume, 3),
+                "Talaş Hacmi (mm³)": round(waste_volume, 3),
+                "Talaş Oranı (%)": round(waste_ratio, 2),
+                "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 3),
+                "shape_count": len(shapes),
+                "relevant_shape_count": len(relevant_shapes),
+                "optimization_iterations": 64,
+                "method": "cadquery_analysis"
+            }
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] STEP analizi hatası: {str(e)}")
+            print(f"[TRACEBACK] {traceback.format_exc()}")
+            return {"error": f"STEP analiz hatası: {str(e)}"}
+    
+    def _calculate_found_materials(self, prizma_hacim_mm3, found_materials):
+        """✅ BULUNAN MALZEMELER İÇİN DETAYLI HESAPLAMA - MongoDB'den veri alarak"""
+        try:
+            calculations = []
+            print(f"[DEBUG] Bulunan malzemeler hesaplanıyor: {found_materials}")
+            print(f"[DEBUG] MongoDB'deki malzeme sayısı: {self.database.materials.count_documents({})}")
+            
+            for material_text in found_materials:
+                # Malzeme adını temizle
+                material_name = material_text.split("(")[0].strip()
+                confidence = "100%" if "%100" in material_text else "estimated"
+                
+                print(f"[DEBUG] Aranan malzeme: '{material_name}'")
+                
+                # MongoDB'den malzeme bilgisi al - daha geniş arama
+                material = self.database.materials.find_one({
+                    "$or": [
+                        {"name": {"$regex": f"^{material_name}$", "$options": "i"}},  # Exact match (case insensitive)
+                        {"name": {"$regex": material_name, "$options": "i"}},        # Partial match
+                        {"aliases": {"$in": [material_name]}},                      # Alias match
+                        {"aliases": {"$elemMatch": {"$regex": material_name, "$options": "i"}}}  # Alias partial match
+                    ]
+                })
+                
+                if material:
+                    print(f"[SUCCESS] MongoDB'de bulundu: {material.get('name')}")
+                    density = material.get("density", 2.7)
+                    price_per_kg = material.get("price_per_kg", 4.5)
+                    actual_name = material.get("name", material_name)
+                    category = material.get("category", "Unknown")
+                    aliases = material.get("aliases", [])
+                else:
+                    print(f"[WARNING] MongoDB'de bulunamadı: {material_name}, varsayılan kullanılıyor")
+                    # Varsayılan değerler - yaygın malzemeler için
+                    if "6061" in material_name.upper():
+                        density, price_per_kg = 2.7, 4.5
+                        category = "Alüminyum"
+                    elif "7075" in material_name.upper():
+                        density, price_per_kg = 2.81, 6.2
+                        category = "Alüminyum"
+                    elif "304" in material_name.upper():
+                        density, price_per_kg = 7.93, 8.5
+                        category = "Paslanmaz Çelik"
+                    elif "316" in material_name.upper():
+                        density, price_per_kg = 7.98, 12.0
+                        category = "Paslanmaz Çelik"
+                    elif "ST37" in material_name.upper() or "S235" in material_name.upper():
+                        density, price_per_kg = 7.85, 2.2
+                        category = "Karbon Çelik"
+                    else:
+                        density, price_per_kg = 2.7, 4.5
+                        category = "Unknown"
+                    
+                    actual_name = material_name
+                    aliases = []
+                
+                # Kütle hesaplama (mm³ -> cm³ -> kg)
+                # Prizma hacmi (mm³) * yoğunluk (g/cm³) / 1,000,000 = kütle (kg)
+                mass_kg = round((prizma_hacim_mm3 * density) / 1_000_000, 3)
+                material_cost = round(mass_kg * price_per_kg, 2)
+                
+                calculation = {
+                    "material": actual_name,
+                    "original_text": material_text,
+                    "confidence": confidence,
+                    "category": category,
+                    "aliases": aliases,
+                    "density": density,          # ← ÖZKÜTLE (g/cm³)
+                    "mass_kg": mass_kg,          # ← KÜTLE (kg)
+                    "price_per_kg": price_per_kg, # ← KG FİYATI (USD)
+                    "material_cost": material_cost, # ← TOPLAM MALİYET (USD)
+                    "volume_mm3": prizma_hacim_mm3,
+                    "found_in_db": material is not None
+                }
+                
+                calculations.append(calculation)
+                print(f"[CALC-FOUND] {actual_name}: {density}g/cm³ x {mass_kg}kg x ${price_per_kg} = ${material_cost}")
+            
+            print(f"[SUCCESS] {len(calculations)} bulunan malzeme hesaplandı")
+            return calculations
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Bulunan malzeme hesaplama hatası: {e}")
+            print(f"[TRACEBACK] {traceback.format_exc()}")
+            return []
+    
+    def _calculate_all_materials(self, prizma_hacim_mm3):
+        """✅ TÜM MEVCUT MALZEMELER İÇİN HESAPLAMA - MongoDB'den tam liste"""
+        try:
+            all_materials = []
+            print(f"[DEBUG] MongoDB'den tüm malzemeler alınıyor...")
+            
+            # MongoDB'den tüm aktif malzemeleri al
+            materials_cursor = self.database.materials.find({})
+            materials = list(materials_cursor)
+            
+            print(f"[DEBUG] MongoDB'de {len(materials)} malzeme bulundu")
+            
+            if len(materials) == 0:
+                print("[WARNING] MongoDB'de malzeme yok, varsayılan malzemeler ekleniyor")
+                self._add_default_materials()
+                materials = list(self.database.materials.find({}))
+                print(f"[INFO] {len(materials)} varsayılan malzeme eklendi")
+            
+            for material in materials:
+                name = material.get("name", "Unknown")
+                density = material.get("density", 2.7)
+                price_per_kg = material.get("price_per_kg", 4.5)
+                category = material.get("category", "Unknown")
+                aliases = material.get("aliases", [])
+                
+                # Güvenlik kontrolü - sayısal değerler
+                if not isinstance(density, (int, float)) or density <= 0:
+                    print(f"[WARNING] Geçersiz density: {name} - {density}, varsayılan kullanılıyor")
+                    density = 2.7
+                
+                if not isinstance(price_per_kg, (int, float)) or price_per_kg < 0:
+                    print(f"[WARNING] Geçersiz price: {name} - {price_per_kg}, varsayılan kullanılıyor")
+                    price_per_kg = 4.5
+                
+                # Kütle ve maliyet hesaplama
+                mass_kg = round((prizma_hacim_mm3 * density) / 1_000_000, 3)
+                material_cost = round(mass_kg * price_per_kg, 2)
+                
+                material_option = {
+                    "name": name,
+                    "category": category,
+                    "aliases": aliases,
+                    "density": density,          # ← ÖZKÜTLE (g/cm³)
+                    "mass_kg": mass_kg,          # ← KÜTLE (kg)
+                    "price_per_kg": price_per_kg, # ← KG FİYATI (USD)
+                    "material_cost": material_cost, # ← TOPLAM MALİYET (USD)
+                    "volume_mm3": prizma_hacim_mm3
+                }
+                
+                all_materials.append(material_option)
+            
+            # Fiyata göre sırala (en ucuzdan en pahalıya)
+            all_materials.sort(key=lambda x: x["material_cost"])
+            
+            print(f"[SUCCESS] {len(all_materials)} malzeme için hesaplama tamamlandı")
+            
+            # İlk 5'ini logla
+            for i, mat in enumerate(all_materials[:5]):
+                print(f"[TOP-{i+1}] {mat['name']}: {mat['mass_kg']}kg x ${mat['price_per_kg']} = ${mat['material_cost']}")
+            
+            return all_materials
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Tüm malzemeler hesaplama hatası: {e}")
+            print(f"[TRACEBACK] {traceback.format_exc()}")
+            return []
+    
+    def _add_default_materials(self):
+        """MongoDB'ye varsayılan malzemeleri ekle"""
+        try:
+            default_materials = [
+                {
+                    "name": "6061-T6",
+                    "aliases": ["6061", "Al 6061", "AA6061"],
+                    "density": 2.70,
+                    "price_per_kg": 4.50,
+                    "category": "Alüminyum",
+                    "description": "Genel amaçlı alüminyum alaşımı",
+                    "is_active": True
+                },
+                {
+                    "name": "7075-T6", 
+                    "aliases": ["7075", "Al 7075", "AA7075"],
+                    "density": 2.81,
+                    "price_per_kg": 6.20,
+                    "category": "Alüminyum",
+                    "description": "Yüksek mukavemetli alüminyum alaşımı",
+                    "is_active": True
+                },
+                {
+                    "name": "304 Paslanmaz",
+                    "aliases": ["304", "SS304", "AISI 304", "1.4301"],
+                    "density": 7.93,
+                    "price_per_kg": 8.50,
+                    "category": "Paslanmaz Çelik",
+                    "description": "Genel amaçlı paslanmaz çelik",
+                    "is_active": True
+                },
+                {
+                    "name": "316 Paslanmaz",
+                    "aliases": ["316", "SS316", "AISI 316", "1.4401"],
+                    "density": 7.98,
+                    "price_per_kg": 12.00,
+                    "category": "Paslanmaz Çelik",
+                    "description": "Kimyasal dayanımlı paslanmaz çelik",
+                    "is_active": True
+                },
+                {
+                    "name": "St37",
+                    "aliases": ["S235", "A36", "St 37", "DIN St37"],
+                    "density": 7.85,
+                    "price_per_kg": 2.20,
+                    "category": "Karbon Çelik",
+                    "description": "Genel yapı çeliği",
+                    "is_active": True
+                },
+                {
+                    "name": "C45",
+                    "aliases": ["CK45", "AISI 1045", "S45C"],
+                    "density": 7.85,
+                    "price_per_kg": 2.80,
+                    "category": "Karbon Çelik",
+                    "description": "Orta karbonlu çelik",
+                    "is_active": True
+                },
+                {
+                    "name": "Ti-6Al-4V",
+                    "aliases": ["Grade 5", "Ti64", "Titanium Grade 5"],
+                    "density": 4.43,
+                    "price_per_kg": 45.00,
+                    "category": "Titanyum",
+                    "description": "Havacılık titanyum alaşımı",
+                    "is_active": True
+                },
+                {
+                    "name": "Pirinç CuZn37",
+                    "aliases": ["Brass", "Ms58", "CuZn37"],
+                    "density": 8.50,
+                    "price_per_kg": 7.80,
+                    "category": "Bakır Alaşımı",
+                    "description": "Standart pirinç",
+                    "is_active": True
+                }
+            ]
+            
+            # Mevcut malzemeleri temizle ve yenilerini ekle
+            self.database.materials.delete_many({})
+            result = self.database.materials.insert_many(default_materials)
+            print(f"[INFO] {len(result.inserted_ids)} varsayılan malzeme MongoDB'ye eklendi")
+            
+        except Exception as e:
+            print(f"[ERROR] Varsayılan malzeme ekleme hatası: {e}")
+    
+    def _ensure_materials_exist(self):
+        """Malzeme veritabanını kontrol et ve debug bilgisi ver"""
+        try:
+            count = self.database.materials.count_documents({})
+            print(f"[DEBUG] MongoDB'de {count} malzeme mevcut")
+            
+            # MongoDB'deki malzemeleri logla
+            if count > 0:
+                sample_materials = list(self.database.materials.find({}).limit(3))
+                print("[DEBUG] MongoDB'deki örnek malzemeler:")
+                for mat in sample_materials:
+                    print(f"  - {mat.get('name')}: {mat.get('density')}g/cm³, ${mat.get('price_per_kg')}/kg")
+            
+            if count < 5:
+                print("[INFO] Yetersiz malzeme, varsayılan malzemeler ekleniyor...")
+                self._add_default_materials()
+                
+        except Exception as e:
+            print(f"[WARN] Malzeme kontrol hatası: {e}")
+            try:
+                # Fallback - en temel malzemeler
+                basic_materials = [
+                    {"name": "6061-T6", "aliases": ["6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum"},
+                    {"name": "St37", "aliases": ["S235"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik"}
+                ]
+                self.database.materials.insert_many(basic_materials)
+                print(f"[FALLBACK] {len(basic_materials)} temel malzeme eklendi")
+            except Exception as fallback_error:
+                print(f"[ERROR] Fallback malzeme ekleme de başarısız: {fallback_error}")
+    
     def _find_materials_in_text(self, text):
-        """Metinde malzeme arama - geliştirilmiş"""
+        """Metinde malzeme arama"""
         if not text or len(text.strip()) < 10:
             return []
         
         materials = []
         text_upper = text.upper()
         
-        print(f"[DEBUG] Metin uzunluğu: {len(text)} karakter")
-        print(f"[DEBUG] İlk 200 karakter: {text[:200]}")
+        print(f"[DEBUG] Metin analizi - uzunluk: {len(text)} karakter")
         
-        # Alaşım kodları - daha kapsamlı
+        # Alaşım kodları
         alloy_patterns = {
             "6061": "6061-T6",
             "7075": "7075-T6", 
@@ -124,7 +586,7 @@ class MaterialAnalysisService:
         for pattern, name in alloy_patterns.items():
             if pattern in text_upper:
                 materials.append(f"{name} (%100)")
-                print(f"[SUCCESS] Bulunan alaşım: {pattern} -> {name}")
+                print(f"[FOUND] Alaşım: {pattern} -> {name}")
         
         # Genel malzeme isimleri
         general_materials = {
@@ -135,8 +597,8 @@ class MaterialAnalysisService:
             "STEEL": "St37",
             "PASLANMAZ": "304 Paslanmaz",
             "STAINLESS": "304 Paslanmaz",
-            "PIRINÇ": "Pirinç",
-            "BRASS": "Pirinç"
+            "PIRINÇ": "Pirinç CuZn37",
+            "BRASS": "Pirinç CuZn37"
         }
         
         for keyword, name in general_materials.items():
@@ -144,61 +606,55 @@ class MaterialAnalysisService:
                 material_text = f"{name} (%estimated)"
                 if material_text not in materials:
                     materials.append(material_text)
-                    print(f"[SUCCESS] Bulunan malzeme: {keyword} -> {name}")
+                    print(f"[FOUND] Genel: {keyword} -> {name}")
         
-        print(f"[INFO] Toplam {len(materials)} malzeme bulundu")
         return list(set(materials))[:5]
-    
-    def analyze_step_file(self, step_path):
-        """STEP dosyası analizi"""
-        try:
-            assembly = cq.importers.importStep(step_path)
-            if not assembly.objects:
-                return {"error": "STEP dosyasında obje yok"}
-            
-            main_shape = max(assembly.objects, key=lambda s: s.Volume())
-            bbox = main_shape.BoundingBox()
-            
-            # Boyutlar
-            x, y, z = bbox.xlen, bbox.ylen, bbox.zlen
-            x_pad, y_pad, z_pad = int(x + 10), int(y + 10), int(z + 10)
-            
-            # Hacimler
-            bounding_volume = x_pad * y_pad * z_pad
-            product_volume = main_shape.Volume()
-            waste_volume = bounding_volume - product_volume
-            surface_area = main_shape.Area()
-            
-            return {
-                "X+Pad (mm)": x_pad,
-                "Y+Pad (mm)": y_pad,
-                "Z+Pad (mm)": z_pad,
-                "Prizma Hacmi (mm³)": int(bounding_volume),
-                "Ürün Hacmi (mm³)": int(product_volume),
-                "Talaş Hacmi (mm³)": int(waste_volume),
-                "Toplam Yüzey Alanı (mm²)": int(surface_area)
-            }
-            
-        except Exception as e:
-            return {"error": f"STEP analizi hatası: {str(e)}"}
     
     def _extract_text_from_pdf(self, pdf_path):
         """PDF'den metin çıkarma"""
         try:
             pages = convert_from_path(pdf_path, dpi=300)
             text = ""
-            for page in pages:
+            for page in pages[:2]:  # İlk 2 sayfa
                 text += pytesseract.image_to_string(page, lang='tur+eng')
             return text
-        except:
+        except Exception as e:
+            print(f"[ERROR] PDF metin çıkarma: {e}")
+            return ""
+    
+    def _extract_text_from_docx(self, file_path):
+        """DOCX'den metin çıkarma"""
+        try:
+            doc = Document(file_path)
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            print(f"[ERROR] DOCX metin çıkarma: {e}")
+            return ""
+    
+    def _extract_text_from_doc(self, file_path):
+        """DOC'tan metin çıkarma"""
+        try:
+            # LibreOffice ile DOC -> DOCX dönüştürme
+            output_dir = os.path.dirname(file_path)
+            result = subprocess.run([
+                "libreoffice", "--headless", "--convert-to", "docx", 
+                "--outdir", output_dir, file_path
+            ], capture_output=True)
+            
+            docx_path = os.path.splitext(file_path)[0] + ".docx"
+            if os.path.exists(docx_path):
+                return self._extract_text_from_docx(docx_path)
+            return ""
+        except Exception as e:
+            print(f"[ERROR] DOC metin çıkarma: {e}")
             return ""
     
     def _extract_step_from_pdf(self, pdf_path):
-        """PDF'den STEP çıkarma - geliştirilmiş"""
+        """PDF'den STEP çıkarma"""
         extracted = []
         try:
             with pikepdf.open(pdf_path) as pdf:
-                # Method 1: EmbeddedFiles
+                # EmbeddedFiles method
                 try:
                     root = pdf.trailer.get("/Root", {})
                     names = root.get("/Names", {})
@@ -223,43 +679,10 @@ class MaterialAnalysisService:
                                 except Exception as e:
                                     print(f"[ERROR] STEP çıkarma hatası: {e}")
                 except Exception as e:
-                    print(f"[WARN] EmbeddedFiles yöntemi başarısız: {e}")
-                
-                # Method 2: Annotations
-                try:
-                    for page in pdf.pages:
-                        annots = page.get("/Annots", [])
-                        for annot in annots:
-                            try:
-                                annot_obj = annot.get_object() if hasattr(annot, 'get_object') else annot
-                                if annot_obj.get("/Subtype") == "/FileAttachment":
-                                    fs = annot_obj.get("/FS")
-                                    if fs:
-                                        file_spec = fs.get_object() if hasattr(fs, 'get_object') else fs
-                                        file_name = str(file_spec.get("/UF") or file_spec.get("/F") or "").strip("()")
-                                        
-                                        if file_name.lower().endswith(('.stp', '.step')):
-                                            ef = file_spec.get("/EF")
-                                            if ef:
-                                                file_stream = ef.get("/F")
-                                                file_data = file_stream.read_bytes()
-                                                output_path = os.path.join("temp", file_name)
-                                                os.makedirs("temp", exist_ok=True)
-                                                
-                                                with open(output_path, 'wb') as f:
-                                                    f.write(file_data)
-                                                extracted.append(output_path)
-                                                print(f"[SUCCESS] Annotation STEP çıkarıldı: {file_name}")
-                            except Exception as e:
-                                print(f"[WARN] Annotation işleme hatası: {e}")
-                                continue
-                except Exception as e:
-                    print(f"[WARN] Annotations yöntemi başarısız: {e}")
-                    
+                    print(f"[WARN] EmbeddedFiles başarısız: {e}")
         except Exception as e:
-            print(f"[ERROR] PDF STEP çıkarma genel hatası: {e}")
+            print(f"[ERROR] PDF STEP çıkarma: {e}")
         
-        print(f"[INFO] Toplam {len(extracted)} STEP dosyası çıkarıldı")
         return extracted
     
     def _rotate_pdf(self, input_path):
@@ -277,42 +700,63 @@ class MaterialAnalysisService:
         except:
             return input_path
     
-    def _calculate_ai_price(self, step_analysis):
+    def _calculate_ai_price(self, step_analysis, material_calculations=None):
         """AI fiyat tahmini"""
         try:
             waste = step_analysis.get("Talaş Hacmi (mm³)", 0)
             surface = step_analysis.get("Toplam Yüzey Alanı (mm²)", 0)
             
-            roughing_time = waste / 3000  # dakika
-            finishing_time = surface / 400
+            # İlk bulunan malzemenin maliyetini kullan
+            material_cost = 0
+            if material_calculations and len(material_calculations) > 0:
+                material_cost = material_calculations[0].get("material_cost", 0)
             
-            roughing_cost = (roughing_time / 60) * 65
-            finishing_cost = (finishing_time / 60) * 120
+            # Kaba talaş parametreleri
+            feed_rate = min(8000 * 0.12 * 3, 3000)
+            ap, ae = 1, 10
+            kaba_sure = waste / (feed_rate * ap * ae) if (feed_rate * ap * ae) > 0 else 0
+            
+            # Finishing parametreleri
+            finishing_sure = surface / 400 if surface > 0 else 0
+            
+            # Maliyetler ($65/saat kaba, $120/saat finishing)
+            kaba_maliyet = (kaba_sure / 60) * 65
+            finishing_maliyet = (finishing_sure / 60) * 120
+            toplam = kaba_maliyet + finishing_maliyet + material_cost
             
             return {
-                "roughing_time_min": round(roughing_time, 1),
-                "finishing_time_min": round(finishing_time, 1),
-                "roughing_cost_usd": round(roughing_cost, 2),
-                "finishing_cost_usd": round(finishing_cost, 2),
-                "total_machining_usd": round(roughing_cost + finishing_cost, 2)
+                "toplam": round(toplam, 2),
+                "kaba_maliyet": round(kaba_maliyet, 2),
+                "finishing_maliyet": round(finishing_maliyet, 2),
+                "material_cost": round(material_cost, 2),
+                "kaba_sure_dakika": round(kaba_sure, 2),
+                "finishing_sure_dakika": round(finishing_sure, 2),
+                "toplam_sure_saat": round((kaba_sure + finishing_sure) / 60, 2)
             }
-        except:
-            return {"error": "AI hesaplama hatası"}
+        except Exception as e:
+            print(f"[ERROR] AI fiyat tahmini: {e}")
+            return {"error": str(e)}
     
     def _ensure_materials_exist(self):
-        """MongoDB'de malzeme yoksa ekle"""
+        """Malzeme veritabanını kontrol et"""
         try:
             count = self.database.materials.count_documents({})
-            if count == 0:
-                materials = [
-                    {"name": "6061-T6", "aliases": ["6061"], "density": 2.70, "price_per_kg": 4.50},
-                    {"name": "7075-T6", "aliases": ["7075"], "density": 2.81, "price_per_kg": 6.20},
-                    {"name": "304 Paslanmaz", "aliases": ["304"], "density": 7.93, "price_per_kg": 8.50},
-                    {"name": "316 Paslanmaz", "aliases": ["316"], "density": 7.98, "price_per_kg": 12.00}
+            if count < 5:
+                # Temel malzemeleri ekle
+                basic_materials = [
+                    {"name": "6061-T6", "aliases": ["6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum"},
+                    {"name": "7075-T6", "aliases": ["7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum"},
+                    {"name": "304 Paslanmaz", "aliases": ["304"], "density": 7.93, "price_per_kg": 8.50, "category": "Paslanmaz Çelik"},
+                    {"name": "316 Paslanmaz", "aliases": ["316"], "density": 7.98, "price_per_kg": 12.00, "category": "Paslanmaz Çelik"},
+                    {"name": "St37", "aliases": ["S235"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik"},
+                    {"name": "C45", "aliases": ["CK45"], "density": 7.85, "price_per_kg": 2.80, "category": "Karbon Çelik"},
+                    {"name": "Ti-6Al-4V", "aliases": ["Grade 5"], "density": 4.43, "price_per_kg": 45.00, "category": "Titanyum"},
+                    {"name": "Pirinç CuZn37", "aliases": ["Brass"], "density": 8.50, "price_per_kg": 7.80, "category": "Bakır Alaşımı"}
                 ]
-                self.database.materials.insert_many(materials)
-        except:
-            pass
+                self.database.materials.insert_many(basic_materials)
+                print(f"[INFO] {len(basic_materials)} temel malzeme eklendi")
+        except Exception as e:
+            print(f"[WARN] Malzeme ekleme hatası: {e}")
 
 
 class CostEstimationService:
@@ -336,6 +780,11 @@ class CostEstimationService:
             waste = step_analysis.get("Talaş Hacmi (mm³)", 25000)
             surface = step_analysis.get("Toplam Yüzey Alanı (mm²)", 10000)
             
+            # Boyutlar
+            x = step_analysis.get("X (mm)", 0)
+            y = step_analysis.get("Y (mm)", 0)
+            z = step_analysis.get("Z (mm)", 0)
+            
             # Malzeme maliyeti
             material_cost = self._calculate_material_cost(volume, material_name)
             
@@ -354,6 +803,14 @@ class CostEstimationService:
                 "machining": {
                     "hours": labor_hours,
                     "cost_usd": round(labor_cost, 2)
+                },
+                "dimensions": {
+                    "x_mm": x,
+                    "y_mm": y,
+                    "z_mm": z,
+                    "volume_mm3": volume,
+                    "waste_mm3": waste,
+                    "surface_mm2": surface
                 },
                 "costs": {
                     "material_usd": material_cost["cost_usd"],
