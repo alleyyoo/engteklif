@@ -1,9 +1,152 @@
-Flask==2.3.2
+# requirements.txt - EngTeklif API (Python 3.11 COMPLETE)
+# Son güncelleme: 2025-01-01
+
+# =============================================
+# CORE FRAMEWORK
+# =============================================
+Flask==3.0.0
 Flask-CORS==4.0.0
-Flask-JWT-Extended==4.5.2
-pymongo==4.4.1
-python-dotenv==1.0.0
-watchdog==3.0.0
-bcrypt==4.0.1
-email-validator==2.0.0
-pydantic==2.1.1
+Flask-JWT-Extended==4.6.0
+Werkzeug==3.0.1
+
+# =============================================
+# DATABASE & ODM
+# =============================================
+pymongo==4.6.1
+
+# =============================================
+# AUTHENTICATION & SECURITY
+# =============================================
+bcrypt==4.1.2
+PyJWT==2.8.0
+cryptography>=41.0.0,<46.0.0
+
+# =============================================
+# DATA VALIDATION & MODELING
+# =============================================
+pydantic==2.5.3
+email-validator==2.1.0
+
+# =============================================
+# FILE PROCESSING & ANALYSIS (REQUIRED)
+# =============================================
+# PDF Processing - ZORUNLU
+PyPDF2==3.0.1
+pdf2image==1.17.0
+pikepdf>=8.0.0,<9.0.0
+
+# Document Processing
+python-docx==1.1.0
+
+# Image Processing - ZORUNLU  
+Pillow>=10.0.0,<11.0.0
+opencv-python>=4.8.0,<5.0.0
+
+# OCR - ZORUNLU
+pytesseract==0.3.10
+
+# =============================================
+# SCIENTIFIC COMPUTING - ZORUNLU
+# =============================================
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0,<2.0.0
+pandas>=2.0.0,<3.0.0
+
+# =============================================
+# EXCEL & DATA EXPORT
+# =============================================
+openpyxl>=3.1.0,<4.0.0
+xlsxwriter>=3.0.0,<4.0.0
+
+# =============================================
+# TEXT PROCESSING & FUZZY MATCHING - ZORUNLU
+# =============================================
+Levenshtein>=0.20.0
+rapidfuzz>=3.0.0
+fuzzywuzzy==0.18.0
+
+# =============================================
+# NETWORKING & HTTP
+# =============================================
+requests>=2.28.0,<3.0.0
+
+# =============================================
+# UTILITIES & HELPERS
+# =============================================
+python-dotenv>=1.0.0
+python-dateutil>=2.8.0
+click>=8.0.0
+
+# =============================================
+# FILE UPLOAD & HANDLING
+# =============================================
+# File type detection
+python-magic>=0.4.24
+
+# Unique ID generation
+uuid
+
+# =============================================
+# PRODUCTION SERVER
+# =============================================
+gunicorn>=21.0.0
+
+# =============================================
+# OPTIONAL PACKAGES (Uncomment if needed)
+# =============================================
+
+# Advanced OCR (2GB+ download)
+# paddlepaddle>=2.5.0
+# paddleocr>=2.7.0
+
+# CAD Processing (System dependencies required)
+# trimesh>=4.0.0
+# open3d>=0.18.0
+
+# Gmail API Integration
+# google-api-python-client>=2.100.0
+# google-auth-httplib2>=0.2.0
+# google-auth-oauthlib>=1.2.0
+
+# WebSocket Support
+# Flask-SocketIO>=5.3.0
+# python-socketio>=5.11.0
+
+# Additional Document Processing
+# striprtf>=0.0.26
+# lxml>=5.0.0
+
+# Development Tools
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
+
+# =============================================
+# SYSTEM REQUIREMENTS
+# =============================================
+# Ubuntu/Debian:
+# sudo apt-get update
+# sudo apt-get install tesseract-ocr tesseract-ocr-tur
+# sudo apt-get install poppler-utils
+# sudo apt-get install python3-opencv
+#
+# macOS:
+# brew install tesseract tesseract-lang
+# brew install poppler
+#
+# Windows:
+# Download and install Tesseract from GitHub
+# Download and install Poppler from oschwartz10612/poppler-windows
+# Add both to PATH environment variable
+#
+# =============================================
+# INSTALLATION STEPS
+# =============================================
+# 1. Install system dependencies (above)
+# 2. python -m venv engteklif_env
+# 3. source engteklif_env/bin/activate  # Linux/macOS
+#    engteklif_env\Scripts\activate     # Windows
+# 4. pip install --upgrade pip
+# 5. pip install -r requirements.txt
+# 6. Test: python -c "import pdf2image; print('OK')"
+# =============================================
