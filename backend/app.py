@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from config import Config
@@ -40,6 +40,16 @@ def create_app():
     app.register_blueprint(material_bp)
     app.register_blueprint(cost_bp)
     app.register_blueprint(upload_bp)
+
+    @app.route('/static/<path:filename>')
+    def serve_static(filename):
+        return send_from_directory('static', filename)
+    
+    # 3D viewer için özel route
+    @app.route('/3d-viewer')
+    def viewer_page():
+        """3D viewer sayfasını döndür"""
+        return send_from_directory('static', '3d-viewer.html')
     
     # Routes
     @app.route('/')

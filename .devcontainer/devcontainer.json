@@ -1,17 +1,17 @@
 {
-    "name": "EngTeklif",
-    "dockerComposeFile": "../docker-compose.yml",
-    "service": "frontend",
-    "workspaceFolder": "/app",
-    "customizations": {
-      "vscode": {
-        "extensions": [
-          "ms-vscode.vscode-typescript-next",
-          "bradlc.vscode-tailwindcss",
-          "esbenp.prettier-vscode"
-        ]
-      }
-    },
-    "postCreateCommand": "npm install",
-    "remoteUser": "node"
-  }
+  "name": "EngTeklif",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "frontend",
+  "workspaceFolder": "/app",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "postCreateCommand": "npm install",
+  "remoteUser": "node"
+}

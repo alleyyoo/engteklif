@@ -1,7 +1,9 @@
+# controllers/file_upload_controller.py - COMPLETE VERSION WITH 3D VIEWER
+
 import os
 import time
 import uuid
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
@@ -9,7 +11,7 @@ from typing import List, Dict, Any
 from models.user import User
 from models.file_analysis import FileAnalysis, FileAnalysisCreate
 from services.material_analysis import MaterialAnalysisService, CostEstimationService
-
+from services.step_renderer import generate_step_views, create_step_wireframe_data
 
 # Blueprint oluştur
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
@@ -22,6 +24,7 @@ MAX_FILES_PER_REQUEST = 10
 
 # Upload klasörünü oluştur
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs("static", exist_ok=True)  # Render'lar için
 
 def get_current_user():
     """Mevcut kullanıcıyı getir"""
@@ -327,7 +330,8 @@ def analyze_uploaded_file(analysis_id):
                             "cost_estimation_available": bool(result.get('cost_estimation')),
                             "processing_steps": len(result.get('processing_log', [])),
                             "all_material_calculations_count": len(result.get('all_material_calculations', [])),
-                            "material_options_count": len(result.get('material_options', []))
+                            "material_options_count": len(result.get('material_options', [])),
+                            "3d_render_available": bool(result.get('isometric_view'))
                         }
                     }), 200
                     
@@ -489,6 +493,13 @@ def delete_uploaded_file(analysis_id):
             except Exception as e:
                 print(f"Dosya silinirken hata: {e}")
         
+        # Render dosyasını sil
+        if analysis.get('isometric_view') and os.path.exists(analysis['isometric_view']):
+            try:
+                os.remove(analysis['isometric_view'])
+            except Exception as e:
+                print(f"Render silinirken hata: {e}")
+        
         # Veritabanından sil
         success = FileAnalysis.delete_analysis(analysis_id)
         
@@ -531,6 +542,179 @@ def get_supported_formats():
             "ai_prediction": "AI destekli fiyat tahmini",
             "visual_rendering": "STEP dosyası görselleştirme",
             "all_material_calculations": "Bulunan malzemeler için detaylı hesaplama",
-            "material_options": "Tüm mevcut malzemeler için karşılaştırma"
+            "material_options": "Tüm mevcut malzemeler için karşılaştırma",
+            "3d_visualization": "İnteraktif 3D model görüntüleme"
         }
     }), 200
+
+# ===== 3D VIEWER ENDPOINTS =====
+
+@upload_bp.route('/wireframe/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_wireframe_data(analysis_id):
+    """STEP dosyası için wireframe data getir"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını bul
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # STEP analizi var mı kontrol et
+        step_analysis = analysis.get('step_analysis', {})
+        if not step_analysis or step_analysis.get('error'):
+            return jsonify({
+                "success": False,
+                "message": "STEP analizi mevcut değil"
+            }), 404
+        
+        # STEP dosya yolunu bul
+        file_path = analysis.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({
+                "success": False,
+                "message": "STEP dosyası bulunamadı"
+            }), 404
+        
+        # Wireframe data oluştur
+        wireframe_data = create_step_wireframe_data(file_path)
+        
+        if wireframe_data:
+            return jsonify({
+                "success": True,
+                "wireframe_data": wireframe_data,
+                "step_analysis": step_analysis,
+                "material_info": {
+                    "matches": analysis.get('material_matches', []),
+                    "calculations": analysis.get('all_material_calculations', [])
+                }
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Wireframe data oluşturulamadı"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Wireframe data hatası: {str(e)}"
+        }), 500
+
+@upload_bp.route('/render/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_step_render(analysis_id):
+    """STEP dosyası için render görüntüsü getir"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını bul
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # İzometrik görünüm var mı kontrol et
+        isometric_view = analysis.get('isometric_view')
+        if isometric_view and os.path.exists(isometric_view):
+            # Mevcut render'ı döndür
+            return send_file(isometric_view, mimetype='image/png')
+        
+        # Yoksa yeni render oluştur
+        file_path = analysis.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({
+                "success": False,
+                "message": "STEP dosyası bulunamadı"
+            }), 404
+        
+        # Render oluştur
+        rendered_files = generate_step_views(file_path, views=['isometric'])
+        
+        if rendered_files and len(rendered_files) > 0:
+            # Render yolunu kaydet
+            FileAnalysis.update_analysis(analysis_id, {
+                "isometric_view": rendered_files[0]
+            })
+            
+            return send_file(rendered_files[0], mimetype='image/png')
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Render oluşturulamadı"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Render hatası: {str(e)}"
+        }), 500
+
+@upload_bp.route('/3d-viewer/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_3d_viewer_page(analysis_id):
+    """3D viewer sayfası için HTML döndür"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını kontrol et
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # 3D viewer HTML'ini döndür
+        viewer_html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>3D Model Viewer - EngTeklif</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { margin: 0; overflow: hidden; }
+                iframe { width: 100vw; height: 100vh; border: none; }
+            </style>
+        </head>
+        <body>
+            <iframe src="/static/3d-viewer.html?analysis_id=''' + analysis_id + '''"></iframe>
+        </body>
+        </html>
+        '''
+        
+        return Response(viewer_html, mimetype='text/html')
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"3D viewer hatası: {str(e)}"
+        }), 500
