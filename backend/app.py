@@ -1,4 +1,4 @@
-# app.py
+# app.py - FIXED VERSION WITH 3D VIEWER SUPPORT
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -41,23 +41,69 @@ def create_app():
     app.register_blueprint(cost_bp)
     app.register_blueprint(upload_bp)
 
+    # ===== STATIC FILE SERVING - FIXED =====
     @app.route('/static/<path:filename>')
     def serve_static(filename):
-        return send_from_directory('static', filename)
+        """Static dosyaları serve et"""
+        try:
+            return send_from_directory('static', filename)
+        except Exception as e:
+            print(f"Static dosya hatası: {e}")
+            return jsonify({
+                "success": False,
+                "message": f"Dosya bulunamadı: {filename}"
+            }), 404
     
-    # 3D viewer için özel route
+    # ===== 3D VIEWER ROUTES - FIXED =====
     @app.route('/3d-viewer')
     def viewer_page():
-        """3D viewer sayfasını döndür"""
+        """3D viewer ana sayfası"""
         return send_from_directory('static', '3d-viewer.html')
     
-    # Routes
+    @app.route('/3d-viewer/<analysis_id>')
+    def viewer_with_analysis(analysis_id):
+        """Belirli analiz için 3D viewer"""
+        try:
+            from flask import Response
+            viewer_html = f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>3D Model Viewer - EngTeklif</title>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body {{ margin: 0; overflow: hidden; }}
+                    iframe {{ width: 100vw; height: 100vh; border: none; }}
+                </style>
+            </head>
+            <body>
+                <iframe src="/static/3d-viewer.html?analysis_id={analysis_id}"></iframe>
+            </body>
+            </html>
+            '''
+            return Response(viewer_html, mimetype='text/html')
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "message": f"3D viewer hatası: {str(e)}"
+            }), 500
+    
+    # ===== MAIN ROUTES =====
     @app.route('/')
     def home():
         return jsonify({
             "message": "EngTeklif API çalışıyor! 🚀",
             "version": "2.0",
             "description": "Mühendislik Teklif ve Dosya Analiz Sistemi",
+            "features": [
+                "✅ 3D STEP dosya analizi",
+                "✅ PDF malzeme tanıma",
+                "✅ Maliyet hesaplama",
+                "✅ 3D model görselleştirme",
+                "✅ Wireframe 3D viewer",
+                "✅ Malzeme veritabanı"
+            ],
             "endpoints": {
                 "auth": {
                     "login": "/api/auth/login",
@@ -117,8 +163,16 @@ def create_app():
                     "status": "/api/upload/status/{analysis_id}",
                     "my_uploads": "/api/upload/my-uploads",
                     "delete": "/api/upload/delete/{analysis_id}",
-                    "supported_formats": "/api/upload/supported-formats"
+                    "supported_formats": "/api/upload/supported-formats",
+                    "wireframe": "/api/upload/wireframe/{analysis_id}",
+                    "render": "/api/upload/render/{analysis_id}",
+                    "3d_viewer": "/api/upload/3d-viewer/{analysis_id}"
                 },
+                "3d_viewer": {
+                    "main": "/3d-viewer",
+                    "with_analysis": "/3d-viewer/{analysis_id}",
+                    "static_files": "/static/{filename}"
+                }
             }
         })
     
@@ -146,6 +200,12 @@ def create_app():
                 "status": "healthy",
                 "database": "connected",
                 "collections": collections_info,
+                "features": {
+                    "3d_viewer": "active",
+                    "step_analysis": "active",
+                    "material_analysis": "active",
+                    "cost_calculation": "active"
+                },
                 "timestamp": "2025-01-01T00:00:00Z"
             }), 200
             
@@ -170,14 +230,23 @@ def create_app():
                 "Kullanıcı yönetimi ve yetkilendirme",
                 "PDF/DOC dosya analizi",
                 "STEP/CAD dosya işleme",
+                "3D model görselleştirme",
+                "Wireframe 3D viewer",
                 "Malzeme tanıma ve fiyatlama",
                 "Geometrik tolerans yönetimi",
                 "Maliyet hesaplama",
-                "Excel export/import"
+                "Excel export/import",
+                "Real-time 3D rendering"
             ],
             "supported_file_types": [
                 "PDF", "DOC", "DOCX", "STEP", "STP"
             ],
+            "3d_capabilities": {
+                "wireframe_viewer": "Three.js tabanlı 3D görüntüleme",
+                "step_analysis": "CadQuery ile geometrik analiz",
+                "render_generation": "Matplotlib ile görsel oluşturma",
+                "interactive_controls": "Orbit, zoom, pan kontrolleri"
+            },
             "authentication": "JWT Bearer Token",
             "documentation": "/api/docs"
         })
@@ -239,7 +308,12 @@ def create_app():
             "success": False,
             "message": "Endpoint bulunamadı",
             "error": "Not Found",
-            "status_code": 404
+            "status_code": 404,
+            "available_endpoints": {
+                "api": "/api/info",
+                "3d_viewer": "/3d-viewer",
+                "health": "/health"
+            }
         }), 404
     
     @app.errorhandler(405)
@@ -297,6 +371,9 @@ if __name__ == '__main__':
     print(f"📊 Debug mode: {debug_mode}")
     print(f"🌐 CORS origin: http://localhost:3000")
     print(f"🗄️  Database: {Config.DATABASE_NAME}")
+    print("📐 3D Viewer: ACTIVE")
+    print("🔧 STEP Analysis: ACTIVE")
+    print("🎯 Wireframe Rendering: ACTIVE")
     print("=" * 50)
     
     app.run(

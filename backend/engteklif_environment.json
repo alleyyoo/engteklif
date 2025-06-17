@@ -1,0 +1,86 @@
+{
+  "id": "engteklif-environment",
+  "name": "EngTeklif Development",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "description": "Base URL for EngTeklif API",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "description": "JWT Access Token (auto-populated after login)",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "description": "JWT Refresh Token (auto-populated after login)",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "description": "Current User ID (auto-populated after login)",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "analysis_id",
+      "value": "",
+      "description": "File Analysis ID (auto-populated after upload)",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "material_id",
+      "value": "",
+      "description": "Material ID for testing",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "admin_username",
+      "value": "admin",
+      "description": "Admin username for testing",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "admin_password",
+      "value": "admin123",
+      "description": "Admin password for testing",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "test_username",
+      "value": "testuser",
+      "description": "Test user username",
+      "enabled": true,
+      "type": "default"
+    },
+    {
+      "key": "test_password",
+      "value": "test123",
+      "description": "Test user password",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "test_email",
+      "value": "test@example.com",
+      "description": "Test user email",
+      "enabled": true,
+      "type": "default"
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2025-06-17T10:00:00.000Z",
+  "_postman_exported_using": "Postman/10.0.0"
+}

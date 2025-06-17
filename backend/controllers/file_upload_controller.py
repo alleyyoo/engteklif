@@ -1,9 +1,9 @@
-# controllers/file_upload_controller.py - COMPLETE VERSION WITH 3D VIEWER
+# controllers/file_upload_controller.py - FIXED 3D VIEWER VERSION
 
 import os
 import time
 import uuid
-from flask import Blueprint, request, jsonify, send_file, Response
+from flask import Blueprint, request, jsonify, send_file, Response, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
@@ -11,7 +11,6 @@ from typing import List, Dict, Any
 from models.user import User
 from models.file_analysis import FileAnalysis, FileAnalysisCreate
 from services.material_analysis import MaterialAnalysisService, CostEstimationService
-from services.step_renderer import generate_step_views, create_step_wireframe_data
 
 # Blueprint oluştur
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
@@ -547,12 +546,12 @@ def get_supported_formats():
         }
     }), 200
 
-# ===== 3D VIEWER ENDPOINTS =====
+# ===== 3D VIEWER ENDPOINTS - FIXED VERSION =====
 
 @upload_bp.route('/wireframe/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_wireframe_data(analysis_id):
-    """STEP dosyası için wireframe data getir"""
+    """STEP dosyası için wireframe data getir - FIXED"""
     try:
         current_user = get_current_user()
         
@@ -588,7 +587,12 @@ def get_wireframe_data(analysis_id):
             }), 404
         
         # Wireframe data oluştur
-        wireframe_data = create_step_wireframe_data(file_path)
+        try:
+            from services.step_renderer import create_step_wireframe_data
+            wireframe_data = create_step_wireframe_data(file_path)
+        except ImportError:
+            # Fallback - basit wireframe data
+            wireframe_data = create_simple_wireframe_data(step_analysis)
         
         if wireframe_data:
             return jsonify({
@@ -612,10 +616,47 @@ def get_wireframe_data(analysis_id):
             "message": f"Wireframe data hatası: {str(e)}"
         }), 500
 
+def create_simple_wireframe_data(step_analysis):
+    """STEP analizi verilerinden basit wireframe data oluştur - FALLBACK"""
+    try:
+        x = step_analysis.get("X (mm)", 50)
+        y = step_analysis.get("Y (mm)", 30) 
+        z = step_analysis.get("Z (mm)", 20)
+        
+        # Basit kutu wireframe
+        vertices = [
+            [0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0],  # alt yüz
+            [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]   # üst yüz
+        ]
+        
+        edges = [
+            # Alt yüz kenarları
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            # Üst yüz kenarları  
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            # Dikey kenarlar
+            [0, 4], [1, 5], [2, 6], [3, 7]
+        ]
+        
+        return {
+            'vertices': vertices,
+            'edges': edges,
+            'vertex_count': len(vertices),
+            'edge_count': len(edges),
+            'bounding_box': {
+                'min': [0, 0, 0],
+                'max': [x, y, z],
+                'center': [x/2, y/2, z/2],
+                'dimensions': [x, y, z]
+            }
+        }
+    except:
+        return None
+
 @upload_bp.route('/render/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_step_render(analysis_id):
-    """STEP dosyası için render görüntüsü getir"""
+    """STEP dosyası için render görüntüsü getir - FIXED"""
     try:
         current_user = get_current_user()
         
@@ -649,7 +690,14 @@ def get_step_render(analysis_id):
             }), 404
         
         # Render oluştur
-        rendered_files = generate_step_views(file_path, views=['isometric'])
+        try:
+            from services.step_renderer import generate_step_views
+            rendered_files = generate_step_views(file_path, views=['isometric'])
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "message": "Render servisi mevcut değil"
+            }), 503
         
         if rendered_files and len(rendered_files) > 0:
             # Render yolunu kaydet
@@ -673,7 +721,7 @@ def get_step_render(analysis_id):
 @upload_bp.route('/3d-viewer/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_3d_viewer_page(analysis_id):
-    """3D viewer sayfası için HTML döndür"""
+    """3D viewer sayfası için HTML döndür - FIXED"""
     try:
         current_user = get_current_user()
         
@@ -693,7 +741,7 @@ def get_3d_viewer_page(analysis_id):
             }), 403
         
         # 3D viewer HTML'ini döndür
-        viewer_html = '''
+        viewer_html = f'''
         <!DOCTYPE html>
         <html>
         <head>
@@ -701,12 +749,12 @@ def get_3d_viewer_page(analysis_id):
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
-                body { margin: 0; overflow: hidden; }
-                iframe { width: 100vw; height: 100vh; border: none; }
+                body {{ margin: 0; overflow: hidden; }}
+                iframe {{ width: 100vw; height: 100vh; border: none; }}
             </style>
         </head>
         <body>
-            <iframe src="/static/3d-viewer.html?analysis_id=''' + analysis_id + '''"></iframe>
+            <iframe src="/static/3d-viewer.html?analysis_id={analysis_id}"></iframe>
         </body>
         </html>
         '''
@@ -718,3 +766,16 @@ def get_3d_viewer_page(analysis_id):
             "success": False,
             "message": f"3D viewer hatası: {str(e)}"
         }), 500
+
+# ===== STATIC FILE SERVING - FIXED =====
+
+@upload_bp.route('/static/<path:filename>')
+def serve_static_files(filename):
+    """Static dosyaları serve et"""
+    try:
+        return send_from_directory('static', filename)
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Static dosya hatası: {str(e)}"
+        }), 404

@@ -1,5 +1,5 @@
 # Dockerfile - EngTeklif API with Full CadQuery Support
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 # Install system dependencies for CadQuery and Material Analysis
 RUN apt-get update && apt-get install -y \
