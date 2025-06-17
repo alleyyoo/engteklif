@@ -3,8 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>STEP 3D Viewer - EngTeklif</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <title>3D Model Viewer - EngTeklif</title>
     <style>
       * {
         margin: 0;
@@ -13,48 +12,50 @@
       }
 
       body {
-        font-family: Arial, sans-serif;
-        background: #0a0a0a;
-        color: #fff;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         overflow: hidden;
+        height: 100vh;
       }
 
-      #info {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        background: rgba(0, 0, 0, 0.7);
-        padding: 10px;
-        border-radius: 5px;
-        font-size: 14px;
-        z-index: 100;
+      #container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      #viewer {
+        width: 100%;
+        height: 100%;
+        background: #1a1a1a;
       }
 
       #controls {
         position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.7);
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
         padding: 15px;
         border-radius: 10px;
-        display: flex;
-        gap: 10px;
-        z-index: 100;
-      }
-
-      button {
-        background: #4a9eff;
         color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 5px;
-        cursor: pointer;
         font-size: 14px;
+        max-width: 300px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
       }
 
-      button:hover {
-        background: #357abd;
+      #info {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 15px;
+        border-radius: 10px;
+        color: white;
+        font-size: 12px;
+        max-width: 250px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
       }
 
       #loading {
@@ -62,22 +63,27 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
+        color: white;
+        font-size: 18px;
         text-align: center;
-        z-index: 200;
+        z-index: 1000;
       }
 
       .spinner {
-        border: 3px solid rgba(255, 255, 255, 0.1);
-        border-top-color: #4a9eff;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid #ffffff;
         border-radius: 50%;
-        width: 40px;
-        height: 40px;
+        width: 50px;
+        height: 50px;
         animation: spin 1s linear infinite;
-        margin: 0 auto 10px;
+        margin: 0 auto 20px;
       }
 
       @keyframes spin {
-        to {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
           transform: rotate(360deg);
         }
       }
@@ -87,384 +93,651 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        text-align: center;
-        background: rgba(255, 0, 0, 0.1);
-        border: 1px solid #ff0000;
+        background: rgba(220, 20, 60, 0.9);
+        color: white;
         padding: 20px;
         border-radius: 10px;
+        text-align: center;
+        max-width: 400px;
         display: none;
+        z-index: 1001;
       }
 
-      #tokenInput {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: rgba(0, 0, 0, 0.7);
-        padding: 10px;
-        border-radius: 5px;
-        z-index: 100;
+      .control-group {
+        margin-bottom: 10px;
       }
 
-      #tokenInput input {
-        padding: 5px;
-        margin-right: 5px;
-        border: 1px solid #444;
-        background: #222;
+      .control-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+
+      button {
+        background: linear-gradient(45deg, #667eea, #764ba2);
+        border: none;
         color: white;
-        border-radius: 3px;
+        padding: 8px 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 2px;
+        transition: all 0.3s ease;
       }
 
-      #tokenInput button {
-        padding: 5px 10px;
-        font-size: 12px;
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      }
+
+      .info-row {
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .info-label {
+        font-weight: bold;
+        color: #ccc;
+      }
+
+      .info-value {
+        color: #fff;
+      }
+
+      #materialInfo {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .material-item {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 8px;
+        margin: 5px 0;
+        border-radius: 5px;
+        font-size: 11px;
       }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   </head>
   <body>
-    <div id="info">
-      <div>3D Model Viewer</div>
-      <div id="status">Yükleniyor...</div>
-    </div>
+    <div id="container">
+      <div id="viewer"></div>
 
-    <div id="tokenInput">
-      <input
-        type="password"
-        id="tokenField"
-        placeholder="JWT Token (opsiyonel)"
-        style="width: 200px"
-      />
-      <button onclick="setToken()">Token Ayarla</button>
-    </div>
+      <div id="loading">
+        <div class="spinner"></div>
+        <div>3D Model Yükleniyor...</div>
+      </div>
 
-    <div id="loading">
-      <div class="spinner"></div>
-      <div>Model yükleniyor...</div>
-    </div>
+      <div id="error">
+        <h3>❌ Hata</h3>
+        <p id="errorMessage">3D model yüklenirken bir hata oluştu.</p>
+        <button onclick="location.reload()">Yeniden Dene</button>
+      </div>
 
-    <div id="error">
-      <h3>Hata!</h3>
-      <p id="errorMsg"></p>
-      <button onclick="retryWithoutToken()">Token Olmadan Dene</button>
-    </div>
+      <div id="controls" style="display: none">
+        <h3>🎮 Kontroller</h3>
+        <div class="control-group">
+          <button onclick="resetView()">🏠 Başlangıç Görünümü</button>
+          <button onclick="toggleWireframe()">📐 Wireframe</button>
+        </div>
+        <div class="control-group">
+          <button onclick="setView('front')">📄 Ön</button>
+          <button onclick="setView('top')">⬆️ Üst</button>
+          <button onclick="setView('side')">➡️ Yan</button>
+        </div>
+        <div class="control-group">
+          <label>Döndürme: Sol tık + sürükle</label>
+          <label>Yaklaştırma: Tekerlek</label>
+          <label>Kaydırma: Sağ tık + sürükle</label>
+        </div>
+      </div>
 
-    <div id="controls">
-      <button onclick="toggleWireframe()">Wireframe</button>
-      <button onclick="toggleRotation()">Otomatik Döndür</button>
-      <button onclick="resetView()">Sıfırla</button>
+      <div id="info" style="display: none">
+        <h3>📊 Model Bilgileri</h3>
+        <div class="info-row">
+          <span class="info-label">Vertices:</span>
+          <span class="info-value" id="vertexCount">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Edges:</span>
+          <span class="info-value" id="edgeCount">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Boyutlar:</span>
+          <span class="info-value" id="dimensions">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Hacim:</span>
+          <span class="info-value" id="volume">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Geometri:</span>
+          <span class="info-value" id="geometryType">-</span>
+        </div>
+
+        <div id="materialInfo">
+          <h4>🔧 Malzeme Bilgileri</h4>
+          <div id="materialList"></div>
+        </div>
+      </div>
     </div>
 
     <script>
-      // Global değişkenler
-      let scene, camera, renderer;
-      let model;
-      let autoRotate = true;
-      let wireframeMode = false;
+      // Global variables
+      let scene, camera, renderer, controls;
+      let wireframeGroup, solidGroup;
+      let isWireframeMode = false;
+      let analysisId = null;
+      let authToken = null;
 
-      // URL'den analysis ID'yi al
-      const urlParams = new URLSearchParams(window.location.search);
-      const analysisId = urlParams.get("analysis_id");
+      // Get URL parameters
+      function getUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        analysisId = params.get("analysis_id");
+        authToken = params.get("token");
 
-      console.log("Analysis ID:", analysisId);
-
-      // Token kontrolü
-      let token = localStorage.getItem("token") || urlParams.get("token");
-      if (token) {
-        document.getElementById("tokenField").value =
-          token === "embedded" ? "" : token.substring(0, 20) + "...";
+        if (!analysisId) {
+          showError("Analiz ID bulunamadı");
+          return false;
+        }
+        return true;
       }
 
-      // Three.js sahnesini başlat
-      function init() {
+      // Initialize Three.js scene
+      function initScene() {
         // Scene
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
+        scene.background = new THREE.Color(0x1a1a1a);
 
         // Camera
         camera = new THREE.PerspectiveCamera(
           75,
           window.innerWidth / window.innerHeight,
           0.1,
-          1000
+          10000
         );
         camera.position.set(100, 100, 100);
-        camera.lookAt(0, 0, 0);
 
         // Renderer
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        document.body.appendChild(renderer.domElement);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById("viewer").appendChild(renderer.domElement);
 
-        // Lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
         scene.add(ambientLight);
 
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(50, 50, 50);
+        directionalLight.position.set(100, 100, 50);
+        directionalLight.castShadow = true;
         scene.add(directionalLight);
 
-        // Grid
-        const gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
-        scene.add(gridHelper);
-
-        // Axes
-        const axesHelper = new THREE.AxesHelper(50);
-        scene.add(axesHelper);
-
-        // Mouse controls
+        // Controls (basic mouse controls)
         setupControls();
 
-        // Window resize
-        window.addEventListener("resize", onWindowResize);
+        // Groups for different render modes
+        wireframeGroup = new THREE.Group();
+        solidGroup = new THREE.Group();
+        scene.add(wireframeGroup);
+        scene.add(solidGroup);
 
-        // Model yükle
-        if (analysisId) {
-          loadWireframeData(analysisId);
-        } else {
-          // Test modeli oluştur
-          createTestModel();
+        // Window resize handler
+        window.addEventListener("resize", onWindowResize, false);
+      }
+
+      // Setup manual controls (since OrbitControls might not be available)
+      function setupControls() {
+        let isMouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let targetRotationOnMouseDownX = 0;
+        let targetRotationOnMouseDownY = 0;
+
+        renderer.domElement.addEventListener("mousedown", onMouseDown, false);
+        renderer.domElement.addEventListener("mouseup", onMouseUp, false);
+        renderer.domElement.addEventListener("mousemove", onMouseMove, false);
+        renderer.domElement.addEventListener("wheel", onMouseWheel, false);
+
+        function onMouseDown(event) {
+          event.preventDefault();
+          isMouseDown = true;
+          mouseX = event.clientX;
+          mouseY = event.clientY;
+          targetRotationOnMouseDownX = targetRotationX;
+          targetRotationOnMouseDownY = targetRotationY;
         }
 
-        // Animation loop
+        function onMouseUp(event) {
+          event.preventDefault();
+          isMouseDown = false;
+        }
+
+        function onMouseMove(event) {
+          event.preventDefault();
+          if (isMouseDown) {
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+            targetRotationX =
+              targetRotationOnMouseDownX + (mouseX - event.clientX) * 0.02;
+            targetRotationY =
+              targetRotationOnMouseDownY + (mouseY - event.clientY) * 0.02;
+          }
+        }
+
+        function onMouseWheel(event) {
+          event.preventDefault();
+          const scale = event.deltaY > 0 ? 1.1 : 0.9;
+          camera.position.multiplyScalar(scale);
+        }
+
+        // Animation loop for smooth rotation
+        function animate() {
+          requestAnimationFrame(animate);
+
+          if (
+            wireframeGroup.children.length > 0 ||
+            solidGroup.children.length > 0
+          ) {
+            const group = isWireframeMode ? wireframeGroup : solidGroup;
+            if (group.children.length > 0) {
+              group.rotation.y += (targetRotationX - group.rotation.y) * 0.05;
+              group.rotation.x += (targetRotationY - group.rotation.x) * 0.05;
+            }
+          }
+
+          renderer.render(scene, camera);
+        }
         animate();
       }
 
-      function setupControls() {
-        let mouseX = 0,
-          mouseY = 0;
-        let isDragging = false;
-
-        renderer.domElement.addEventListener("mousedown", () => {
-          isDragging = true;
-        });
-
-        renderer.domElement.addEventListener("mouseup", () => {
-          isDragging = false;
-        });
-
-        renderer.domElement.addEventListener("mousemove", (e) => {
-          if (isDragging) {
-            const deltaX = e.movementX * 0.5;
-            const deltaY = e.movementY * 0.5;
-
-            // Kamerayı döndür
-            const spherical = new THREE.Spherical();
-            spherical.setFromVector3(camera.position);
-            spherical.theta -= deltaX * 0.01;
-            spherical.phi += deltaY * 0.01;
-            spherical.phi = Math.max(
-              0.1,
-              Math.min(Math.PI - 0.1, spherical.phi)
-            );
-            camera.position.setFromSpherical(spherical);
-            camera.lookAt(0, 0, 0);
-          }
-        });
-
-        // Zoom
-        renderer.domElement.addEventListener("wheel", (e) => {
-          e.preventDefault();
-          const scale = e.deltaY > 0 ? 1.1 : 0.9;
-          camera.position.multiplyScalar(scale);
-        });
-      }
-
-      function createTestModel() {
-        // Test için basit bir kutu
-        const geometry = new THREE.BoxGeometry(50, 30, 20);
-        const material = new THREE.MeshPhongMaterial({
-          color: 0x4a9eff,
-          wireframe: false,
-        });
-
-        model = new THREE.Mesh(geometry, material);
-        scene.add(model);
-
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("status").textContent = "Test modeli yüklendi";
-      }
-
-      async function loadWireframeData(analysisId, useToken = true) {
+      // Load wireframe data from API
+      async function loadWireframeData() {
         try {
-          console.log("Wireframe data yükleniyor...");
-
-          const headers = {};
-          if (useToken && token && token !== "embedded") {
-            headers["Authorization"] = `Bearer ${token}`;
-          }
-
-          // API URL'i belirle
-          const baseUrl = window.location.origin;
-          const apiUrl = `${baseUrl}/api/upload/wireframe/${analysisId}`;
-
-          console.log("API URL:", apiUrl);
-          console.log("Token kullanılıyor:", useToken);
-
-          const response = await fetch(apiUrl, { headers });
+          const response = await fetch(`/api/upload/wireframe/${analysisId}`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "Content-Type": "application/json",
+            },
+          });
 
           if (!response.ok) {
-            if (response.status === 401 && useToken) {
-              console.log("401 hatası, token olmadan denenecek...");
-              throw new Error("Yetkilendirme hatası. Token olmadan deneyin.");
-            }
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
 
           const data = await response.json();
-          console.log("Wireframe data:", data);
 
-          if (data.success && data.wireframe_data) {
-            createWireframeModel(data.wireframe_data);
-            document.getElementById(
-              "status"
-            ).textContent = `Model yüklendi - ${data.wireframe_data.vertex_count} vertex`;
+          if (data.success) {
+            renderWireframe(data.wireframe_data);
+            updateInfo(
+              data.wireframe_data,
+              data.step_analysis,
+              data.material_info
+            );
+            hideLoading();
+            showControls();
           } else {
             throw new Error(data.message || "Wireframe data alınamadı");
           }
         } catch (error) {
-          console.error("Model yükleme hatası:", error);
-          showError(error.message);
+          console.error("Wireframe yükleme hatası:", error);
+          showError(`3D model yüklenemedi: ${error.message}`);
         }
       }
 
-      function createWireframeModel(wireframeData) {
-        // Eğer wireframe data yoksa test verisi kullan
-        if (!wireframeData || !wireframeData.vertices) {
-          console.log("Wireframe data eksik, test verisi kullanılıyor");
-          wireframeData = {
-            vertices: [
-              [0, 0, 0],
-              [50, 0, 0],
-              [50, 30, 0],
-              [0, 30, 0],
-              [0, 0, 20],
-              [50, 0, 20],
-              [50, 30, 20],
-              [0, 30, 20],
-            ],
-            edges: [
-              [0, 1],
-              [1, 2],
-              [2, 3],
-              [3, 0],
-              [4, 5],
-              [5, 6],
-              [6, 7],
-              [7, 4],
-              [0, 4],
-              [1, 5],
-              [2, 6],
-              [3, 7],
-            ],
-          };
+      // Render wireframe from data
+      function renderWireframe(wireframeData) {
+        if (!wireframeData || !wireframeData.vertices || !wireframeData.edges) {
+          throw new Error("Geçersiz wireframe data");
         }
 
-        const { vertices, edges } = wireframeData;
+        console.log("Wireframe data:", wireframeData);
 
-        // LineSegments için geometry oluştur
-        const geometry = new THREE.BufferGeometry();
-        const positions = [];
+        // Clear existing geometry
+        clearScene();
 
-        // Her edge için vertex pozisyonlarını ekle
-        edges.forEach((edge) => {
-          const v1 = vertices[edge[0]];
-          const v2 = vertices[edge[1]];
-          positions.push(v1[0], v1[1], v1[2]);
-          positions.push(v2[0], v2[1], v2[2]);
-        });
+        const vertices = wireframeData.vertices;
+        const edges = wireframeData.edges;
 
-        geometry.setAttribute(
-          "position",
-          new THREE.Float32BufferAttribute(positions, 3)
-        );
-
-        // Material
-        const material = new THREE.LineBasicMaterial({
-          color: 0x4a9eff,
+        // Create wireframe
+        const wireframeMaterial = new THREE.LineBasicMaterial({
+          color: 0x00ff88,
           linewidth: 2,
         });
 
-        // Model
-        model = new THREE.LineSegments(geometry, material);
-        scene.add(model);
+        edges.forEach((edge) => {
+          if (edge.length >= 2 && vertices[edge[0]] && vertices[edge[1]]) {
+            const geometry = new THREE.BufferGeometry();
+            const points = [
+              new THREE.Vector3(...vertices[edge[0]]),
+              new THREE.Vector3(...vertices[edge[1]]),
+            ];
+            geometry.setFromPoints(points);
 
-        // Modeli ortala
-        geometry.computeBoundingBox();
-        const center = new THREE.Vector3();
-        geometry.boundingBox.getCenter(center);
-        model.position.sub(center);
+            const line = new THREE.Line(geometry, wireframeMaterial);
+            wireframeGroup.add(line);
+          }
+        });
 
-        // Kamerayı ayarla
-        const size = new THREE.Vector3();
-        geometry.boundingBox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
-        camera.lookAt(0, 0, 0);
-
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("error").style.display = "none";
-      }
-
-      function showError(message) {
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("error").style.display = "block";
-        document.getElementById("errorMsg").textContent = message;
-        document.getElementById("status").textContent = "Hata!";
-      }
-
-      function animate() {
-        requestAnimationFrame(animate);
-
-        if (autoRotate && model) {
-          model.rotation.y += 0.005;
+        // Create solid version (for wireframe toggle)
+        if (wireframeData.geometry_type === "box") {
+          createSolidBox(wireframeData.bounding_box.dimensions);
+        } else if (wireframeData.geometry_type === "cylinder") {
+          const dims = wireframeData.bounding_box.dimensions;
+          createSolidCylinder(dims[0] / 2, dims[2]); // radius, height
         }
 
-        renderer.render(scene, camera);
+        // Center and scale the model
+        centerAndScaleModel();
       }
 
+      // Create solid box
+      function createSolidBox(dimensions) {
+        const [width, height, depth] = dimensions;
+        const geometry = new THREE.BoxGeometry(width, height, depth);
+        const material = new THREE.MeshLambertMaterial({
+          color: 0x4488ff,
+          transparent: true,
+          opacity: 0.7,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        solidGroup.add(mesh);
+      }
+
+      // Create solid cylinder
+      function createSolidCylinder(radius, height) {
+        const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
+        const material = new THREE.MeshLambertMaterial({
+          color: 0x4488ff,
+          transparent: true,
+          opacity: 0.7,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        solidGroup.add(mesh);
+      }
+
+      // Center and scale model
+      function centerAndScaleModel() {
+        const group = isWireframeMode ? wireframeGroup : solidGroup;
+
+        if (group.children.length === 0) return;
+
+        // Calculate bounding box
+        const box = new THREE.Box3().setFromObject(group);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+
+        // Center the model
+        group.position.sub(center);
+
+        // Scale to fit in view
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (maxDim > 0) {
+          const scale = 200 / maxDim; // Adjust scale factor as needed
+          group.scale.setScalar(scale);
+        }
+
+        // Position camera appropriately
+        const distance = maxDim * 2;
+        camera.position.set(distance, distance, distance);
+        camera.lookAt(0, 0, 0);
+      }
+
+      // Clear scene
+      function clearScene() {
+        wireframeGroup.clear();
+        solidGroup.clear();
+      }
+
+      // Update info panel
+      function updateInfo(wireframeData, stepAnalysis, materialInfo) {
+        document.getElementById("vertexCount").textContent =
+          wireframeData.vertex_count || "-";
+        document.getElementById("edgeCount").textContent =
+          wireframeData.edge_count || "-";
+        document.getElementById("geometryType").textContent =
+          wireframeData.geometry_type || "-";
+
+        if (
+          wireframeData.bounding_box &&
+          wireframeData.bounding_box.dimensions
+        ) {
+          const dims = wireframeData.bounding_box.dimensions;
+          document.getElementById(
+            "dimensions"
+          ).textContent = `${dims[0]?.toFixed(1)} x ${dims[1]?.toFixed(
+            1
+          )} x ${dims[2]?.toFixed(1)} mm`;
+        }
+
+        if (stepAnalysis && stepAnalysis["Ürün Hacmi (mm³)"]) {
+          const volume = stepAnalysis["Ürün Hacmi (mm³)"];
+          document.getElementById(
+            "volume"
+          ).textContent = `${volume.toLocaleString()} mm³`;
+        }
+
+        // Material info
+        if (materialInfo && materialInfo.matches) {
+          const materialList = document.getElementById("materialList");
+          materialList.innerHTML = "";
+
+          materialInfo.matches.forEach((match) => {
+            const div = document.createElement("div");
+            div.className = "material-item";
+            div.textContent = match;
+            materialList.appendChild(div);
+          });
+        }
+      }
+
+      // Control functions
+      function resetView() {
+        centerAndScaleModel();
+      }
+
+      function toggleWireframe() {
+        isWireframeMode = !isWireframeMode;
+        wireframeGroup.visible = isWireframeMode;
+        solidGroup.visible = !isWireframeMode;
+      }
+
+      function setView(viewType) {
+        const distance = 300;
+        switch (viewType) {
+          case "front":
+            camera.position.set(0, 0, distance);
+            break;
+          case "top":
+            camera.position.set(0, distance, 0);
+            break;
+          case "side":
+            camera.position.set(distance, 0, 0);
+            break;
+        }
+        camera.lookAt(0, 0, 0);
+      }
+
+      // Window resize handler
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
 
-      // Kontrol fonksiyonları
-      function toggleWireframe() {
-        wireframeMode = !wireframeMode;
-        if (model && model.material) {
-          model.material.wireframe = wireframeMode;
+      // UI functions
+      function hideLoading() {
+        document.getElementById("loading").style.display = "none";
+      }
+
+      function showControls() {
+        document.getElementById("controls").style.display = "block";
+        document.getElementById("info").style.display = "block";
+      }
+
+      function showError(message) {
+        hideLoading();
+        document.getElementById("errorMessage").textContent = message;
+        document.getElementById("error").style.display = "block";
+      }
+
+      // Initialize everything
+      async function init() {
+        try {
+          // Get URL parameters
+          if (!getUrlParams()) {
+            return;
+          }
+
+          // Initialize Three.js scene
+          initScene();
+
+          // Load wireframe data
+          await loadWireframeData();
+        } catch (error) {
+          console.error("Initialization error:", error);
+          showError(`Başlatma hatası: ${error.message}`);
         }
       }
 
-      function toggleRotation() {
-        autoRotate = !autoRotate;
+      // Start when page loads
+      window.addEventListener("load", init);
+
+      // Handle page visibility changes
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) {
+          // Pause rendering when tab is not visible
+          return;
+        } else {
+          // Resume rendering when tab becomes visible
+          return;
+        }
+      });
+
+      // Keyboard shortcuts
+      document.addEventListener("keydown", function (event) {
+        switch (event.key) {
+          case "r":
+          case "R":
+            resetView();
+            event.preventDefault();
+            break;
+          case "w":
+          case "W":
+            toggleWireframe();
+            event.preventDefault();
+            break;
+          case "1":
+            setView("front");
+            event.preventDefault();
+            break;
+          case "2":
+            setView("top");
+            event.preventDefault();
+            break;
+          case "3":
+            setView("side");
+            event.preventDefault();
+            break;
+          case "Escape":
+            resetView();
+            event.preventDefault();
+            break;
+        }
+      });
+
+      // Performance monitoring
+      let lastTime = performance.now();
+      let frameCount = 0;
+
+      function updatePerformance() {
+        frameCount++;
+        const currentTime = performance.now();
+
+        if (currentTime - lastTime >= 1000) {
+          const fps = Math.round(
+            (frameCount * 1000) / (currentTime - lastTime)
+          );
+          console.log(`FPS: ${fps}`);
+          frameCount = 0;
+          lastTime = currentTime;
+        }
+
+        requestAnimationFrame(updatePerformance);
       }
 
-      function resetView() {
-        camera.position.set(100, 100, 100);
-        camera.lookAt(0, 0, 0);
-        if (model) {
-          model.rotation.set(0, 0, 0);
+      // Start performance monitoring
+      updatePerformance();
+
+      // Debug info
+      console.log("3D Model Viewer initialized");
+      console.log("THREE.js version:", THREE.REVISION);
+      console.log("WebGL support:", !!window.WebGLRenderingContext);
+    </script>
+
+    <!-- Keyboard shortcuts help -->
+    <div
+      style="
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px;
+        border-radius: 5px;
+        font-size: 11px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      "
+    >
+      <strong>⌨️ Kısayollar:</strong><br />
+      R - Görünümü Sıfırla | W - Wireframe | 1-3 - Görünümler | ESC - Sıfırla
+    </div>
+
+    <!-- WebGL compatibility check -->
+    <script>
+      // WebGL support check
+      function checkWebGLSupport() {
+        try {
+          const canvas = document.createElement("canvas");
+          const gl =
+            canvas.getContext("webgl") ||
+            canvas.getContext("experimental-webgl");
+          return !!gl;
+        } catch (e) {
+          return false;
         }
       }
 
-      function setToken() {
-        const newToken = prompt("JWT Token girin:");
-        if (newToken) {
-          token = newToken;
-          localStorage.setItem("token", token);
-          location.reload();
-        }
+      if (!checkWebGLSupport()) {
+        showError("WebGL desteklenmiyor. Modern bir tarayıcı kullanın.");
       }
 
-      function retryWithoutToken() {
-        document.getElementById("error").style.display = "none";
-        document.getElementById("loading").style.display = "block";
-        loadWireframeData(analysisId, false);
+      // Mobile device detection and warnings
+      function isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent
+        );
       }
 
-      // Başlat
-      init();
+      if (isMobileDevice()) {
+        console.log("Mobile device detected - adjusting controls");
+        // Could add touch controls here
+      }
+
+      // Browser compatibility warnings
+      if (!window.requestAnimationFrame) {
+        console.warn("requestAnimationFrame not supported");
+      }
+
+      if (!window.WebGLRenderingContext) {
+        showError("WebGL desteklenmiyor");
+      }
     </script>
   </body>
 </html>

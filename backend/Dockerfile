@@ -1,5 +1,5 @@
 # Dockerfile - EngTeklif API with Full CadQuery Support
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 # Install system dependencies for CadQuery and Material Analysis
 RUN apt-get update && apt-get install -y \
@@ -57,10 +57,10 @@ RUN mkdir -p uploads static temp && \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f http://localhost:5050/health || exit 1
 
 # Expose port
-EXPOSE 5000
+EXPOSE 5050
 
 # Start script with Xvfb for CadQuery
 CMD ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset & python -u app.py"]

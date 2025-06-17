@@ -858,3 +858,5 @@ class CostEstimationService:
             return round(max(total_hours, 0.5), 2)  # Min 0.5 saat
         except:
             return 1.0
+        
+    
