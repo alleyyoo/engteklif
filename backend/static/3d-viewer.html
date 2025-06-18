@@ -58,7 +58,18 @@
         border: 1px solid rgba(255, 255, 255, 0.1);
       }
 
-      #loading {
+      #canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: grab;
+      }
+
+      #canvas:active {
+        cursor: grabbing;
+      }
+
+      .loading {
         position: absolute;
         top: 50%;
         left: 50%;
@@ -88,7 +99,7 @@
         }
       }
 
-      #error {
+      .controls {
         position: absolute;
         top: 50%;
         left: 50%;
@@ -156,6 +167,102 @@
         margin: 5px 0;
         border-radius: 5px;
         font-size: 11px;
+      }
+
+      .material-table th {
+        background: rgba(0, 102, 204, 0.2);
+        font-weight: 600;
+        color: #0066cc;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .stat-box {
+        background: rgba(0, 102, 204, 0.1);
+        padding: 10px;
+        border-radius: 6px;
+        text-align: center;
+        border: 1px solid rgba(0, 102, 204, 0.3);
+      }
+
+      .stat-value {
+        font-size: 18px;
+        font-weight: bold;
+        color: #0066cc;
+      }
+
+      .stat-label {
+        font-size: 11px;
+        color: #ccc;
+        margin-top: 4px;
+      }
+
+      .wireframe-toggle {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: rgba(22, 33, 62, 0.9);
+        border: 1px solid #0f3460;
+        border-radius: 8px;
+        color: #eee;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+      }
+
+      .wireframe-toggle:hover {
+        background: rgba(0, 102, 204, 0.8);
+      }
+
+      .toggle-sidebar {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        padding: 10px;
+        background: rgba(22, 33, 62, 0.9);
+        border: 1px solid #0f3460;
+        border-radius: 8px;
+        color: #eee;
+        cursor: pointer;
+        z-index: 60;
+        backdrop-filter: blur(10px);
+      }
+
+      .sidebar.hidden {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+      }
+
+      @media (max-width: 768px) {
+        .sidebar {
+          width: 250px;
+          position: absolute;
+          height: 100%;
+          z-index: 100;
+          transform: translateX(-100%);
+          transition: transform 0.3s ease;
+        }
+
+        .sidebar.visible {
+          transform: translateX(0);
+        }
+
+        .controls {
+          right: 10px;
+          top: 70px;
+        }
+
+        .control-btn {
+          min-width: 100px;
+          padding: 8px;
+          font-size: 12px;
+        }
       }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
