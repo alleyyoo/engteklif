@@ -41,4 +41,9 @@ export const AuthPageStyle = createUseStyles({
   inputContainer: {
     width: "100%",
   },
+  formFooter: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
 });

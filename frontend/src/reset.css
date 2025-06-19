@@ -1,0 +1,12 @@
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.ant-form-item-row {
+  margin-bottom: 2rem;
+}
