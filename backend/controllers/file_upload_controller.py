@@ -1,4 +1,4 @@
-# controllers/file_upload_controller.py - FIXED 3D VIEWER VERSION
+# controllers/file_upload_controller.py - PDF 3D VIEWER SUPPORT ADDED
 
 import os
 import time
@@ -296,6 +296,22 @@ def analyze_uploaded_file(analysis_id):
                 if analysis_success:
                     processing_time = time.time() - start_time
                     
+                    # PDF için 3D render oluştur
+                    isometric_view_path = None
+                    if analysis['file_type'] == 'pdf' and result.get('step_analysis'):
+                        try:
+                            from services.pdf_3d_renderer import generate_pdf_3d_render
+                            generated_files = generate_pdf_3d_render(
+                                result['step_analysis'], 
+                                output_path="static",
+                                views=['isometric']
+                            )
+                            if generated_files:
+                                isometric_view_path = generated_files[0]
+                                print(f"[INFO] PDF 3D render oluşturuldu: {isometric_view_path}")
+                        except Exception as render_error:
+                            print(f"[WARN] PDF 3D render hatası: {render_error}")
+                    
                     # Sonuçları kaydet
                     update_data = {
                         "analysis_status": "completed",
@@ -306,7 +322,7 @@ def analyze_uploaded_file(analysis_id):
                         "step_analysis": result.get('step_analysis', {}),
                         "cost_estimation": result.get('cost_estimation', {}),
                         "ai_price_prediction": result.get('ai_price_prediction', {}),
-                        "isometric_view": result.get('isometric_view'),
+                        "isometric_view": isometric_view_path or result.get('isometric_view'),
                         "processing_log": result.get('processing_log', []),
                         "step_file_hash": result.get('step_file_hash'),
                         "all_material_calculations": result.get('all_material_calculations', []),
@@ -330,7 +346,8 @@ def analyze_uploaded_file(analysis_id):
                             "processing_steps": len(result.get('processing_log', [])),
                             "all_material_calculations_count": len(result.get('all_material_calculations', [])),
                             "material_options_count": len(result.get('material_options', [])),
-                            "3d_render_available": bool(result.get('isometric_view'))
+                            "3d_render_available": bool(isometric_view_path or result.get('isometric_view')),
+                            "3d_viewer_ready": bool(result.get('step_analysis'))  # ✅ PDF için 3D viewer desteği
                         }
                     }), 200
                     
@@ -542,16 +559,17 @@ def get_supported_formats():
             "visual_rendering": "STEP dosyası görselleştirme",
             "all_material_calculations": "Bulunan malzemeler için detaylı hesaplama",
             "material_options": "Tüm mevcut malzemeler için karşılaştırma",
-            "3d_visualization": "İnteraktif 3D model görüntüleme"
+            "3d_visualization": "İnteraktif 3D model görüntüleme",
+            "pdf_3d_support": "PDF'lerden çıkarılan 3D veriler için wireframe görüntüleme"  # ✅ YENİ
         }
     }), 200
 
-# ===== 3D VIEWER ENDPOINTS - FIXED VERSION =====
+# ===== 3D VIEWER ENDPOINTS - PDF DESTEKLİ VERSİYON =====
 
 @upload_bp.route('/wireframe/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_wireframe_data(analysis_id):
-    """STEP dosyası için wireframe data getir - FIXED"""
+    """Wireframe data getir - PDF ve STEP desteği ile"""
     try:
         current_user = get_current_user()
         
@@ -578,20 +596,31 @@ def get_wireframe_data(analysis_id):
                 "message": "STEP analizi mevcut değil"
             }), 404
         
-        # STEP dosya yolunu bul
-        file_path = analysis.get('file_path')
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({
-                "success": False,
-                "message": "STEP dosyası bulunamadı"
-            }), 404
+        file_type = analysis.get('file_type', 'unknown')
+        wireframe_data = None
         
-        # Wireframe data oluştur
-        try:
-            from services.step_renderer import create_step_wireframe_data
-            wireframe_data = create_step_wireframe_data(file_path)
-        except ImportError:
-            # Fallback - basit wireframe data
+        # Dosya türüne göre wireframe data oluştur
+        if file_type == 'step' or file_type == 'stp':
+            # STEP dosyası için gerçek wireframe
+            file_path = analysis.get('file_path')
+            if file_path and os.path.exists(file_path):
+                try:
+                    from services.step_renderer import create_step_wireframe_data
+                    wireframe_data = create_step_wireframe_data(file_path)
+                except ImportError:
+                    wireframe_data = create_simple_wireframe_data(step_analysis)
+            
+        elif file_type == 'pdf':
+            # PDF için step_analysis verilerinden wireframe oluştur
+            try:
+                from services.pdf_3d_renderer import create_pdf_wireframe_data
+                wireframe_data = create_pdf_wireframe_data(step_analysis)
+                print(f"[INFO] PDF wireframe data oluşturuldu")
+            except ImportError:
+                wireframe_data = create_simple_wireframe_data(step_analysis)
+                
+        else:
+            # Diğer dosya türleri için basit wireframe
             wireframe_data = create_simple_wireframe_data(step_analysis)
         
         if wireframe_data:
@@ -599,6 +628,7 @@ def get_wireframe_data(analysis_id):
                 "success": True,
                 "wireframe_data": wireframe_data,
                 "step_analysis": step_analysis,
+                "file_type": file_type,
                 "material_info": {
                     "matches": analysis.get('material_matches', []),
                     "calculations": analysis.get('all_material_calculations', [])
@@ -623,40 +653,87 @@ def create_simple_wireframe_data(step_analysis):
         y = step_analysis.get("Y (mm)", 30) 
         z = step_analysis.get("Z (mm)", 20)
         
-        # Basit kutu wireframe
-        vertices = [
-            [0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0],  # alt yüz
-            [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]   # üst yüz
-        ]
+        # Silindirik geometri kontrolü
+        cyl_diameter = step_analysis.get("Silindirik Çap (mm)")
+        cyl_height = step_analysis.get("Silindirik Yükseklik (mm)")
         
-        edges = [
-            # Alt yüz kenarları
-            [0, 1], [1, 2], [2, 3], [3, 0],
-            # Üst yüz kenarları  
-            [4, 5], [5, 6], [6, 7], [7, 4],
-            # Dikey kenarlar
-            [0, 4], [1, 5], [2, 6], [3, 7]
-        ]
-        
-        return {
-            'vertices': vertices,
-            'edges': edges,
-            'vertex_count': len(vertices),
-            'edge_count': len(edges),
-            'bounding_box': {
-                'min': [0, 0, 0],
-                'max': [x, y, z],
-                'center': [x/2, y/2, z/2],
-                'dimensions': [x, y, z]
+        if cyl_diameter and cyl_height:
+            # Silindir wireframe
+            radius = cyl_diameter / 2
+            segments = 16
+            vertices = []
+            edges = []
+            
+            # Alt ve üst çember vertices
+            for i in range(segments):
+                angle = (i / segments) * 2 * 3.14159
+                x_pos = radius * np.cos(angle) if 'np' in globals() else radius * (1 if i % 4 == 0 else 0.7 if i % 2 == 0 else 0)
+                y_pos = radius * np.sin(angle) if 'np' in globals() else radius * (0 if i % 4 == 0 else 0.7 if i % 2 == 0 else 1)
+                vertices.append([x_pos, y_pos, 0])  # Alt çember
+                vertices.append([x_pos, y_pos, cyl_height])  # Üst çember
+            
+            # Kenarlar
+            for i in range(segments):
+                next_i = (i + 1) % segments
+                # Alt çember
+                edges.append([i * 2, next_i * 2])
+                # Üst çember
+                edges.append([i * 2 + 1, next_i * 2 + 1])
+                # Dikey bağlantılar
+                edges.append([i * 2, i * 2 + 1])
+            
+            bounding_box = {
+                'min': [-radius, -radius, 0],
+                'max': [radius, radius, cyl_height],
+                'center': [0, 0, cyl_height/2],
+                'dimensions': [cyl_diameter, cyl_diameter, cyl_height]
             }
-        }
+            
+            return {
+                'vertices': vertices,
+                'edges': edges,
+                'vertex_count': len(vertices),
+                'edge_count': len(edges),
+                'bounding_box': bounding_box,
+                'geometry_type': 'cylindrical'
+            }
+        
+        else:
+            # Basit kutu wireframe
+            vertices = [
+                [0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0],  # alt yüz
+                [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]   # üst yüz
+            ]
+            
+            edges = [
+                # Alt yüz kenarları
+                [0, 1], [1, 2], [2, 3], [3, 0],
+                # Üst yüz kenarları  
+                [4, 5], [5, 6], [6, 7], [7, 4],
+                # Dikey kenarlar
+                [0, 4], [1, 5], [2, 6], [3, 7]
+            ]
+            
+            return {
+                'vertices': vertices,
+                'edges': edges,
+                'vertex_count': len(vertices),
+                'edge_count': len(edges),
+                'bounding_box': {
+                    'min': [0, 0, 0],
+                    'max': [x, y, z],
+                    'center': [x/2, y/2, z/2],
+                    'dimensions': [x, y, z]
+                },
+                'geometry_type': 'prismatic'
+            }
     except:
         return None
 
 @upload_bp.route('/render/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_step_render(analysis_id):
-    """STEP dosyası için render görüntüsü getir - FIXED"""
+    """Render görüntüsü getir - PDF ve STEP desteği ile"""
     try:
         current_user = get_current_user()
         
@@ -681,23 +758,55 @@ def get_step_render(analysis_id):
             # Mevcut render'ı döndür
             return send_file(isometric_view, mimetype='image/png')
         
-        # Yoksa yeni render oluştur
-        file_path = analysis.get('file_path')
-        if not file_path or not os.path.exists(file_path):
-            return jsonify({
-                "success": False,
-                "message": "STEP dosyası bulunamadı"
-            }), 404
+        file_type = analysis.get('file_type', 'unknown')
+        step_analysis = analysis.get('step_analysis', {})
         
-        # Render oluştur
-        try:
-            from services.step_renderer import generate_step_views
-            rendered_files = generate_step_views(file_path, views=['isometric'])
-        except ImportError:
+        # Dosya türüne göre render oluştur
+        if file_type == 'step' or file_type == 'stp':
+            # STEP dosyası için gerçek render
+            file_path = analysis.get('file_path')
+            if not file_path or not os.path.exists(file_path):
+                return jsonify({
+                    "success": False,
+                    "message": "STEP dosyası bulunamadı"
+                }), 404
+            
+            try:
+                from services.step_renderer import generate_step_views
+                rendered_files = generate_step_views(file_path, views=['isometric'])
+            except ImportError:
+                return jsonify({
+                    "success": False,
+                    "message": "STEP render servisi mevcut değil"
+                }), 503
+                
+        elif file_type == 'pdf':
+            # PDF için step_analysis verilerinden render oluştur
+            if not step_analysis or step_analysis.get('error'):
+                return jsonify({
+                    "success": False,
+                    "message": "PDF STEP analizi mevcut değil"
+                }), 404
+            
+            try:
+                from services.pdf_3d_renderer import generate_pdf_3d_render
+                rendered_files = generate_pdf_3d_render(
+                    step_analysis, 
+                    output_path="static",
+                    views=['isometric']
+                )
+                print(f"[INFO] PDF render oluşturuldu: {len(rendered_files)} dosya")
+            except ImportError:
+                return jsonify({
+                    "success": False,
+                    "message": "PDF render servisi mevcut değil"
+                }), 503
+                
+        else:
             return jsonify({
                 "success": False,
-                "message": "Render servisi mevcut değil"
-            }), 503
+                "message": f"Desteklenmeyen dosya türü: {file_type}"
+            }), 400
         
         if rendered_files and len(rendered_files) > 0:
             # Render yolunu kaydet
@@ -721,7 +830,7 @@ def get_step_render(analysis_id):
 @upload_bp.route('/3d-viewer/<analysis_id>', methods=['GET'])
 @jwt_required()
 def get_3d_viewer_page(analysis_id):
-    """3D viewer sayfası için HTML döndür - FIXED"""
+    """3D viewer sayfası için HTML döndür - PDF ve STEP desteği ile"""
     try:
         current_user = get_current_user()
         
@@ -740,21 +849,64 @@ def get_3d_viewer_page(analysis_id):
                 "message": "Bu dosyaya erişim yetkiniz yok"
             }), 403
         
+        # STEP analizi kontrolü
+        step_analysis = analysis.get('step_analysis', {})
+        if not step_analysis or step_analysis.get('error'):
+            return jsonify({
+                "success": False,
+                "message": "3D görselleştirme için STEP analizi gerekli"
+            }), 404
+        
+        file_type = analysis.get('file_type', 'unknown')
+        original_filename = analysis.get('original_filename', 'Unknown')
+        
         # 3D viewer HTML'ini döndür
         viewer_html = f'''
         <!DOCTYPE html>
         <html>
         <head>
-            <title>3D Model Viewer - EngTeklif</title>
+            <title>3D Model Viewer - {original_filename} - EngTeklif</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
-                body {{ margin: 0; overflow: hidden; }}
-                iframe {{ width: 100vw; height: 100vh; border: none; }}
+                body {{ 
+                    margin: 0; 
+                    overflow: hidden; 
+                    font-family: Arial, sans-serif;
+                }}
+                iframe {{ 
+                    width: 100vw; 
+                    height: 100vh; 
+                    border: none; 
+                }}
+                .file-info {{
+                    position: absolute;
+                    top: 10px;
+                    left: 10px;
+                    background: rgba(0,0,0,0.7);
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    z-index: 1000;
+                }}
+                .file-type {{
+                    background: {'#e74c3c' if file_type == 'pdf' else '#3498db'};
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    margin-right: 8px;
+                    font-weight: bold;
+                }}
             </style>
         </head>
         <body>
-            <iframe src="/static/3d-viewer.html?analysis_id={analysis_id}"></iframe>
+            <div class="file-info">
+                <span class="file-type">{file_type.upper()}</span>
+                {original_filename}
+                <br>
+                <small>3D Analiz: {step_analysis.get('method', 'unknown')}</small>
+            </div>
+            <iframe src="/static/3d-viewer.html?analysis_id={analysis_id}&file_type={file_type}"></iframe>
         </body>
         </html>
         '''
@@ -767,7 +919,60 @@ def get_3d_viewer_page(analysis_id):
             "message": f"3D viewer hatası: {str(e)}"
         }), 500
 
-# ===== STATIC FILE SERVING - FIXED =====
+@upload_bp.route('/viewer-info/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_viewer_info(analysis_id):
+    """3D viewer için detaylı bilgi getir"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        step_analysis = analysis.get('step_analysis', {})
+        file_type = analysis.get('file_type', 'unknown')
+        
+        # Dosya türüne göre bilgi hazırla
+        viewer_info = {
+            "analysis_id": analysis_id,
+            "file_type": file_type,
+            "original_filename": analysis.get('original_filename', 'Unknown'),
+            "step_analysis": step_analysis,
+            "material_matches": analysis.get('material_matches', []),
+            "all_material_calculations": analysis.get('all_material_calculations', []),
+            "material_options": analysis.get('material_options', []),
+            "cost_estimation": analysis.get('cost_estimation', {}),
+            "3d_capabilities": {
+                "wireframe_available": bool(step_analysis and not step_analysis.get('error')),
+                "render_available": bool(analysis.get('isometric_view')),
+                "interactive_viewer": True,
+                "file_type": file_type,
+                "analysis_method": step_analysis.get('method', 'unknown')
+            }
+        }
+        
+        return jsonify({
+            "success": True,
+            "viewer_info": viewer_info
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Viewer bilgi hatası: {str(e)}"
+        }), 500
+
+# ===== STATIC FILE SERVING =====
 
 @upload_bp.route('/static/<path:filename>')
 def serve_static_files(filename):
@@ -779,3 +984,116 @@ def serve_static_files(filename):
             "success": False,
             "message": f"Static dosya hatası: {str(e)}"
         }), 404
+
+# ===== THUMBNAIL ENDPOINT =====
+
+@upload_bp.route('/thumbnail/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_analysis_thumbnail(analysis_id):
+    """Analiz için küçük thumbnail görüntüsü"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis or analysis['user_id'] != current_user['id']:
+            return jsonify({"success": False, "message": "Erişim reddedildi"}), 403
+        
+        file_type = analysis.get('file_type', 'unknown')
+        step_analysis = analysis.get('step_analysis', {})
+        
+        if not step_analysis or step_analysis.get('error'):
+            # Varsayılan thumbnail döndür
+            default_thumb_path = "static/default_thumbnail.png"
+            if os.path.exists(default_thumb_path):
+                return send_file(default_thumb_path, mimetype='image/png')
+            else:
+                return jsonify({"success": False, "message": "Thumbnail mevcut değil"}), 404
+        
+        # Thumbnail oluştur
+        session_id = str(uuid.uuid4())[:8]
+        thumb_path = f"static/thumb_{session_id}_{analysis_id}.png"
+        
+        try:
+            if file_type == 'pdf':
+                from services.pdf_3d_renderer import create_pdf_thumbnail
+                success = create_pdf_thumbnail(step_analysis, thumb_path, size=(200, 150))
+            else:
+                # STEP thumbnail
+                file_path = analysis.get('file_path')
+                if file_path and os.path.exists(file_path):
+                    from services.step_renderer import generate_step_thumbnail
+                    success = generate_step_thumbnail(file_path, thumb_path, size=(200, 150))
+                else:
+                    success = False
+            
+            if success and os.path.exists(thumb_path):
+                return send_file(thumb_path, mimetype='image/png')
+            else:
+                return jsonify({"success": False, "message": "Thumbnail oluşturulamadı"}), 500
+                
+        except ImportError:
+            return jsonify({"success": False, "message": "Thumbnail servisi mevcut değil"}), 503
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Thumbnail hatası: {str(e)}"
+        }), 500
+    
+@upload_bp.route('/generate-isometric/<analysis_id>', methods=['POST'])
+@jwt_required()
+def generate_isometric_view(analysis_id):
+    """Analiz için izometrik görünüm oluştur"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını bul
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # Visualization service'i import et
+        from services.visualization_service import generate_isometric_view
+        
+        # Output path oluştur
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+        output_filename = f"isometric_{analysis_id}_{session_id}.png"
+        output_path = os.path.join("static", output_filename)
+        
+        # İzometrik görünüm oluştur
+        success = generate_isometric_view(analysis, output_path)
+        
+        if success and os.path.exists(output_path):
+            # Dosya yolunu analiz kaydına kaydet
+            FileAnalysis.update_analysis(analysis_id, {
+                "isometric_view": output_path
+            })
+            
+            return jsonify({
+                "success": True,
+                "message": "İzometrik görünüm oluşturuldu",
+                "image_path": output_path,
+                "image_url": f"/static/{output_filename}"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "İzometrik görünüm oluşturulamadı"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"İzometrik görünüm hatası: {str(e)}"
+        }), 500

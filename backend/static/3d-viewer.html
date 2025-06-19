@@ -12,44 +12,188 @@
       }
 
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
           sans-serif;
-        background: #1a1a2e;
-        color: #eee;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         overflow: hidden;
-      }
-
-      .viewer-container {
-        position: relative;
-        width: 100vw;
         height: 100vh;
+      }
+
+      #container {
         display: flex;
+        height: 100vh;
       }
 
-      .sidebar {
-        width: 300px;
-        background: #16213e;
-        border-right: 1px solid #0f3460;
-        padding: 20px;
-        overflow-y: auto;
-        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
-      }
-
-      .main-viewer {
+      #viewer-panel {
         flex: 1;
         position: relative;
-        background: radial-gradient(circle at center, #1a1a2e 0%, #0f0f23 100%);
+        background: #1a1a1a;
       }
 
-      #canvas {
+      #canvas-container {
         width: 100%;
         height: 100%;
-        display: block;
-        cursor: grab;
+        position: relative;
       }
 
-      #canvas:active {
-        cursor: grabbing;
+      #info-panel {
+        width: 320px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        overflow-y: auto;
+        box-shadow: -5px 0 15px rgba(0, 0, 0, 0.1);
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #e1e8ed;
+      }
+
+      .file-type-badge {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        margin-right: 12px;
+      }
+
+      .file-type-pdf {
+        background: #e74c3c;
+      }
+      .file-type-step {
+        background: #3498db;
+      }
+      .file-type-document {
+        background: #27ae60;
+      }
+
+      .file-info h3 {
+        font-size: 16px;
+        color: #2c3e50;
+        margin-bottom: 4px;
+      }
+
+      .file-info p {
+        font-size: 12px;
+        color: #7f8c8d;
+      }
+
+      .controls-section {
+        margin-bottom: 25px;
+      }
+
+      .section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+      }
+
+      .section-title::before {
+        content: "";
+        width: 4px;
+        height: 16px;
+        background: #3498db;
+        margin-right: 8px;
+        border-radius: 2px;
+      }
+
+      .control-group {
+        margin-bottom: 15px;
+      }
+
+      .control-group label {
+        display: block;
+        font-size: 12px;
+        color: #5a6c7d;
+        margin-bottom: 5px;
+        font-weight: 500;
+      }
+
+      .control-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .btn-small {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+
+      .stat-item {
+        background: rgba(52, 152, 219, 0.1);
+        padding: 10px;
+        border-radius: 6px;
+        text-align: center;
+      }
+
+      .stat-value {
+        font-size: 14px;
+        font-weight: bold;
+        color: #2c3e50;
+      }
+
+      .stat-label {
+        font-size: 10px;
+        color: #7f8c8d;
+        margin-top: 2px;
+      }
+
+      .material-list {
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .material-item {
+        background: rgba(46, 204, 113, 0.1);
+        margin-bottom: 8px;
+        padding: 10px;
+        border-radius: 6px;
+        border-left: 3px solid #2ecc71;
+      }
+
+      .material-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: #27ae60;
+        margin-bottom: 3px;
+      }
+
+      .material-details {
+        font-size: 10px;
+        color: #5a6c7d;
       }
 
       .loading {
@@ -57,18 +201,18 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
+        color: white;
         text-align: center;
-        z-index: 100;
       }
 
       .spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid #333;
-        border-top: 4px solid #0066cc;
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid white;
         border-radius: 50%;
         animation: spin 1s linear infinite;
-        margin: 0 auto 20px;
+        margin: 0 auto 15px;
       }
 
       @keyframes spin {
@@ -80,656 +224,734 @@
         }
       }
 
-      .controls {
-        position: absolute;
-        top: 20px;
-        right: 20px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        z-index: 50;
-      }
-
-      .control-btn {
-        padding: 10px;
-        background: rgba(22, 33, 62, 0.9);
-        border: 1px solid #0f3460;
-        border-radius: 8px;
-        color: #eee;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        backdrop-filter: blur(10px);
-        font-size: 14px;
-        min-width: 120px;
-        text-align: center;
-      }
-
-      .control-btn:hover {
-        background: rgba(0, 102, 204, 0.8);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
-      }
-
-      .info-panel {
-        background: rgba(22, 33, 62, 0.95);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        border: 1px solid #0f3460;
-        backdrop-filter: blur(10px);
-      }
-
-      .info-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 15px;
-        color: #0066cc;
-        border-bottom: 2px solid #0066cc;
-        padding-bottom: 8px;
-      }
-
-      .info-item {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 8px;
-        padding: 5px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      .info-item:last-child {
-        border-bottom: none;
-      }
-
-      .info-label {
-        font-weight: 500;
-        color: #ccc;
-      }
-
-      .info-value {
-        color: #fff;
-        font-weight: 600;
-      }
-
       .error-message {
-        background: #dc2626;
-        color: white;
+        background: rgba(231, 76, 60, 0.1);
+        color: #e74c3c;
         padding: 15px;
-        border-radius: 8px;
-        margin: 20px;
-        text-align: center;
-      }
-
-      .material-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-      }
-
-      .material-table th,
-      .material-table td {
-        padding: 8px;
-        text-align: left;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        font-size: 12px;
-      }
-
-      .material-table th {
-        background: rgba(0, 102, 204, 0.2);
-        font-weight: 600;
-        color: #0066cc;
-      }
-
-      .stats-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 15px;
-      }
-
-      .stat-box {
-        background: rgba(0, 102, 204, 0.1);
-        padding: 10px;
         border-radius: 6px;
         text-align: center;
-        border: 1px solid rgba(0, 102, 204, 0.3);
+        margin: 20px;
       }
 
-      .stat-value {
-        font-size: 18px;
-        font-weight: bold;
-        color: #0066cc;
-      }
-
-      .stat-label {
-        font-size: 11px;
-        color: #ccc;
-        margin-top: 4px;
-      }
-
-      .wireframe-toggle {
+      .axis-helper {
         position: absolute;
         bottom: 20px;
         right: 20px;
-        padding: 12px 20px;
-        background: rgba(22, 33, 62, 0.9);
-        border: 1px solid #0f3460;
-        border-radius: 8px;
-        color: #eee;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        backdrop-filter: blur(10px);
+        width: 80px;
+        height: 80px;
+        pointer-events: none;
       }
 
-      .wireframe-toggle:hover {
-        background: rgba(0, 102, 204, 0.8);
-      }
-
-      .toggle-sidebar {
+      .toggle-panel {
         position: absolute;
         top: 20px;
-        left: 20px;
-        padding: 10px;
-        background: rgba(22, 33, 62, 0.9);
-        border: 1px solid #0f3460;
-        border-radius: 8px;
-        color: #eee;
-        cursor: pointer;
-        z-index: 60;
-        backdrop-filter: blur(10px);
-      }
-
-      .sidebar.hidden {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
+        right: 20px;
+        z-index: 1000;
       }
 
       @media (max-width: 768px) {
-        .sidebar {
-          width: 250px;
-          position: absolute;
-          height: 100%;
-          z-index: 100;
-          transform: translateX(-100%);
-          transition: transform 0.3s ease;
+        #container {
+          flex-direction: column;
         }
 
-        .sidebar.visible {
-          transform: translateX(0);
+        #info-panel {
+          width: 100%;
+          height: 250px;
+          order: 2;
         }
 
-        .controls {
-          right: 10px;
-          top: 70px;
-        }
-
-        .control-btn {
-          min-width: 100px;
-          padding: 8px;
-          font-size: 12px;
+        #viewer-panel {
+          order: 1;
+          height: calc(100vh - 250px);
         }
       }
     </style>
   </head>
   <body>
-    <div class="viewer-container">
-      <div class="sidebar" id="sidebar">
-        <div class="info-panel">
-          <div class="info-title">📊 Model Bilgileri</div>
-          <div id="model-info">
-            <div class="info-item">
-              <span class="info-label">Durum:</span>
-              <span class="info-value" id="status">Yükleniyor...</span>
+    <div id="container">
+      <div id="viewer-panel">
+        <div id="canvas-container">
+          <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <div>3D Model Yükleniyor...</div>
+          </div>
+        </div>
+
+        <!-- Eksen yardımcısı -->
+        <div class="axis-helper">
+          <canvas id="axis-canvas" width="80" height="80"></canvas>
+        </div>
+
+        <!-- Panel toggle butonu -->
+        <div class="toggle-panel">
+          <button id="toggle-info" class="btn-small">Panel</button>
+        </div>
+      </div>
+
+      <div id="info-panel">
+        <div class="panel-header">
+          <div class="file-type-badge" id="file-type-badge">PDF</div>
+          <div class="file-info">
+            <h3 id="file-name">Model Yükleniyor...</h3>
+            <p id="file-analysis-method">Analiz yöntemi belirleniyor...</p>
+          </div>
+        </div>
+
+        <!-- Kontroller -->
+        <div class="controls-section">
+          <div class="section-title">Görünüm Kontrolleri</div>
+
+          <div class="control-group">
+            <label>Ön Tanımlı Görünümler</label>
+            <div class="control-row">
+              <button onclick="setView('front')" class="btn-small">Ön</button>
+              <button onclick="setView('top')" class="btn-small">Üst</button>
+              <button onclick="setView('side')" class="btn-small">Yan</button>
+              <button onclick="setView('isometric')" class="btn-small">
+                İzometrik
+              </button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>Model Kontrolleri</label>
+            <div class="control-row">
+              <button onclick="resetView()" class="btn-small">Sıfırla</button>
+              <button onclick="toggleWireframe()" class="btn-small">
+                Wireframe
+              </button>
+              <button onclick="fitToScreen()" class="btn-small">Sığdır</button>
             </div>
           </div>
         </div>
 
-        <div class="info-panel" id="geometry-panel" style="display: none">
-          <div class="info-title">📐 Geometrik Bilgiler</div>
-          <div id="geometry-info"></div>
+        <!-- Model İstatistikleri -->
+        <div class="controls-section">
+          <div class="section-title">Model Bilgileri</div>
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-value" id="vertex-count">-</div>
+              <div class="stat-label">Vertex</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="edge-count">-</div>
+              <div class="stat-label">Edge</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="volume-value">-</div>
+              <div class="stat-label">Hacim (mm³)</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="dimension-value">-</div>
+              <div class="stat-label">Boyutlar</div>
+            </div>
+          </div>
         </div>
 
-        <div class="info-panel" id="materials-panel" style="display: none">
-          <div class="info-title">🔧 Malzeme Analizi</div>
-          <div id="materials-info"></div>
-        </div>
-      </div>
-
-      <div class="main-viewer">
-        <button class="toggle-sidebar" id="toggleSidebar">☰</button>
-
-        <div class="loading" id="loading">
-          <div class="spinner"></div>
-          <div>3D Model yükleniyor...</div>
-        </div>
-
-        <canvas id="canvas"></canvas>
-
-        <div class="controls">
-          <button class="control-btn" id="resetView">
-            🔄 Görünümü Sıfırla
-          </button>
-          <button class="control-btn" id="fitView">📏 Modeli Sığdır</button>
-          <button class="control-btn" id="toggleWireframe">🔲 Wireframe</button>
-          <button class="control-btn" id="saveImage">📷 Ekran Görüntüsü</button>
+        <!-- Malzeme Bilgileri -->
+        <div class="controls-section">
+          <div class="section-title">Bulunan Malzemeler</div>
+          <div id="material-list" class="material-list">
+            <div class="loading">
+              <div class="spinner"></div>
+              <div style="font-size: 12px">Malzemeler yükleniyor...</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Three.js CDN -->
+    <!-- Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/controls/OrbitControls.js"></script>
 
     <script>
-      class STEP3DViewer {
-        constructor() {
-          this.scene = null;
-          this.camera = null;
-          this.renderer = null;
-          this.controls = null;
-          this.model = null;
-          this.wireframeMode = false;
-          this.analysisId = null;
-          this.wireframeData = null;
-          this.originalMaterials = [];
+      // Global değişkenler
+      let scene, camera, renderer, controls;
+      let wireframeModel = null;
+      let analysisId = null;
+      let fileType = null;
+      let viewerData = null;
+      let isWireframeMode = false;
 
-          this.init();
-          this.setupEventListeners();
-          this.loadModel();
-        }
+      // URL parametrelerini al
+      function getUrlParams() {
+        const urlParams = new URLSearchParams(window.location.search);
+        analysisId = urlParams.get("analysis_id");
+        fileType = urlParams.get("file_type") || "unknown";
 
-        init() {
-          const canvas = document.getElementById("canvas");
-          const container = canvas.parentElement;
+        console.log("URL Params:", { analysisId, fileType });
+      }
 
-          // Scene
-          this.scene = new THREE.Scene();
-          this.scene.background = new THREE.Color(0x1a1a2e);
+      // Three.js sahnesini başlat
+      function initThreeJS() {
+        const container = document.getElementById("canvas-container");
 
-          // Camera
-          this.camera = new THREE.PerspectiveCamera(
-            75,
-            container.clientWidth / container.clientHeight,
-            0.1,
-            1000
-          );
+        // Sahne
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a);
 
-          // Renderer
-          this.renderer = new THREE.WebGLRenderer({
-            canvas: canvas,
-            antialias: true,
-            alpha: true,
-          });
-          this.renderer.setSize(container.clientWidth, container.clientHeight);
-          this.renderer.setPixelRatio(window.devicePixelRatio);
-          this.renderer.shadowMap.enabled = true;
-          this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // Kamera
+        camera = new THREE.PerspectiveCamera(
+          75,
+          container.clientWidth / container.clientHeight,
+          0.1,
+          2000
+        );
+        camera.position.set(100, 100, 100);
 
-          // Controls
-          this.controls = new THREE.OrbitControls(
-            this.camera,
-            this.renderer.domElement
-          );
-          this.controls.enableDamping = true;
-          this.controls.dampingFactor = 0.05;
-          this.controls.screenSpacePanning = false;
-          this.controls.minDistance = 1;
-          this.controls.maxDistance = 1000;
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
 
-          // Lighting
-          this.setupLighting();
+        // Kontroller - Manual implementation
+        setupMouseControls();
 
-          // Start render loop
-          this.animate();
+        // Işıklandırma
+        setupLighting();
 
-          // Handle resize
-          window.addEventListener("resize", () => this.onWindowResize());
-        }
+        // Grid
+        const gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
+        scene.add(gridHelper);
 
-        setupLighting() {
-          // Ambient light
-          const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
-          this.scene.add(ambientLight);
+        // Eksen yardımcısı
+        const axesHelper = new THREE.AxesHelper(50);
+        scene.add(axesHelper);
 
-          // Main directional light
-          const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
-          mainLight.position.set(10, 10, 5);
-          mainLight.castShadow = true;
-          mainLight.shadow.mapSize.width = 2048;
-          mainLight.shadow.mapSize.height = 2048;
-          this.scene.add(mainLight);
+        // Resize event
+        window.addEventListener("resize", onWindowResize);
 
-          // Fill lights
-          const fillLight1 = new THREE.DirectionalLight(0x8bb7f0, 0.3);
-          fillLight1.position.set(-10, 5, -5);
-          this.scene.add(fillLight1);
+        // Render loop
+        animate();
+      }
 
-          const fillLight2 = new THREE.DirectionalLight(0xf0c070, 0.2);
-          fillLight2.position.set(0, -10, 10);
-          this.scene.add(fillLight2);
-        }
+      // Mouse kontrolleri
+      function setupMouseControls() {
+        let isMouseDown = false;
+        let mouseX = 0,
+          mouseY = 0;
+        let phi = 0,
+          theta = 0;
+        let radius = 150;
 
-        async loadModel() {
-          try {
-            // URL'den analysis ID'sini al
-            const urlParams = new URLSearchParams(window.location.search);
-            this.analysisId = urlParams.get("analysis_id");
+        const canvas = renderer.domElement;
 
-            if (!this.analysisId) {
-              throw new Error("Analysis ID bulunamadı");
-            }
+        canvas.addEventListener("mousedown", (event) => {
+          isMouseDown = true;
+          mouseX = event.clientX;
+          mouseY = event.clientY;
+        });
 
-            this.updateStatus("Wireframe verileri yükleniyor...");
+        canvas.addEventListener("mouseup", () => {
+          isMouseDown = false;
+        });
 
-            // Wireframe verilerini al
-            const response = await fetch(
-              `/api/upload/wireframe/${this.analysisId}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${this.getToken()}`,
-                },
-              }
-            );
+        canvas.addEventListener("mousemove", (event) => {
+          if (!isMouseDown) return;
 
-            if (!response.ok) {
-              throw new Error(`API Hatası: ${response.status}`);
-            }
+          const deltaX = event.clientX - mouseX;
+          const deltaY = event.clientY - mouseY;
 
-            const data = await response.json();
+          theta += deltaX * 0.01;
+          phi += deltaY * 0.01;
 
-            if (!data.success) {
-              throw new Error(data.message || "Veri yüklenemedi");
-            }
+          phi = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, phi));
 
-            this.wireframeData = data.wireframe_data;
-            this.createWireframeModel();
-            this.updateUI(data);
-            this.fitCameraToModel();
-          } catch (error) {
-            console.error("Model yükleme hatası:", error);
-            this.showError(`Model yüklenemedi: ${error.message}`);
-          }
-        }
+          updateCameraPosition();
 
-        createWireframeModel() {
-          if (!this.wireframeData || !this.wireframeData.vertices) {
-            throw new Error("Wireframe verileri eksik");
-          }
+          mouseX = event.clientX;
+          mouseY = event.clientY;
+        });
 
-          this.updateStatus("3D model oluşturuluyor...");
+        canvas.addEventListener("wheel", (event) => {
+          event.preventDefault();
+          radius += event.deltaY * 0.1;
+          radius = Math.max(10, Math.min(500, radius));
+          updateCameraPosition();
+        });
 
-          // Vertices'leri Vector3 array'ine çevir
-          const vertices = this.wireframeData.vertices.map(
-            (v) => new THREE.Vector3(v[0], v[1], v[2])
-          );
-
-          // Wireframe geometrisi
-          const geometry = new THREE.BufferGeometry();
-          const positions = [];
-          const colors = [];
-
-          // Edges'leri çiz
-          for (const edge of this.wireframeData.edges) {
-            const v1 = vertices[edge[0]];
-            const v2 = vertices[edge[1]];
-
-            if (v1 && v2) {
-              positions.push(v1.x, v1.y, v1.z);
-              positions.push(v2.x, v2.y, v2.z);
-
-              // Mavi wireframe rengi
-              colors.push(0.2, 0.6, 1.0);
-              colors.push(0.2, 0.6, 1.0);
-            }
-          }
-
-          geometry.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3)
-          );
-          geometry.setAttribute(
-            "color",
-            new THREE.Float32BufferAttribute(colors, 3)
-          );
-
-          // Wireframe malzemesi
-          const material = new THREE.LineBasicMaterial({
-            vertexColors: true,
-            linewidth: 2,
-          });
-
-          // Line segments mesh
-          this.model = new THREE.LineSegments(geometry, material);
-          this.scene.add(this.model);
-
-          // Grid ekleme
-          this.addGrid();
-
-          this.updateStatus("Model yüklendi");
-          document.getElementById("loading").style.display = "none";
-        }
-
-        addGrid() {
-          if (!this.wireframeData.bounding_box) return;
-
-          const bbox = this.wireframeData.bounding_box;
-          const size = Math.max(...bbox.dimensions) * 1.5;
-
-          const gridHelper = new THREE.GridHelper(size, 20, 0x444444, 0x222222);
-          gridHelper.position.y = bbox.min[1] - 10;
-          this.scene.add(gridHelper);
-        }
-
-        fitCameraToModel() {
-          if (!this.wireframeData || !this.wireframeData.bounding_box) return;
-
-          const bbox = this.wireframeData.bounding_box;
-          const center = new THREE.Vector3(...bbox.center);
-          const size = Math.max(...bbox.dimensions);
-
-          // Kamera pozisyonu
-          const distance = size * 2;
-          this.camera.position.set(
-            center.x + distance * 0.7,
-            center.y + distance * 0.5,
-            center.z + distance * 0.7
-          );
-
-          this.controls.target.copy(center);
-          this.controls.update();
-        }
-
-        updateUI(data) {
-          // Model bilgileri
-          if (data.wireframe_data) {
-            const info = document.getElementById("model-info");
-            info.innerHTML = `
-                        <div class="info-item">
-                            <span class="info-label">Durum:</span>
-                            <span class="info-value">✅ Yüklendi</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Vertex Sayısı:</span>
-                            <span class="info-value">${data.wireframe_data.vertex_count.toLocaleString()}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Kenar Sayısı:</span>
-                            <span class="info-value">${data.wireframe_data.edge_count.toLocaleString()}</span>
-                        </div>
-                    `;
-
-            // Geometrik bilgiler
-            const geoPanel = document.getElementById("geometry-panel");
-            const geoInfo = document.getElementById("geometry-info");
-            if (data.wireframe_data.bounding_box) {
-              const bbox = data.wireframe_data.bounding_box;
-              geoInfo.innerHTML = `
-                            <div class="stats-grid">
-                                <div class="stat-box">
-                                    <div class="stat-value">${bbox.dimensions[0].toFixed(
-                                      1
-                                    )}</div>
-                                    <div class="stat-label">X Boyutu (mm)</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value">${bbox.dimensions[1].toFixed(
-                                      1
-                                    )}</div>
-                                    <div class="stat-label">Y Boyutu (mm)</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value">${bbox.dimensions[2].toFixed(
-                                      1
-                                    )}</div>
-                                    <div class="stat-label">Z Boyutu (mm)</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-value">${(
-                                      (bbox.dimensions[0] *
-                                        bbox.dimensions[1] *
-                                        bbox.dimensions[2]) /
-                                      1000000
-                                    ).toFixed(2)}</div>
-                                    <div class="stat-label">Hacim (cm³)</div>
-                                </div>
-                            </div>
-                        `;
-              geoPanel.style.display = "block";
-            }
-          }
-
-          // Malzeme bilgileri
-          if (
-            data.material_info &&
-            (data.material_info.matches.length > 0 ||
-              data.material_info.calculations.length > 0)
-          ) {
-            const matPanel = document.getElementById("materials-panel");
-            const matInfo = document.getElementById("materials-info");
-
-            let html = "";
-
-            if (data.material_info.matches.length > 0) {
-              html += '<div style="margin-bottom: 15px;">';
-              html += "<strong>Tespit Edilen Malzemeler:</strong><br>";
-              data.material_info.matches.forEach((match) => {
-                html += `<div style="padding: 4px 0; color: #4ade80;">• ${match}</div>`;
-              });
-              html += "</div>";
-            }
-
-            if (data.material_info.calculations.length > 0) {
-              html += "<div>";
-              html += "<strong>Maliyet Hesaplamaları:</strong>";
-              html += '<table class="material-table">';
-              html +=
-                "<tr><th>Malzeme</th><th>Kütle (kg)</th><th>Fiyat ($)</th></tr>";
-
-              data.material_info.calculations.slice(0, 3).forEach((calc) => {
-                html += `
-                                <tr>
-                                    <td>${calc.material || calc.name}</td>
-                                    <td>${calc.mass_kg.toFixed(3)}</td>
-                                    <td>$${calc.material_cost.toFixed(2)}</td>
-                                </tr>
-                            `;
-              });
-              html += "</table></div>";
-            }
-
-            matInfo.innerHTML = html;
-            matPanel.style.display = "block";
-          }
-        }
-
-        setupEventListeners() {
-          // Sidebar toggle
-          document
-            .getElementById("toggleSidebar")
-            .addEventListener("click", () => {
-              const sidebar = document.getElementById("sidebar");
-              sidebar.classList.toggle("hidden");
-            });
-
-          // Control buttons
-          document.getElementById("resetView").addEventListener("click", () => {
-            this.fitCameraToModel();
-          });
-
-          document.getElementById("fitView").addEventListener("click", () => {
-            this.fitCameraToModel();
-          });
-
-          document
-            .getElementById("toggleWireframe")
-            .addEventListener("click", () => {
-              this.toggleWireframe();
-            });
-
-          document.getElementById("saveImage").addEventListener("click", () => {
-            this.saveScreenshot();
-          });
-        }
-
-        toggleWireframe() {
-          // Zaten wireframe modundayız, burada line width değiştirebiliriz
-          if (this.model && this.model.material) {
-            const currentWidth = this.model.material.linewidth || 2;
-            this.model.material.linewidth = currentWidth === 2 ? 4 : 2;
-            this.model.material.needsUpdate = true;
-          }
-        }
-
-        saveScreenshot() {
-          const link = document.createElement("a");
-          link.download = `3d-model-${this.analysisId}-${Date.now()}.png`;
-          link.href = this.renderer.domElement.toDataURL();
-          link.click();
-        }
-
-        animate() {
-          requestAnimationFrame(() => this.animate());
-
-          if (this.controls) {
-            this.controls.update();
-          }
-
-          if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
-          }
-        }
-
-        onWindowResize() {
-          const container = this.renderer.domElement.parentElement;
-          const width = container.clientWidth;
-          const height = container.clientHeight;
-
-          this.camera.aspect = width / height;
-          this.camera.updateProjectionMatrix();
-          this.renderer.setSize(width, height);
-        }
-
-        updateStatus(message) {
-          document.getElementById("status").textContent = message;
-        }
-
-        showError(message) {
-          document.getElementById("loading").innerHTML = `
-                    <div class="error-message">
-                        ❌ ${message}
-                    </div>
-                `;
-        }
-
-        getToken() {
-          // JWT token'ı localStorage'dan al (gerçek uygulamada)
-          return localStorage.getItem("auth_token") || "demo_token";
+        function updateCameraPosition() {
+          camera.position.x = radius * Math.cos(phi) * Math.cos(theta);
+          camera.position.y = radius * Math.sin(phi);
+          camera.position.z = radius * Math.cos(phi) * Math.sin(theta);
+          camera.lookAt(0, 0, 0);
         }
       }
 
-      // Uygulama başlat
+      // Işıklandırma
+      function setupLighting() {
+        // Ambient light
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+
+        // Directional light
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 100, 50);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+
+        // Point lights
+        const pointLight1 = new THREE.PointLight(0x4fc3f7, 0.5, 200);
+        pointLight1.position.set(-50, 50, 50);
+        scene.add(pointLight1);
+
+        const pointLight2 = new THREE.PointLight(0xff7043, 0.3, 200);
+        pointLight2.position.set(50, -50, -50);
+        scene.add(pointLight2);
+      }
+
+      // Wireframe modeli yükle
+      async function loadWireframeData() {
+        if (!analysisId) {
+          showError("Analiz ID bulunamadı");
+          return;
+        }
+
+        try {
+          console.log(
+            `Loading wireframe data for analysis: ${analysisId}, type: ${fileType}`
+          );
+
+          const response = await fetch(`/api/upload/wireframe/${analysisId}`, {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          if (!data.success) {
+            throw new Error(data.message || "Wireframe data alınamadı");
+          }
+
+          console.log("Wireframe data loaded:", data);
+          viewerData = data;
+
+          // Model oluştur
+          createWireframeModel(data.wireframe_data);
+
+          // UI güncelle
+          updateUI(data);
+
+          hideLoading();
+        } catch (error) {
+          console.error("Wireframe data yükleme hatası:", error);
+          showError(`Model yüklenemedi: ${error.message}`);
+        }
+      }
+
+      // Wireframe model oluştur
+      function createWireframeModel(wireframeData) {
+        if (!wireframeData || !wireframeData.vertices || !wireframeData.edges) {
+          showError("Geçersiz wireframe data");
+          return;
+        }
+
+        // Mevcut modeli temizle
+        if (wireframeModel) {
+          scene.remove(wireframeModel);
+        }
+
+        const vertices = wireframeData.vertices;
+        const edges = wireframeData.edges;
+
+        console.log(
+          `Creating wireframe: ${vertices.length} vertices, ${edges.length} edges`
+        );
+
+        // Geometry oluştur
+        const geometry = new THREE.BufferGeometry();
+        const positions = [];
+        const colors = [];
+
+        // Edge'ler için vertex pozisyonları
+        edges.forEach((edge) => {
+          if (
+            edge.length >= 2 &&
+            edge[0] < vertices.length &&
+            edge[1] < vertices.length
+          ) {
+            const v1 = vertices[edge[0]];
+            const v2 = vertices[edge[1]];
+
+            // İlk vertex
+            positions.push(v1[0], v1[1], v1[2]);
+            colors.push(0.3, 0.7, 1.0); // Mavi renk
+
+            // İkinci vertex
+            positions.push(v2[0], v2[1], v2[2]);
+            colors.push(0.3, 0.7, 1.0); // Mavi renk
+          }
+        });
+
+        geometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(positions, 3)
+        );
+        geometry.setAttribute(
+          "color",
+          new THREE.Float32BufferAttribute(colors, 3)
+        );
+
+        // Material
+        const material = new THREE.LineBasicMaterial({
+          vertexColors: true,
+          linewidth: 2,
+          transparent: true,
+          opacity: 0.8,
+        });
+
+        // Line segments oluştur
+        wireframeModel = new THREE.LineSegments(geometry, material);
+        scene.add(wireframeModel);
+
+        // Vertex noktaları ekle
+        addVertexPoints(vertices);
+
+        // Kamerayı modele odakla
+        fitModelToView(wireframeData.bounding_box);
+
+        console.log("Wireframe model oluşturuldu");
+      }
+
+      // Vertex noktalarını ekle
+      function addVertexPoints(vertices) {
+        const pointGeometry = new THREE.BufferGeometry();
+        const pointPositions = [];
+        const pointColors = [];
+
+        vertices.forEach((vertex) => {
+          pointPositions.push(vertex[0], vertex[1], vertex[2]);
+          pointColors.push(1.0, 0.3, 0.3); // Kırmızı noktalar
+        });
+
+        pointGeometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(pointPositions, 3)
+        );
+        pointGeometry.setAttribute(
+          "color",
+          new THREE.Float32BufferAttribute(pointColors, 3)
+        );
+
+        const pointMaterial = new THREE.PointsMaterial({
+          size: 3,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.8,
+        });
+
+        const points = new THREE.Points(pointGeometry, pointMaterial);
+        scene.add(points);
+      }
+
+      // Modeli görünüme sığdır
+      function fitModelToView(boundingBox) {
+        if (!boundingBox) return;
+
+        const center = boundingBox.center || [0, 0, 0];
+        const dimensions = boundingBox.dimensions || [100, 100, 100];
+
+        // Kamerayı merkeze odakla
+        const maxDimension = Math.max(...dimensions);
+        const distance = maxDimension * 2;
+
+        camera.position.set(
+          center[0] + distance * 0.7,
+          center[1] + distance * 0.7,
+          center[2] + distance * 0.7
+        );
+
+        camera.lookAt(center[0], center[1], center[2]);
+
+        // Grid'i yeniden boyutlandır
+        scene.children.forEach((child) => {
+          if (child instanceof THREE.GridHelper) {
+            scene.remove(child);
+          }
+        });
+
+        const gridSize = maxDimension * 2;
+        const gridHelper = new THREE.GridHelper(
+          gridSize,
+          20,
+          0x444444,
+          0x222222
+        );
+        gridHelper.position.set(center[0], 0, center[2]);
+        scene.add(gridHelper);
+      }
+
+      // UI güncelle
+      function updateUI(data) {
+        const wireframeData = data.wireframe_data;
+        const stepAnalysis = data.step_analysis;
+        const materialInfo = data.material_info;
+
+        // Dosya bilgileri
+        const fileTypeBadge = document.getElementById("file-type-badge");
+        const fileName = document.getElementById("file-name");
+        const analysisMethod = document.getElementById("file-analysis-method");
+
+        fileTypeBadge.textContent = fileType.toUpperCase();
+        fileTypeBadge.className = `file-type-badge file-type-${fileType}`;
+
+        fileName.textContent = `${fileType.toUpperCase()} Modeli`;
+        analysisMethod.textContent =
+          stepAnalysis.method || "Bilinmeyen analiz yöntemi";
+
+        // Model istatistikleri
+        document.getElementById("vertex-count").textContent =
+          wireframeData.vertex_count || "-";
+        document.getElementById("edge-count").textContent =
+          wireframeData.edge_count || "-";
+
+        const volume =
+          stepAnalysis["Prizma Hacmi (mm³)"] || stepAnalysis["volume_mm3"];
+        document.getElementById("volume-value").textContent = volume
+          ? new Intl.NumberFormat("tr-TR").format(Math.round(volume))
+          : "-";
+
+        const dimensions = wireframeData.bounding_box?.dimensions;
+        if (dimensions && dimensions.length >= 3) {
+          const dimText = `${dimensions[0].toFixed(1)}×${dimensions[1].toFixed(
+            1
+          )}×${dimensions[2].toFixed(1)}`;
+          document.getElementById("dimension-value").textContent = dimText;
+        }
+
+        // Malzeme listesi
+        updateMaterialList(materialInfo);
+      }
+
+      // Malzeme listesini güncelle
+      function updateMaterialList(materialInfo) {
+        const materialList = document.getElementById("material-list");
+
+        if (
+          !materialInfo ||
+          (!materialInfo.matches && !materialInfo.calculations)
+        ) {
+          materialList.innerHTML =
+            '<div class="error-message">Malzeme bilgisi bulunamadı</div>';
+          return;
+        }
+
+        let html = "";
+
+        // Bulunan malzemeler
+        if (materialInfo.matches && materialInfo.matches.length > 0) {
+          materialInfo.matches.forEach((match) => {
+            const cleanMatch = match.split("(")[0].trim();
+            const confidence = match.includes("%100") ? "100%" : "Tahmini";
+
+            html += `
+                        <div class="material-item">
+                            <div class="material-name">${cleanMatch}</div>
+                            <div class="material-details">Güven: ${confidence}</div>
+                        </div>
+                    `;
+          });
+        }
+
+        // Hesaplanan malzemeler
+        if (materialInfo.calculations && materialInfo.calculations.length > 0) {
+          materialInfo.calculations.forEach((calc) => {
+            html += `
+                        <div class="material-item">
+                            <div class="material-name">${calc.material}</div>
+                            <div class="material-details">
+                                ${calc.mass_kg} kg • ${calc.material_cost}
+                                <br>Yoğunluk: ${calc.density} g/cm³
+                            </div>
+                        </div>
+                    `;
+          });
+        }
+
+        if (html === "") {
+          html =
+            '<div class="material-item">Malzeme bilgisi mevcut değil</div>';
+        }
+
+        materialList.innerHTML = html;
+      }
+
+      // Görünüm ayarları
+      function setView(viewType) {
+        if (!wireframeModel) return;
+
+        const bbox = viewerData?.wireframe_data?.bounding_box;
+        if (!bbox) return;
+
+        const center = bbox.center || [0, 0, 0];
+        const dimensions = bbox.dimensions || [100, 100, 100];
+        const maxDim = Math.max(...dimensions);
+        const distance = maxDim * 2;
+
+        switch (viewType) {
+          case "front":
+            camera.position.set(center[0], center[1], center[2] + distance);
+            break;
+          case "top":
+            camera.position.set(center[0], center[1] + distance, center[2]);
+            break;
+          case "side":
+            camera.position.set(center[0] + distance, center[1], center[2]);
+            break;
+          case "isometric":
+          default:
+            camera.position.set(
+              center[0] + distance * 0.7,
+              center[1] + distance * 0.7,
+              center[2] + distance * 0.7
+            );
+            break;
+        }
+
+        camera.lookAt(center[0], center[1], center[2]);
+      }
+
+      // Görünümü sıfırla
+      function resetView() {
+        setView("isometric");
+      }
+
+      // Wireframe modu toggle
+      function toggleWireframe() {
+        if (!wireframeModel) return;
+
+        isWireframeMode = !isWireframeMode;
+
+        scene.children.forEach((child) => {
+          if (
+            child instanceof THREE.LineSegments ||
+            child instanceof THREE.Points
+          ) {
+            child.visible = isWireframeMode ? true : true; // Her zaman görünür
+          }
+        });
+      }
+
+      // Ekrana sığdır
+      function fitToScreen() {
+        if (!viewerData?.wireframe_data?.bounding_box) return;
+        fitModelToView(viewerData.wireframe_data.bounding_box);
+      }
+
+      // Window resize
+      function onWindowResize() {
+        const container = document.getElementById("canvas-container");
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      }
+
+      // Animasyon loop
+      function animate() {
+        requestAnimationFrame(animate);
+
+        // Hafif rotasyon
+        if (wireframeModel) {
+          wireframeModel.rotation.y += 0.001;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      // Loading gizle
+      function hideLoading() {
+        const loading = document.getElementById("loading");
+        if (loading) {
+          loading.style.display = "none";
+        }
+      }
+
+      // Hata göster
+      function showError(message) {
+        const container = document.getElementById("canvas-container");
+        container.innerHTML = `
+                <div class="error-message">
+                    <h3>3D Model Yüklenemedi</h3>
+                    <p>${message}</p>
+                    <button onclick="location.reload()">Tekrar Dene</button>
+                </div>
+            `;
+      }
+
+      // Panel toggle
+      function setupPanelToggle() {
+        const toggleBtn = document.getElementById("toggle-info");
+        const infoPanel = document.getElementById("info-panel");
+        let isPanelVisible = true;
+
+        toggleBtn.addEventListener("click", () => {
+          isPanelVisible = !isPanelVisible;
+          infoPanel.style.display = isPanelVisible ? "block" : "none";
+
+          // Canvas boyutunu yeniden hesapla
+          setTimeout(() => {
+            onWindowResize();
+          }, 100);
+        });
+      }
+
+      // Viewer info yükle (ek bilgiler için)
+      async function loadViewerInfo() {
+        if (!analysisId) return;
+
+        try {
+          const response = await fetch(
+            `/api/upload/viewer-info/${analysisId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+              },
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log("Viewer info loaded:", data.viewer_info);
+
+            // Dosya adını güncelle
+            if (data.viewer_info.original_filename) {
+              document.getElementById("file-name").textContent =
+                data.viewer_info.original_filename;
+            }
+          }
+        } catch (error) {
+          console.warn("Viewer info yüklenemedi:", error);
+        }
+      }
+
+      // Başlatma
       document.addEventListener("DOMContentLoaded", () => {
-        new STEP3DViewer();
+        console.log("3D Viewer başlatılıyor...");
+
+        getUrlParams();
+        initThreeJS();
+        setupPanelToggle();
+
+        // Veri yükleme
+        loadViewerInfo();
+        loadWireframeData();
       });
+
+      // Global fonksiyonlar (butonlar için)
+      window.setView = setView;
+      window.resetView = resetView;
+      window.toggleWireframe = toggleWireframe;
+      window.fitToScreen = fitToScreen;
     </script>
   </body>
 </html>
