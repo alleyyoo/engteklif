@@ -1,11 +1,2 @@
 backend/uploads
 backend/temp
-
-__pycache__/
-**/__pycache__/
-*/__pycache__/
-*.py[cod]
-*$py.class
-*.pyc
-*.pyo
-*.pyd
