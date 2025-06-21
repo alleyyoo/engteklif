@@ -1,0 +1,7 @@
+backend/uploads
+backend/temp
+backend/static
+
+backend/__pycache__
+backend/*.pyc
+backend/*/__pycache__

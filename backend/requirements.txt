@@ -1,5 +1,5 @@
-# requirements.txt - EngTeklif API (Python 3.11 COMPLETE WITH MATERIAL ANALYSIS)
-# Son güncelleme: 2025-01-01 - Material Analysis Integration
+# requirements.txt - EngTeklif API v2.0 - COMPLETE WITH STEP RENDERER
+# Son güncelleme: 2025-01-01 - Enhanced STEP Rendering & Material Analysis Integration
 
 # =============================================
 # CORE FRAMEWORK
@@ -28,9 +28,9 @@ pydantic==2.5.3
 email-validator==2.1.0
 
 # =============================================
-# FILE PROCESSING & ANALYSIS (REQUIRED)
+# FILE PROCESSING & ANALYSIS (CRITICAL FOR MATERIAL ANALYSIS)
 # =============================================
-# PDF Processing - ZORUNLU
+# PDF Processing - REQUIRED
 PyPDF2==3.0.1
 pdf2image==1.17.0
 pikepdf>=8.0.0,<9.0.0
@@ -38,72 +38,64 @@ pikepdf>=8.0.0,<9.0.0
 # Document Processing
 python-docx==1.1.0
 
-# Image Processing - ZORUNLU  
+# Image Processing - REQUIRED FOR STEP RENDERING
 Pillow>=10.0.0,<11.0.0
 opencv-python>=4.8.0,<5.0.0
 
-# OCR - ZORUNLU
+# OCR - REQUIRED FOR MATERIAL RECOGNITION
 pytesseract==0.3.10
 
 # =============================================
-# SCIENTIFIC COMPUTING - ZORUNLU
+# SCIENTIFIC COMPUTING - CRITICAL FOR ANALYSIS
 # =============================================
 numpy>=1.24.0,<2.0.0
 scipy>=1.10.0,<2.0.0
 pandas>=2.0.0,<3.0.0
 
 # =============================================
-# CAD & 3D PROCESSING - FULL ACTIVE
+# CAD & 3D PROCESSING - CORE STEP RENDERER DEPENDENCIES
 # =============================================
 cadquery>=2.3.1,<3.0.0
 matplotlib>=3.7.0,<4.0.0
 trimesh>=4.0.0,<5.0.0
-open3d>=0.18.0
+
+# SVG Processing for CadQuery exports
+cairosvg>=2.7.0,<3.0.0
+
+# Advanced 3D Processing (Optional but recommended)
+# open3d>=0.18.0  # Commented out - large dependency, enable if needed
 
 # =============================================
-# EXCEL & DATA EXPORT
+# VISUALIZATION & RENDERING - STEP RENDERER REQUIREMENTS
+# =============================================
+# Matplotlib backends and 3D support
+matplotlib>=3.7.0,<4.0.0
+
+# Additional plotting libraries
+seaborn>=0.12.0,<1.0.0  # For enhanced plots (optional)
+
+# =============================================
+# EXCEL & DATA EXPORT - ENHANCED FEATURES
 # =============================================
 openpyxl>=3.1.0,<4.0.0
 xlsxwriter>=3.0.0,<4.0.0
+xlrd>=2.0.0,<3.0.0  # For reading Excel files
 
 # =============================================
-# TEXT PROCESSING & FUZZY MATCHING - ZORUNLU
+# TEXT PROCESSING & FUZZY MATCHING - MATERIAL RECOGNITION
 # =============================================
 Levenshtein>=0.20.0
 rapidfuzz>=3.0.0
 fuzzywuzzy==0.18.0
 
 # =============================================
-# GELIŞMIŞ DOCUMENT PROCESSING - YENİ
+# DOCUMENT PROCESSING EXTENSIONS
 # =============================================
-striprtf>=0.0.26  # RTF dosyaları için (CMM converter)
+striprtf>=0.0.26  # RTF files support
+python-magic>=0.4.24  # File type detection
 
 # =============================================
-# WEBSOCKET SUPPORT - YENİ (Eski app.py'den)
-# =============================================
-Flask-SocketIO>=5.3.0
-python-socketio>=5.11.0
-
-# =============================================
-# GMAIL API - YENİ (Mail kontrolü için)
-# =============================================
-google-api-python-client>=2.100.0
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.0
-
-# =============================================
-# XML & HTML PROCESSING
-# =============================================
-lxml>=5.0.0
-beautifulsoup4>=4.12.0
-
-# =============================================
-# SUBPROCESS & SYSTEM INTEGRATION
-# =============================================
-psutil>=5.9.0  # Sistem monitoring için
-
-# =============================================
-# NETWORKING & HTTP
+# NETWORKING & HTTP - API FEATURES
 # =============================================
 requests>=2.28.0,<3.0.0
 
@@ -114,14 +106,8 @@ python-dotenv>=1.0.0
 python-dateutil>=2.8.0
 click>=8.0.0
 
-# =============================================
-# FILE UPLOAD & HANDLING
-# =============================================
-# File type detection
-python-magic>=0.4.24
-
-# Unique ID generation (built-in Python 3.11)
-# uuid
+# UUID generation (built-in Python 3.11+)
+# hashlib (built-in Python)
 
 # =============================================
 # PRODUCTION SERVER
@@ -129,13 +115,7 @@ python-magic>=0.4.24
 gunicorn>=21.0.0
 
 # =============================================
-# ADVANCED OCR - OPSIYONEL (2GB+ İNDİRME)
-# =============================================
-# paddlepaddle>=2.5.0     # Çin OCR motoru
-# paddleocr>=2.7.0        # PaddlePaddle OCR
-
-# =============================================
-# DEVELOPMENT TOOLS (Development için)
+# DEVELOPMENT & TESTING (Optional)
 # =============================================
 # pytest>=7.0.0
 # black>=23.0.0
@@ -143,61 +123,165 @@ gunicorn>=21.0.0
 # mypy>=1.0.0
 
 # =============================================
+# ENHANCED STEP RENDERER ADDITIONAL DEPENDENCIES
+# =============================================
+# Font handling for annotations
+# fonttools>=4.40.0  # Optional - better font support
+
+# Advanced image processing
+scikit-image>=0.21.0  # Optional - advanced image operations
+
+# =============================================
 # SYSTEM REQUIREMENTS & DEPENDENCIES
 # =============================================
-# Ubuntu/Debian:
+# Ubuntu/Debian Installation Commands:
 # sudo apt-get update
-# sudo apt-get install tesseract-ocr tesseract-ocr-tur tesseract-ocr-eng
-# sudo apt-get install poppler-utils
-# sudo apt-get install python3-opencv
-# sudo apt-get install libreoffice  # DOC/DOCX dönüştürme için
-# sudo apt-get install libgl1-mesa-glx  # CadQuery için
-# sudo apt-get install libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-#
-# macOS:
+# sudo apt-get install -y \
+#     tesseract-ocr tesseract-ocr-tur tesseract-ocr-eng \
+#     poppler-utils \
+#     python3-opencv \
+#     libreoffice \
+#     libgl1-mesa-glx libgl1-mesa-dri \
+#     libglu1-mesa libglib2.0-0 \
+#     libsm6 libxext6 libxrender-dev \
+#     libgomp1 libfontconfig1 \
+#     libxrandr2 libxss1 libgtk-3-0 \
+#     libasound2 \
+#     build-essential pkg-config \
+#     gcc g++
+
+# macOS Installation Commands:
 # brew install tesseract tesseract-lang
 # brew install poppler
 # brew install libreoffice
-# brew install qt@5  # CadQuery için
-#
-# Windows:
-# Download Tesseract: https://github.com/UB-Mannheim/tesseract/wiki
-# Download Poppler: https://github.com/oschwartz10612/poppler-windows
-# Download LibreOffice: https://www.libreoffice.org/download/
-# Install Visual C++ Redistributable for CadQuery
+# brew install qt@5  # For CadQuery GUI components
+
+# Windows Installation:
+# Download and install:
+# - Tesseract OCR: https://github.com/UB-Mannheim/tesseract/wiki
+# - Poppler: https://github.com/oschwartz10612/poppler-windows
+# - LibreOffice: https://www.libreoffice.org/download/
+# - Visual C++ Redistributable for CadQuery
 # Add all to PATH environment variable
-#
+
 # =============================================
-# MATERIAL ANALYSIS SYSTEM KURULUM
+# STEP RENDERER SYSTEM REQUIREMENTS
 # =============================================
-# 1. Sistem bağımlılıklarını yükle (yukarıda)
-# 2. python -m venv engteklif_env
-# 3. source engteklif_env/bin/activate  # Linux/macOS
-#    engteklif_env\Scripts\activate     # Windows
-# 4. pip install --upgrade pip setuptools wheel
-# 5. pip install -r requirements.txt
-# 6. Test komutları:
-#    python -c "import pdf2image; print('PDF2Image: OK')"
-#    python -c "import pytesseract; print('Tesseract: OK')"
-#    python -c "import cadquery; print('CadQuery: OK')"
-#    python -c "import cv2; print('OpenCV: OK')"
-#    python -c "from docx import Document; print('Python-docx: OK')"
-#
+# CadQuery Dependencies:
+# - OpenGL drivers (for 3D rendering)
+# - FreeCAD-based geometry kernel
+# - Qt5/Qt6 (for GUI components if needed)
+# - Python 3.9+ (recommended 3.11+)
+
+# Cairo Dependencies (for SVG to PNG conversion):
+# Ubuntu/Debian: sudo apt-get install libcairo2-dev
+# macOS: brew install cairo
+# Windows: Included with cairosvg pip package
+
 # =============================================
-# PERFORMANS NOTLARI
+# PERFORMANCE OPTIMIZATION NOTES
 # =============================================
-# - CadQuery: 3D işlemler için OpenGL gerektirir
-# - Tesseract: Türkçe dil paketi önerilir
-# - PaddleOCR: 2GB+ model indirimi (opsiyonel)
-# - LibreOffice: DOC->DOCX dönüştürme için headless mod
-# - OpenCV: Görüntü işleme için optimize edilmiş sürüm
-#
-# =============================================
-# PRODUCTION ENVIRONMENT
-# =============================================
-# Production ortamında aşağıdaki environment variables ayarlayın:
+# For Production Environments:
+# 1. Use compiled NumPy with BLAS/LAPACK
+# 2. Consider Intel MKL for numerical operations
+# 3. Enable CadQuery caching mechanisms
+# 4. Use Redis for session/render caching
+# 5. Configure matplotlib non-interactive backend
+
+# Environment Variables for Production:
 # TESSERACT_CMD=/usr/bin/tesseract
 # LIBREOFFICE_PATH=/usr/bin/libreoffice
 # OPENCV_LOG_LEVEL=ERROR
 # CADQUERY_DISABLE_JUPYTER=1
+# MPLBACKEND=Agg  # Non-interactive matplotlib backend
+
+# =============================================
+# MEMORY & RESOURCE CONSIDERATIONS
+# =============================================
+# Typical memory usage:
+# - CadQuery: 100-500MB per STEP file
+# - matplotlib: 50-200MB per render
+# - PIL/OpenCV: 20-100MB per image
+# - Material Analysis: 10-50MB per document
+# 
+# Recommended server specs:
+# - RAM: 4GB minimum, 8GB+ recommended
+# - CPU: 2+ cores for parallel processing
+# - Storage: 10GB+ for renders and temp files
+# - GPU: Optional, can accelerate OpenGL rendering
+
+# =============================================
+# VERSION COMPATIBILITY MATRIX
+# =============================================
+# Python 3.11+ (recommended)
+# CadQuery 2.3.1+ (STEP file support)
+# matplotlib 3.7+ (3D plotting features)
+# OpenCV 4.8+ (image processing)
+# NumPy 1.24+ (array operations)
+# Pillow 10.0+ (image manipulation)
+# pymongo 4.6+ (MongoDB driver)
+# Flask 3.0+ (modern web framework)
+
+# =============================================
+# INSTALLATION VERIFICATION COMMANDS
+# =============================================
+# Test Core Dependencies:
+# python -c "import cadquery; print('CadQuery: OK')"
+# python -c "import matplotlib; print('Matplotlib: OK')"
+# python -c "import cv2; print('OpenCV: OK')"
+# python -c "import PIL; print('Pillow: OK')"
+# python -c "import numpy; print('NumPy: OK')"
+# python -c "import cairosvg; print('CairoSVG: OK')"
+# python -c "import pytesseract; print('Tesseract: OK')"
+
+# Test STEP File Processing:
+# python -c "
+# import cadquery as cq
+# box = cq.Workplane().box(10, 10, 10)
+# print(f'STEP Test: {box.val().Volume()} mm³')
+# "
+
+# Test Rendering Pipeline:
+# python -c "
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+# print('3D Rendering: OK')
+# "
+
+# =============================================
+# TROUBLESHOOTING COMMON ISSUES
+# =============================================
+# Issue: CadQuery import error
+# Solution: Install FreeCAD dependencies, check OpenGL drivers
+
+# Issue: matplotlib 3D projection error  
+# Solution: Install python3-tk, set MPLBACKEND=Agg
+
+# Issue: cairosvg PNG conversion fails
+# Solution: Install cairo system libraries
+
+# Issue: Tesseract not found
+# Solution: Install tesseract-ocr, set TESSERACT_CMD environment variable
+
+# Issue: Out of memory during STEP processing
+# Solution: Increase swap space, reduce concurrent processing
+
+# =============================================
+# DOCKER CONSIDERATIONS
+# =============================================
+# For Docker deployment, include in Dockerfile:
+# RUN apt-get update && apt-get install -y \
+#     tesseract-ocr tesseract-ocr-tur \
+#     poppler-utils \
+#     libgl1-mesa-glx libgl1-mesa-dri \
+#     libglu1-mesa libglib2.0-0 \
+#     libsm6 libxext6 libxrender-dev \
+#     libgomp1 libfontconfig1 \
+#     xvfb && \
+#     rm -rf /var/lib/apt/lists/*
+
+# Start with virtual display:
+# CMD ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 & python app.py"]
 # =============================================
