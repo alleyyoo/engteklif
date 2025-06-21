@@ -18,3 +18,7 @@ a {
 .ant-form-item-row {
   margin-bottom: 2rem;
 }
+
+p {
+  margin: 0;
+}

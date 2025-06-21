@@ -7,7 +7,7 @@ export const AuthMiddleware = (props: any) => {
   const isAuthenticated = verifyToken(token || "");
   console.log(isAuthenticated);
 
-  return true ? (
+  return isAuthenticated ? (
     <DefaultLayout>
       <Outlet />
     </DefaultLayout>
