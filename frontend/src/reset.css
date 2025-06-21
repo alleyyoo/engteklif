@@ -1,3 +1,11 @@
+body {
+  font-family: "Montserrat", sans-serif;
+  width: 100%;
+  overflow-x: hidden;
+  height: auto;
+  line-height: 150%;
+}
+
 a {
   color: inherit;
   text-decoration: none;
