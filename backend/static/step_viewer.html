@@ -252,7 +252,8 @@
         box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
       }
 
-      .error-state {
+      .error-state,
+      .main-page {
         width: 100%;
         height: 100%;
         display: flex;
@@ -263,12 +264,18 @@
         gap: 20px;
       }
 
-      .error-icon {
+      .error-icon,
+      .welcome-icon {
         font-size: 72px;
         color: #e74c3c;
       }
 
-      .error-text {
+      .welcome-icon {
+        color: #3498db;
+      }
+
+      .error-text,
+      .welcome-text {
         background: rgba(255, 255, 255, 0.9);
         padding: 20px 30px;
         border-radius: 12px;
@@ -277,6 +284,10 @@
         text-align: center;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
         max-width: 400px;
+      }
+
+      .welcome-text {
+        color: #2c3e50;
       }
 
       .image-render {
@@ -688,16 +699,32 @@
         checkForAnalysisId() {
           // URL'den analysis_id ve access_token al
           const path = window.location.pathname;
-          const analysisMatch = path.match(/\/step-viewer\/([^\/]+)\/(.+)$/);
 
-          if (analysisMatch) {
-            this.currentAnalysisId = analysisMatch[1];
-            this.accessToken = analysisMatch[2];
+          // Format 1: /step-viewer/{analysis_id}/{access_token}
+          const fullMatch = path.match(/\/step-viewer\/([^\/]+)\/([^\/]+)$/);
+
+          // Format 2: /step-viewer/{analysis_id}
+          const simpleMatch = path.match(/\/step-viewer\/([^\/]+)$/);
+
+          if (fullMatch) {
+            // Token ile erişim
+            this.currentAnalysisId = fullMatch[1];
+            this.accessToken = fullMatch[2];
+            console.log(
+              "[VIEWER] 🔐 Token ile erişim:",
+              this.currentAnalysisId
+            );
+            this.loadAnalysisModel(this.currentAnalysisId);
+          } else if (simpleMatch) {
+            // Sadece analysis_id ile erişim
+            this.currentAnalysisId = simpleMatch[1];
+            this.accessToken = null;
+            console.log("[VIEWER] 📋 Basit erişim:", this.currentAnalysisId);
             this.loadAnalysisModel(this.currentAnalysisId);
           } else {
-            this.showErrorState(
-              "Geçersiz URL formatı. Doğru format: /step-viewer/{analysis_id}/{access_token}"
-            );
+            // Ana sayfa veya geçersiz format
+            console.log("[VIEWER] 🏠 Ana sayfa");
+            this.showMainPage();
           }
         }
 
@@ -714,217 +741,236 @@
               headers["Authorization"] = `Bearer ${this.accessToken}`;
             }
 
-            // Backend'den analiz bilgilerini al
-            const configResponse = await fetch(
-              `/api/step-viewer/config/${analysisId}`,
+            console.log(
+              "[VIEWER] 📡 Analyze endpoint'i çağırılıyor:",
+              analysisId
+            );
+
+            // ✅ MEVCUT ANALYZE ENDPOINT'İNİ KULLAN
+            const analyzeResponse = await fetch(
+              `/api/upload/analyze/${analysisId}`,
               {
+                method: "POST",
                 headers: headers,
               }
             );
 
-            if (!configResponse.ok) {
-              throw new Error(
-                `Analiz bilgileri alınamadı (${configResponse.status})`
-              );
+            if (!analyzeResponse.ok) {
+              if (analyzeResponse.status === 401) {
+                throw new Error("Erişim yetkisi yok - Geçersiz token");
+              } else if (analyzeResponse.status === 403) {
+                throw new Error("Bu analiz için erişim yetkiniz bulunmuyor");
+              } else if (analyzeResponse.status === 404) {
+                throw new Error("Analiz bulunamadı");
+              } else {
+                throw new Error(`Analiz başarısız (${analyzeResponse.status})`);
+              }
             }
 
-            const configData = await configResponse.json();
-            if (!configData.success) {
-              throw new Error(
-                configData.message || "Analiz bilgileri geçersiz"
-              );
+            const analyzeData = await analyzeResponse.json();
+            if (!analyzeData.success) {
+              throw new Error(analyzeData.message || "Analiz başarısız");
             }
 
-            console.log("Config data:", configData);
+            console.log("[VIEWER] ✅ Analyze data:", analyzeData);
 
             // Analiz bilgilerini göster
-            this.displayAnalysisInfo(configData.config);
+            this.displayAnalysisInfo(analyzeData.analysis);
 
-            // STL dosyası var mı kontrol et
-            const stlPath = configData.config.model_paths?.stl;
-            console.log("STL Path:", stlPath);
+            // ✅ JSON'DAN 3D MODEL OLUŞTUR
+            await this.create3DModelFromJSON(analyzeData.analysis);
 
-            if (stlPath) {
-              // STL mevcut, direkt yükle
-              this.showLoading("3D model yükleniyor...");
-              await this.loadSTLFromPath(stlPath);
-              this.showToast("3D model başarıyla yüklendi!", "success");
-            } else {
-              // STL yok, oluşturmaya çalış
-              this.showLoading("3D model oluşturuluyor...");
-              await this.generateSTLForAnalysis(analysisId);
-            }
+            this.showToast("3D model JSON'dan oluşturuldu!", "success");
           } catch (error) {
             console.error("Model yükleme hatası:", error);
             this.showToast(`Model yüklenemedi: ${error.message}`, "error");
-            this.showErrorState(error.message);
+
+            // Fallback: STL dosyasını dene
+            await this.trySTLFallback(analysisId);
           } finally {
             this.hideLoading();
           }
         }
 
-        async generateSTLForAnalysis(analysisId) {
+        async create3DModelFromJSON(analysisData) {
           try {
-            // API headers
-            const headers = {
-              "Content-Type": "application/json",
-            };
+            this.showLoading("3D model oluşturuluyor...");
 
-            if (this.accessToken) {
-              headers["Authorization"] = `Bearer ${this.accessToken}`;
+            const stepAnalysis = analysisData.step_analysis;
+
+            if (!stepAnalysis || stepAnalysis.error) {
+              throw new Error("STEP analiz verisi bulunamadı");
             }
 
-            // Backend'den STL oluşturma isteği
-            const renderResponse = await fetch(
-              `/api/upload/render/${analysisId}`,
-              {
-                method: "POST",
-                headers: headers,
-                body: JSON.stringify({
-                  include_dimensions: true,
-                  include_materials: true,
-                  high_quality: true,
-                }),
-              }
+            // ✅ JSON VERİSİNDEN GEOMETRİ OLUŞTUR
+            const geometry = this.createGeometryFromStepData(stepAnalysis);
+
+            // Material oluştur
+            const material = new THREE.MeshPhongMaterial({
+              color: 0x888888,
+              shininess: 100,
+              side: THREE.DoubleSide,
+            });
+
+            // Mevcut model'i kaldır
+            if (this.model) {
+              this.scene.remove(this.model);
+            }
+
+            // Yeni model oluştur
+            this.model = new THREE.Mesh(geometry, material);
+            this.model.castShadow = true;
+            this.model.receiveShadow = true;
+            this.scene.add(this.model);
+
+            // Kamerayı ayarla
+            this.fitToView();
+
+            // Renderer'ı container'a ekle
+            const container = document.getElementById("viewer-container");
+            container.innerHTML = "";
+            container.appendChild(this.renderer.domElement);
+
+            console.log("[VIEWER] ✅ 3D model JSON'dan oluşturuldu");
+          } catch (error) {
+            console.error(
+              "[VIEWER] ❌ JSON'dan model oluşturma hatası:",
+              error
+            );
+            throw error;
+          }
+        }
+
+        createGeometryFromStepData(stepData) {
+          try {
+            // STEP analiz verisinden boyutları al
+            const width = stepData["X (mm)"] || 50;
+            const height = stepData["Y (mm)"] || 30;
+            const depth = stepData["Z (mm)"] || 20;
+
+            console.log(
+              `[GEOMETRY] 📐 Boyutlar: ${width}x${height}x${depth} mm`
             );
 
-            if (!renderResponse.ok) {
-              throw new Error("3D model oluşturulamadı");
+            // ✅ METHOD 1: BufferGeometry ile manuel oluştur
+            if (stepData.method === "cadquery_analysis") {
+              return this.createDetailedGeometry(
+                width,
+                height,
+                depth,
+                stepData
+              );
+            } else {
+              // ✅ METHOD 2: Basit box geometry (fallback)
+              return this.createSimpleBoxGeometry(width, height, depth);
             }
+          } catch (error) {
+            console.error("[GEOMETRY] ❌ Geometry oluşturma hatası:", error);
+            // Fallback: 50x30x20 mm box
+            return this.createSimpleBoxGeometry(50, 30, 20);
+          }
+        }
 
-            const renderData = await renderResponse.json();
-            console.log("Render data:", renderData);
+        createDetailedGeometry(width, height, depth, stepData) {
+          try {
+            console.log("[GEOMETRY] 🔧 Detaylı geometry oluşturuluyor...");
 
-            if (!renderData.success) {
-              throw new Error(renderData.message || "Render işlemi başarısız");
-            }
+            // ✅ BOUNDING BOX VERTICES (8 köşe noktası)
+            const halfW = width / 2;
+            const halfH = height / 2;
+            const halfD = depth / 2;
 
-            // STL dosyası oluşturuldu mu kontrol et
+            const vertices = new Float32Array([
+              // Front face (z = +halfD)
+              -halfW,
+              -halfH,
+              halfD, // 0: bottom-left
+              halfW,
+              -halfH,
+              halfD, // 1: bottom-right
+              halfW,
+              halfH,
+              halfD, // 2: top-right
+              -halfW,
+              halfH,
+              halfD, // 3: top-left
+
+              // Back face (z = -halfD)
+              -halfW,
+              -halfH,
+              -halfD, // 4: bottom-left
+              halfW,
+              -halfH,
+              -halfD, // 5: bottom-right
+              halfW,
+              halfH,
+              -halfD, // 6: top-right
+              -halfW,
+              halfH,
+              -halfD, // 7: top-left
+            ]);
+
+            // ✅ TRIANGLE FACES (2 triangles per face = 12 triangles total)
+            const indices = new Uint16Array([
+              // Front face
+              0, 1, 2, 0, 2, 3,
+              // Back face
+              4, 6, 5, 4, 7, 6,
+              // Left face
+              4, 0, 3, 4, 3, 7,
+              // Right face
+              1, 5, 6, 1, 6, 2,
+              // Top face
+              3, 2, 6, 3, 6, 7,
+              // Bottom face
+              4, 5, 1, 4, 1, 0,
+            ]);
+
+            // BufferGeometry oluştur
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute(
+              "position",
+              new THREE.BufferAttribute(vertices, 3)
+            );
+            geometry.setIndex(indices);
+
+            // Normals hesapla
+            geometry.computeVertexNormals();
+            geometry.computeBoundingBox();
+            geometry.computeBoundingSphere();
+
+            console.log(
+              `[GEOMETRY] ✅ Detaylı geometry: ${
+                vertices.length / 3
+              } vertices, ${indices.length / 3} faces`
+            );
+
+            return geometry;
+          } catch (error) {
+            console.error("[GEOMETRY] ❌ Detaylı geometry hatası:", error);
+            return this.createSimpleBoxGeometry(width, height, depth);
+          }
+        }
+
+        createSimpleBoxGeometry(width, height, depth) {
+          console.log(
+            `[GEOMETRY] 📦 Basit box geometry: ${width}x${height}x${depth}`
+          );
+          return new THREE.BoxGeometry(width, height, depth);
+        }
+
+        async trySTLFallback(analysisId) {
+          try {
+            console.log("[FALLBACK] 🔄 STL fallback deneniyor...");
             const stlPath = `/static/stepviews/${analysisId}/model_${analysisId}.stl`;
-
-            // STL'i yüklemeyi dene
             await this.loadSTLFromPath(stlPath);
-            this.showToast("3D model başarıyla oluşturuldu!", "success");
-          } catch (error) {
-            console.error("STL oluşturma hatası:", error);
-
-            // STL oluşturulamadı, 2D render varsa onu göster
-            await this.tryShow2DRender(analysisId);
-            throw new Error("3D model oluşturulamadı, 2D görünüm gösteriliyor");
-          }
-        }
-
-        async tryShow2DRender(analysisId) {
-          try {
-            // API headers
-            const headers = {
-              "Content-Type": "application/json",
-            };
-
-            if (this.accessToken) {
-              headers["Authorization"] = `Bearer ${this.accessToken}`;
-            }
-
-            // Analiz bilgilerini tekrar al
-            const configResponse = await fetch(
-              `/api/step-viewer/config/${analysisId}`,
-              {
-                headers: headers,
-              }
+            this.showToast("STL dosyasından yüklendi", "success");
+          } catch (stlError) {
+            console.error("[FALLBACK] ❌ STL fallback başarısız:", stlError);
+            this.showErrorState(
+              "Model yüklenemedi - JSON ve STL yükleme başarısız"
             );
-            const configData = await configResponse.json();
-
-            if (configData.success && configData.config.enhanced_renders) {
-              const renders = configData.config.enhanced_renders;
-
-              // Öncelik sırası: isometric > front > ilk mevcut render
-              const preferredOrder = [
-                "isometric",
-                "front",
-                "wireframe",
-                "technical",
-              ];
-              let renderToShow = null;
-
-              for (const renderType of preferredOrder) {
-                if (renders[renderType] && renders[renderType].success) {
-                  renderToShow = renders[renderType];
-                  break;
-                }
-              }
-
-              // Hiç render yoksa ilk mevcut olanı al
-              if (!renderToShow) {
-                const firstRender = Object.values(renders).find(
-                  (r) => r.success
-                );
-                if (firstRender) renderToShow = firstRender;
-              }
-
-              if (renderToShow) {
-                this.show2DRender(renderToShow.file_path);
-                this.showToast("2D render gösteriliyor", "success");
-                return;
-              }
-            }
-
-            throw new Error("Hiç render bulunamadı");
-          } catch (error) {
-            console.error("2D render gösterme hatası:", error);
-            this.showErrorState("Model görüntülenemedi");
           }
-        }
-
-        displayAnalysisInfo(config) {
-          const analysisDetails = document.getElementById("model-info");
-
-          // Analiz detayları
-          const fileInfo = config.file_info || {};
-          const stepAnalysis = config.step_analysis || {};
-
-          let detailsHTML = `
-                    <div class="info-row">
-                        <span class="info-label">Durum:</span>
-                        <span class="info-value" style="color: #27ae60;">Analiz Yüklendi</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Dosya:</span>
-                        <span class="info-value">${
-                          fileInfo.original_filename || "Bilinmeyen"
-                        }</span>
-                    </div>
-                `;
-
-          if (stepAnalysis["X (mm)"]) {
-            detailsHTML += `
-                        <div class="info-row">
-                            <span class="info-label">Genişlik:</span>
-                            <span class="info-value">${
-                              stepAnalysis["X (mm)"]
-                            } mm</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Yükseklik:</span>
-                            <span class="info-value">${
-                              stepAnalysis["Y (mm)"]
-                            } mm</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Derinlik:</span>
-                            <span class="info-value">${
-                              stepAnalysis["Z (mm)"]
-                            } mm</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Hacim:</span>
-                            <span class="info-value">${(
-                              stepAnalysis["Prizma Hacmi (mm³)"] || 0
-                            ).toLocaleString()} mm³</span>
-                        </div>
-                    `;
-          }
-
-          analysisDetails.innerHTML = detailsHTML;
         }
 
         async loadSTLFromPath(stlPath) {
@@ -942,11 +988,10 @@
                 }
               },
               (progress) => {
-                // Progress callback
                 const percent = Math.round(
                   (progress.loaded / progress.total) * 100
                 );
-                this.showLoading(`Model yükleniyor... ${percent}%`);
+                this.showLoading(`STL yükleniyor... ${percent}%`);
               },
               (error) => {
                 reject(new Error("STL dosyası yüklenemedi"));
@@ -956,60 +1001,159 @@
         }
 
         processLoadedGeometry(geometry) {
-          // Geometry'yi temizle ve hazırla
+          // STL geometry işleme
           geometry.computeVertexNormals();
           geometry.computeBoundingBox();
 
-          // Model'i merkeze al
           const center = new THREE.Vector3();
           geometry.boundingBox.getCenter(center);
           geometry.translate(-center.x, -center.y, -center.z);
 
-          // Material oluştur
           const material = new THREE.MeshPhongMaterial({
             color: 0x888888,
             shininess: 100,
             side: THREE.DoubleSide,
           });
 
-          // Mevcut model'i kaldır
           if (this.model) {
             this.scene.remove(this.model);
           }
 
-          // Yeni model oluştur
           this.model = new THREE.Mesh(geometry, material);
           this.model.castShadow = true;
           this.model.receiveShadow = true;
           this.scene.add(this.model);
 
-          // Kamerayı ayarla
           this.fitToView();
 
-          // Renderer'ı container'a ekle
           const container = document.getElementById("viewer-container");
           container.innerHTML = "";
           container.appendChild(this.renderer.domElement);
         }
 
-        show2DRender(imagePath) {
-          // 2D render'ı göster
+        displayAnalysisInfo(analysis) {
+          const analysisDetails = document.getElementById("model-info");
+          const stepAnalysis = analysis.step_analysis || {};
+
+          let detailsHTML = `
+            <div class="info-row">
+              <span class="info-label">Durum:</span>
+              <span class="info-value" style="color: #27ae60;">JSON'dan Oluşturuldu</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Dosya:</span>
+              <span class="info-value">${
+                analysis.original_filename || "Bilinmeyen"
+              }</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Yöntem:</span>
+              <span class="info-value">JSON Geometry</span>
+            </div>
+          `;
+
+          if (stepAnalysis["X (mm)"]) {
+            const volume = stepAnalysis["Prizma Hacmi (mm³)"] || 0;
+            const surfaceArea = stepAnalysis["Toplam Yüzey Alanı (mm²)"] || 0;
+
+            detailsHTML += `
+              <div class="info-row">
+                <span class="info-label">Genişlik:</span>
+                <span class="info-value">${stepAnalysis["X (mm)"]} mm</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Yükseklik:</span>
+                <span class="info-value">${stepAnalysis["Y (mm)"]} mm</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Derinlik:</span>
+                <span class="info-value">${stepAnalysis["Z (mm)"]} mm</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Hacim:</span>
+                <span class="info-value">${volume.toLocaleString()} mm³</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Yüzey:</span>
+                <span class="info-value">${surfaceArea.toLocaleString()} mm²</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Metod:</span>
+                <span class="info-value">${
+                  stepAnalysis.method || "Unknown"
+                }</span>
+              </div>
+            `;
+          }
+
+          // Malzeme bilgileri
+          if (
+            analysis.material_matches &&
+            analysis.material_matches.length > 0
+          ) {
+            const materials = analysis.material_matches.slice(0, 3);
+            detailsHTML += `
+              <div class="info-row">
+                <span class="info-label">Malzemeler:</span>
+                <span class="info-value">${materials.length} adet</span>
+              </div>
+            `;
+
+            materials.forEach((material, index) => {
+              const materialName = material.split("(")[0].trim();
+              detailsHTML += `
+                <div class="info-row">
+                  <span class="info-label">• ${materialName}:</span>
+                  <span class="info-value" style="font-size: 11px;">${
+                    material.includes("%100") ? "Kesin" : "Tahmini"
+                  }</span>
+                </div>
+              `;
+            });
+          }
+
+          analysisDetails.innerHTML = detailsHTML;
+        }
+
+        showMainPage() {
+          // Ana sayfa gösterimi
           const container = document.getElementById("viewer-container");
 
-          const imageContainer = document.createElement("div");
-          imageContainer.className = "image-render";
+          const mainPageContainer = document.createElement("div");
+          mainPageContainer.className = "main-page";
 
-          const img = document.createElement("img");
-          img.src = imagePath;
+          const welcomeIcon = document.createElement("div");
+          welcomeIcon.className = "welcome-icon";
+          welcomeIcon.textContent = "🎯";
 
-          const infoText = document.createElement("div");
-          infoText.className = "image-info";
-          infoText.textContent = "📸 2D Teknik Çizim Görünümü";
+          const welcomeText = document.createElement("div");
+          welcomeText.className = "welcome-text";
+          welcomeText.innerHTML = `
+                    <div style="font-size: 24px; margin-bottom: 15px; color: #3498db;">🔧 EngTeklif 3D Viewer</div>
+                    <div style="font-size: 16px; margin-bottom: 20px;">3D STEP model görüntüleyici</div>
+                    <div style="font-size: 14px; color: #7f8c8d; line-height: 1.6;">
+                        Model görüntülemek için doğru URL formatını kullanın:<br><br>
+                        📋 <strong>/step-viewer/{analysis_id}</strong><br>
+                        🔐 <strong>/step-viewer/{analysis_id}/{access_token}</strong>
+                    </div>
+                `;
 
-          imageContainer.appendChild(img);
-          imageContainer.appendChild(infoText);
+          const uploadButton = document.createElement("button");
+          uploadButton.className = "btn";
+          uploadButton.innerHTML = "📁 Dosya Yükle";
+          uploadButton.onclick = () => {
+            window.location.href = "/api/upload/supported-formats";
+          };
+
+          mainPageContainer.appendChild(welcomeIcon);
+          mainPageContainer.appendChild(welcomeText);
+          mainPageContainer.appendChild(uploadButton);
           container.innerHTML = "";
-          container.appendChild(imageContainer);
+          container.appendChild(mainPageContainer);
+
+          // Status'u güncelle
+          document.getElementById("status-value").textContent = "Hazır";
+          document.getElementById("status-value").style.color = "#27ae60";
         }
 
         showErrorState(message) {

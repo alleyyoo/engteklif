@@ -1,4 +1,4 @@
-# app.py - ENHANCED VERSION WITH INTEGRATED STEP VIEWER
+# app.py - ENHANCED VERSION WITH INTEGRATED STEP VIEWER + ACCESS TOKEN ROUTE
 from flask import Flask, jsonify, send_from_directory, redirect, url_for
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -54,7 +54,7 @@ def create_app():
                 "message": f"Dosya bulunamadı: {filename}"
             }), 404
     
-    # ===== STEP VIEWER ROUTES - ENHANCED =====
+    # ===== STEP VIEWER ROUTES - ENHANCED WITH ACCESS TOKEN =====
     @app.route('/step-viewer')
     def step_viewer_main():
         """✅ STEP Viewer Ana Sayfası - Enhanced"""
@@ -87,6 +87,37 @@ def create_app():
                 "message": f"STEP viewer hatası: {str(e)}"
             }), 500
     
+    @app.route('/step-viewer/<analysis_id>/<access_token>')
+    def step_viewer_with_access_token(analysis_id, access_token):
+        """✅ YENİ - Access token ile STEP viewer erişimi"""
+        try:
+            # Analysis ID'yi validate et
+            if not analysis_id or len(analysis_id) < 5:
+                return jsonify({
+                    "success": False,
+                    "message": "Geçersiz analiz ID'si"
+                }), 400
+            
+            # Access token'ı validate et
+            if not access_token or len(access_token) < 10:
+                return jsonify({
+                    "success": False,
+                    "message": "Geçersiz access token"
+                }), 400
+            
+            print(f"[STEP-VIEWER] 🔐 Token ile erişim: {analysis_id} - Token: {access_token[:10]}...")
+            
+            # Direkt step_viewer.html'i döndür
+            # JavaScript, URL'den analysis_id ve access_token'ı otomatik parse edecek
+            return send_from_directory('static', 'step_viewer.html')
+                
+        except Exception as e:
+            print(f"[STEP-VIEWER] ❌ Token ile erişim hatası: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": f"STEP viewer hatası: {str(e)}"
+            }), 500
+    
     @app.route('/3d-viewer')
     def legacy_3d_viewer():
         """Legacy 3D viewer redirect"""
@@ -96,6 +127,13 @@ def create_app():
     def legacy_3d_viewer_with_analysis(analysis_id):
         """Legacy 3D viewer with analysis redirect"""
         return redirect(url_for('step_viewer_with_analysis', analysis_id=analysis_id))
+    
+    @app.route('/3d-viewer/<analysis_id>/<access_token>')
+    def legacy_3d_viewer_with_token(analysis_id, access_token):
+        """✅ YENİ - Legacy 3D viewer with access token redirect"""
+        return redirect(url_for('step_viewer_with_access_token', 
+                              analysis_id=analysis_id, 
+                              access_token=access_token))
     
     # ===== STEP VIEWER API ENDPOINTS =====
     @app.route('/api/step-viewer/status')
@@ -116,10 +154,15 @@ def create_app():
                     "multiple_views": True,
                     "wireframe_mode": True,
                     "lighting_control": True,
-                    "standard_views": True
+                    "standard_views": True,
+                    "access_token_support": True  # ✅ YENİ
                 },
                 "supported_formats": [".step", ".stp"],
-                "integration": "backend_static"
+                "integration": "backend_static",
+                "access_methods": {
+                    "direct": "/step-viewer/{analysis_id}",
+                    "with_token": "/step-viewer/{analysis_id}/{access_token}"  # ✅ YENİ
+                }
             })
             
         except Exception as e:
@@ -176,13 +219,90 @@ def create_app():
                 "message": f"Konfigürasyon hatası: {str(e)}"
             }), 500
     
+    # ===== ACCESS TOKEN AUTHENTICATION FOR API =====
+    @app.route('/api/step-viewer/config/<analysis_id>/<access_token>')
+    def get_step_viewer_config_with_token(analysis_id, access_token):
+        """✅ YENİ - Access token ile STEP viewer konfigürasyonu"""
+        try:
+            from models.file_analysis import FileAnalysis
+            from utils.auth_utils import decode_token
+            
+            # Access token'ı validate et
+            token_result = decode_token(access_token)
+            if not token_result['success']:
+                return jsonify({
+                    "success": False,
+                    "message": f"Geçersiz access token: {token_result['message']}"
+                }), 401
+            
+            # Token'dan user_id al
+            user_id = token_result['payload'].get('sub') or token_result['payload'].get('user_id')
+            if not user_id:
+                return jsonify({
+                    "success": False,
+                    "message": "Token'da user_id bulunamadı"
+                }), 401
+            
+            # Analiz kaydını bul
+            analysis = FileAnalysis.find_by_id(analysis_id)
+            if not analysis:
+                return jsonify({
+                    "success": False,
+                    "message": "Analiz bulunamadı"
+                }), 404
+            
+            # Kullanıcı yetkisi kontrolü
+            if analysis['user_id'] != user_id:
+                return jsonify({
+                    "success": False,
+                    "message": "Bu analiz için erişim yetkiniz yok"
+                }), 403
+            
+            print(f"[CONFIG] ✅ Token ile erişim onaylandı: {analysis_id} - User: {user_id}")
+            
+            # STEP viewer için konfigürasyon (aynı config)
+            config = {
+                "analysis_id": analysis_id,
+                "file_info": {
+                    "original_filename": analysis.get('original_filename'),
+                    "file_type": analysis.get('file_type'),
+                    "file_size": analysis.get('file_size')
+                },
+                "step_analysis": analysis.get('step_analysis', {}),
+                "enhanced_renders": analysis.get('enhanced_renders', {}),
+                "model_paths": {
+                    "stl": f"/static/stepviews/{analysis_id}/model_{analysis_id}.stl",
+                    "viewer_html": f"/static/stepviews/{analysis_id}/viewer.html"
+                },
+                "viewer_settings": {
+                    "auto_fit": True,
+                    "show_grid": False,
+                    "show_axes": True,
+                    "lighting": "enhanced",
+                    "material": "aluminum"
+                },
+                "authenticated": True  # ✅ Token ile doğrulandı
+            }
+            
+            return jsonify({
+                "success": True,
+                "config": config
+            })
+            
+        except Exception as e:
+            print(f"[CONFIG] ❌ Token ile config hatası: {str(e)}")
+            return jsonify({
+                "success": False,
+                "message": f"Konfigürasyon hatası: {str(e)}"
+            }), 500
+    
     # ===== MAIN ROUTES =====
     @app.route('/')
     def home():
         return jsonify({
             "message": "EngTeklif API çalışıyor! 🚀",
             "version": "2.1",
-            "description": "Mühendislik Teklif ve Dosya Analiz Sistemi - Enhanced STEP Viewer",
+            "description": "Mühendislik Teklif ve Dosya Analiz Sistemi - Enhanced STEP Viewer with Access Token",
             "features": [
                 "✅ 3D STEP dosya analizi",
                 "✅ PDF malzeme tanıma", 
@@ -191,11 +311,13 @@ def create_app():
                 "✅ Interactive measurement tools",
                 "✅ Multi-view rendering",
                 "✅ Malzeme veritabanı",
-                "✅ Real-time 3D visualization"
+                "✅ Real-time 3D visualization",
+                "✅ Access token authentication"  # ✅ YENİ
             ],
             "step_viewer": {
                 "main_url": "/step-viewer",
                 "with_analysis": "/step-viewer/{analysis_id}",
+                "with_token": "/step-viewer/{analysis_id}/{access_token}",  # ✅ YENİ
                 "api_status": "/api/step-viewer/status",
                 "features": [
                     "File upload integration",
@@ -203,15 +325,18 @@ def create_app():
                     "Standard view presets", 
                     "Wireframe/solid modes",
                     "Dynamic lighting",
-                    "Responsive design"
+                    "Responsive design",
+                    "Token-based authentication"  # ✅ YENİ
                 ]
             },
             "endpoints": {
                 "step_viewer": {
                     "main": "/step-viewer",
                     "with_analysis": "/step-viewer/{analysis_id}",
+                    "with_token": "/step-viewer/{analysis_id}/{access_token}",  # ✅ YENİ
                     "status": "/api/step-viewer/status",
-                    "config": "/api/step-viewer/config/{analysis_id}"
+                    "config": "/api/step-viewer/config/{analysis_id}",
+                    "config_with_token": "/api/step-viewer/config/{analysis_id}/{access_token}"  # ✅ YENİ
                 },
                 "auth": {
                     "login": "/api/auth/login",
@@ -318,7 +443,8 @@ def create_app():
                     "material_analysis": "active",
                     "cost_calculation": "active",
                     "3d_rendering": "active",
-                    "measurement_tools": "active"
+                    "measurement_tools": "active",
+                    "access_token_auth": "active"  # ✅ YENİ
                 },
                 "timestamp": "2025-01-01T00:00:00Z"
             }), 200
@@ -337,7 +463,7 @@ def create_app():
         return jsonify({
             "api_name": "EngTeklif API",
             "version": "2.1.0",
-            "description": "Mühendislik dosya analizi ve teklif yönetim sistemi - Enhanced STEP Viewer",
+            "description": "Mühendislik dosya analizi ve teklif yönetim sistemi - Enhanced STEP Viewer with Access Token",
             "database": "MongoDB",
             "framework": "Flask",
             "features": [
@@ -351,7 +477,8 @@ def create_app():
                 "Geometrik tolerans yönetimi",
                 "Maliyet hesaplama",
                 "Excel export/import",
-                "Real-time 3D visualization"
+                "Real-time 3D visualization",
+                "Access token authentication"  # ✅ YENİ
             ],
             "supported_file_types": [
                 "PDF", "DOC", "DOCX", "STEP", "STP"
@@ -364,7 +491,8 @@ def create_app():
                 "wireframe_mode": "Wireframe/solid görünüm geçişi",
                 "lighting_control": "Dinamik ışıklandırma kontrolü",
                 "responsive_design": "Mobil ve masaüstü uyumlu",
-                "backend_integration": "Flask backend ile tam entegrasyon"
+                "backend_integration": "Flask backend ile tam entegrasyon",
+                "token_authentication": "JWT token tabanlı güvenli erişim"  # ✅ YENİ
             },
             "authentication": "JWT Bearer Token",
             "documentation": "/api/docs"
@@ -431,6 +559,7 @@ def create_app():
             "available_endpoints": {
                 "api": "/api/info",
                 "step_viewer": "/step-viewer",
+                "step_viewer_with_token": "/step-viewer/{analysis_id}/{access_token}",  # ✅ YENİ
                 "health": "/health"
             }
         }), 404
@@ -495,11 +624,17 @@ if __name__ == '__main__':
     print("🎯 Interactive 3D Viewer: ACTIVE")
     print("📏 Measurement Tools: ACTIVE")
     print("🎨 Multi-view Rendering: ACTIVE")
+    print("🔐 Access Token Authentication: ACTIVE")  # ✅ YENİ
     print("=" * 60)
     print("🔗 STEP Viewer URLs:")
     print("   Main Viewer: http://localhost:5050/step-viewer")
     print("   With Analysis: http://localhost:5050/step-viewer/{analysis_id}")
+    print("   With Token: http://localhost:5050/step-viewer/{analysis_id}/{access_token}")  # ✅ YENİ
     print("   API Status: http://localhost:5050/api/step-viewer/status")
+    print("=" * 60)
+    print("🔐 Authentication:")
+    print("   Config API: /api/step-viewer/config/{analysis_id}")
+    print("   Config with Token: /api/step-viewer/config/{analysis_id}/{access_token}")  # ✅ YENİ
     print("=" * 60)
     
     app.run(

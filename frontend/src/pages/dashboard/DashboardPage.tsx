@@ -82,7 +82,7 @@ export const DashboardPage = () => {
   // 3D Model görüntüleme - Backend'deki HTML dosyasını aç
   const open3DViewer = (analysisId: string, fileName: string) => {
     // Backend'deki 3D viewer HTML dosyasını yeni sekmede aç
-    const viewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/3d-viewer/${analysisId}`;
+    const viewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/3d-viewer/${analysisId}/${accessToken}`;
     window.open(viewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
   };
 
