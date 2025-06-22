@@ -22,3 +22,7 @@ a {
 p {
   margin: 0;
 }
+
+.p-component-overlay-enter  {
+  background-color: rgb(175, 174, 174) !important
+}

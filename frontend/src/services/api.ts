@@ -1,4 +1,4 @@
-// src/services/api.ts
+// src/services/api.ts - Excel Merge entegrasyonu
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5050';
 
 export interface ApiResponse<T = any> {
@@ -100,6 +100,39 @@ export interface AnalysisResult {
   };
 }
 
+// ✅ Excel Merge için yeni interface'ler
+export interface ExcelMergeResponse {
+  success: boolean;
+  message?: string;
+  blob: Blob;
+  filename?: string;
+}
+
+export interface ExcelMergePreviewResponse {
+  success: boolean;
+  preview: {
+    excel_info: {
+      filename: string;
+      total_rows: number;
+      total_columns: number;
+      headers: string[];
+    };
+    sample_rows: Array<{
+      row: number;
+      product_code: string;
+      will_match: boolean;
+    }>;
+    analyses: Array<{
+      id: string;
+      filename: string;
+      product_code: string;
+      has_step_analysis: boolean;
+      has_material: boolean;
+    }>;
+    estimated_matches: number;
+  };
+}
+
 class ApiService {
   private getAuthHeaders(): HeadersInit {
     const token = localStorage.getItem('accessToken');
@@ -189,6 +222,107 @@ class ApiService {
     return response.blob();
   }
 
+  // ✅ Yeni Excel Merge fonksiyonları
+  async mergeWithExcel(excelFile: File, analysisIds: string[]): Promise<ExcelMergeResponse> {
+    try {
+      console.log('📊 Excel merge API çağrısı başlıyor...', {
+        excelFile: excelFile.name,
+        analysisCount: analysisIds.length
+      });
+
+      const formData = new FormData();
+      formData.append('excel_file', excelFile);
+      
+      // Analysis ID'lerini array olarak ekle
+      analysisIds.forEach(id => {
+        formData.append('analysis_ids', id);
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/upload/merge-with-excel`, {
+        method: 'POST',
+        headers: this.getMultipartHeaders(),
+        body: formData,
+      });
+
+      if (!response.ok) {
+        // Hata durumunda JSON response'u oku
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Başarılı durumda blob'u al
+      const blob = await response.blob();
+      
+      // Response header'ından dosya adını al (eğer varsa)
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = `merged_excel_${Date.now()}.xlsx`;
+      
+      if (contentDisposition) {
+        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, '');
+        }
+      }
+
+      console.log('✅ Excel merge başarılı:', {
+        blobSize: blob.size,
+        filename: filename
+      });
+
+      return {
+        success: true,
+        blob: blob,
+        filename: filename
+      };
+
+    } catch (error: any) {
+      console.error('❌ Excel merge hatası:', error);
+      
+      return {
+        success: false,
+        message: error.message || 'Excel birleştirme başarısız',
+        blob: new Blob() // Boş blob
+      };
+    }
+  }
+
+  async previewExcelMerge(excelFile: File, analysisIds: string[]): Promise<ExcelMergePreviewResponse> {
+    try {
+      const formData = new FormData();
+      formData.append('excel_file', excelFile);
+      
+      analysisIds.forEach(id => {
+        formData.append('analysis_ids', id);
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/upload/merge-preview`, {
+        method: 'POST',
+        headers: this.getMultipartHeaders(),
+        body: formData,
+      });
+
+      return response.json();
+
+    } catch (error: any) {
+      console.error('❌ Excel preview hatası:', error);
+      
+      return {
+        success: false,
+        preview: {
+          excel_info: {
+            filename: '',
+            total_rows: 0,
+            total_columns: 0,
+            headers: []
+          },
+          sample_rows: [],
+          analyses: [],
+          estimated_matches: 0
+        }
+      };
+    }
+  }
+
   async getSupportedFormats(): Promise<ApiResponse> {
     const response = await fetch(`${API_BASE_URL}/api/upload/supported-formats`, {
       method: 'GET',
@@ -226,6 +360,28 @@ class ApiService {
     });
 
     return response.json();
+  }
+
+  // ✅ Bonus: Batch Excel export (tüm analizleri tek Excel'de)
+  async exportAllAnalysesExcel(analysisIds: string[]): Promise<Blob> {
+    try {
+      const formData = new FormData();
+      analysisIds.forEach(id => {
+        formData.append('analysis_ids', id);
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/upload/export-batch-excel`, {
+        method: 'POST',
+        headers: this.getMultipartHeaders(),
+        body: formData,
+      });
+
+      return response.blob();
+
+    } catch (error) {
+      console.error('❌ Batch Excel export hatası:', error);
+      throw error;
+    }
   }
 }
 

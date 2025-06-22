@@ -1,6 +1,7 @@
 import { AuthMiddleware } from "../middleware/AuthMiddleware";
 import { AuthPage } from "../pages/auth/AuthPage";
 import { DashboardPage } from "../pages/dashboard/DashboardPage";
+import { MaterialPage } from "../pages/materials/MaterialPage";
 
 export const routes = [
   {
@@ -9,6 +10,10 @@ export const routes = [
       {
         index: true,
         element: <DashboardPage />,
+      },
+      {
+        path: "materials",
+        element: <MaterialPage />,
       },
     ],
   },

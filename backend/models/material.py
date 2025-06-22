@@ -108,9 +108,12 @@ class Material:
     
     @classmethod
     def get_all_materials(cls, limit: int = 100, skip: int = 0, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Tüm malzemeleri getir"""
+        """Tüm malzemeleri getir - is_active olmadan"""
         collection = cls.get_collection()
-        query = {"is_active": True} if active_only else {}
+        
+        # ✅ active_only parametresini ignore et, tüm dokümanları getir
+        query = {}  # is_active kontrolü yok
+        
         materials = list(collection.find(query).sort("name", 1).limit(limit).skip(skip))
         for material in materials:
             material['id'] = str(material['_id'])

@@ -1,462 +1,484 @@
-# services/material_service.py (FIXED)
-from typing import List, Dict, Any
+# services/material_service.py - FIXED VERSION
+from typing import Dict, List, Any, Optional
 from models.material import Material, MaterialCreate, MaterialUpdate
 from bson import ObjectId
+import traceback
 
 class MaterialService:
     
-    @staticmethod
-    def create_material(material_data: MaterialCreate) -> Dict[str, Any]:
-        """Yeni malzeme oluştur"""
+    @classmethod
+    def get_all_materials(cls, page: int = 1, limit: int = 50, search: str = "", category: str = "") -> Dict[str, Any]:
+        """Tüm malzemeleri getir - is_active olmadan"""
         try:
-            # İsim kontrolü
-            if Material.name_exists(material_data.name):
-                return {
-                    "success": False,
-                    "message": "Bu malzeme adı zaten kullanılıyor"
-                }
+            print(f"[MaterialService] 🔍 Getting materials: page={page}, limit={limit}, search='{search}', category='{category}'")
             
-            material = Material.create_material(material_data.dict())
-            return {
-                "success": True,
-                "message": "Malzeme başarıyla oluşturuldu",
-                "material": material
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Malzeme oluşturulurken hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def get_all_materials(page: int = 1, limit: int = 50, search: str = None, category: str = None) -> Dict[str, Any]:
-        """Tüm malzemeleri getir"""
-        try:
+            from models.material import Material
+            collection = Material.get_collection()
+            
+            # ✅ is_active kontrolü kaldırıldı
+            query = {}  # Boş query - tüm dokümanlar
+            
+            # Search ekle
+            if search and search.strip():
+                search_pattern = {"$regex": search.strip(), "$options": "i"}
+                query["$or"] = [
+                    {"name": search_pattern},
+                    {"aliases": search_pattern},
+                    {"description": search_pattern}
+                ]
+            
+            # Category ekle
+            if category and category.strip():
+                query["category"] = category.strip()
+            
+            print(f"[MaterialService] 🔍 MongoDB Query: {query}")
+            
+            # Pagination
             skip = (page - 1) * limit
             
-            if search:
-                materials = Material.search_materials(search, category)
-                # Manuel pagination for search results
-                total = len(materials)
-                materials = materials[skip:skip + limit]
-            else:
-                materials = Material.get_all_materials(limit, skip)
-                total = Material.get_count()
+            # Execute query
+            cursor = collection.find(query).sort("name", 1).skip(skip).limit(limit)
+            materials = list(cursor)
+            
+            print(f"[MaterialService] 📊 Raw MongoDB documents: {len(materials)}")
+            
+            # ID conversion
+            for material in materials:
+                if '_id' in material:
+                    material['id'] = str(material['_id'])
+                    del material['_id']
+                    print(f"[MaterialService] 🔄 Processed: {material.get('name', 'no_name')}")
+            
+            # Total count (is_active olmadan)
+            total_count = collection.count_documents(query)
+            
+            print(f"[MaterialService] ✅ Found {len(materials)} materials (total: {total_count})")
             
             return {
                 "success": True,
                 "materials": materials,
                 "pagination": {
                     "current_page": page,
-                    "total_pages": (total + limit - 1) // limit,
-                    "total_items": total,
+                    "total_pages": (total_count + limit - 1) // limit if total_count > 0 else 1,
+                    "total_items": total_count,
                     "items_per_page": limit
+                },
+                "filters": {
+                    "search": search,
+                    "category": category
                 }
             }
+            
         except Exception as e:
+            error_msg = f"Malzemeler getirilemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            import traceback
+            print(f"[MaterialService] 📋 Traceback: {traceback.format_exc()}")
             return {
                 "success": False,
-                "message": f"Malzemeler getirilirken hata: {str(e)}"
+                "message": error_msg,
+                "materials": []
             }
     
-    @staticmethod
-    def get_material_by_id(material_id: str) -> Dict[str, Any]:
+    @classmethod
+    def get_material_by_id(cls, material_id: str) -> Dict[str, Any]:
         """ID ile malzeme getir"""
         try:
+            print(f"[MaterialService] 🔍 Getting material by ID: {material_id}")
+            
+            # ObjectId formatını kontrol et
             if not ObjectId.is_valid(material_id):
                 return {
                     "success": False,
-                    "message": "Geçersiz malzeme ID'si"
+                    "message": "Geçersiz malzeme ID formatı"
                 }
             
             material = Material.find_by_id(material_id)
-            if not material:
-                return {
-                    "success": False,
-                    "message": "Malzeme bulunamadı"
-                }
             
-            return {
-                "success": True,
-                "material": material
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Malzeme getirilirken hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def get_material_by_name(material_name: str) -> Dict[str, Any]:
-        """İsim ile malzeme getir"""
-        try:
-            material = Material.find_by_name(material_name)
-            if not material:
-                return {
-                    "success": False,
-                    "message": "Malzeme bulunamadı"
-                }
-            
-            return {
-                "success": True,
-                "material": material
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Malzeme getirilirken hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def update_material(material_id: str, update_data: MaterialUpdate) -> Dict[str, Any]:
-        """Malzeme güncelle"""
-        try:
-            if not ObjectId.is_valid(material_id):
-                return {
-                    "success": False,
-                    "message": "Geçersiz malzeme ID'si"
-                }
-            
-            # Mevcut malzeme kontrolü
-            existing_material = Material.find_by_id(material_id)
-            if not existing_material:
-                return {
-                    "success": False,
-                    "message": "Malzeme bulunamadı"
-                }
-            
-            # İsim değişikliği kontrolü
-            filtered_data = {k: v for k, v in update_data.dict().items() if v is not None}
-            
-            if 'name' in filtered_data and filtered_data['name'] != existing_material['name']:
-                if Material.name_exists(filtered_data['name'], material_id):
-                    return {
-                        "success": False,
-                        "message": "Bu malzeme adı zaten kullanılıyor"
-                    }
-            
-            if not filtered_data:
-                return {
-                    "success": False,
-                    "message": "Güncellenecek veri bulunamadı"
-                }
-            
-            success = Material.update_material(material_id, filtered_data)
-            if success:
-                material = Material.find_by_id(material_id)
+            if material:
+                print(f"[MaterialService] ✅ Material found: {material['name']}")
                 return {
                     "success": True,
-                    "message": "Malzeme başarıyla güncellendi",
+                    "material": material
+                }
+            else:
+                print(f"[MaterialService] ❌ Material not found: {material_id}")
+                return {
+                    "success": False,
+                    "message": "Malzeme bulunamadı"
+                }
+                
+        except Exception as e:
+            error_msg = f"Malzeme getirilemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg
+            }
+    
+    @classmethod
+    def get_material_by_name(cls, name: str) -> Dict[str, Any]:
+        """İsim ile malzeme getir"""
+        try:
+            print(f"[MaterialService] 🔍 Getting material by name: {name}")
+            
+            material = Material.find_by_name(name)
+            
+            if material:
+                print(f"[MaterialService] ✅ Material found: {material['name']}")
+                return {
+                    "success": True,
+                    "material": material
+                }
+            else:
+                print(f"[MaterialService] ❌ Material not found: {name}")
+                return {
+                    "success": False,
+                    "message": f"'{name}' malzemesi bulunamadı"
+                }
+                
+        except Exception as e:
+            error_msg = f"Malzeme getirilemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg
+            }
+    
+    @classmethod
+    def create_material(cls, material_data: dict) -> Dict[str, Any]:
+        """Yeni malzeme oluştur"""
+        try:
+            print(f"[MaterialService] 🆕 Creating material: {material_data}")
+            
+            # Pydantic validation
+            material_create = MaterialCreate(**material_data)
+            
+            # İsim kontrolü
+            if Material.name_exists(material_create.name):
+                return {
+                    "success": False,
+                    "message": f"'{material_create.name}' isimli malzeme zaten mevcut"
+                }
+            
+            # Malzeme oluştur
+            material = Material.create_material(material_create.dict())
+            
+            if material:
+                print(f"[MaterialService] ✅ Material created: {material['name']} (ID: {material['id']})")
+                return {
+                    "success": True,
+                    "message": "Malzeme başarıyla oluşturuldu",
                     "material": material
                 }
             else:
                 return {
                     "success": False,
-                    "message": "Güncelleme başarısız"
+                    "message": "Malzeme oluşturulamadı"
                 }
+                
         except Exception as e:
+            error_msg = f"Malzeme oluşturulamadı: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
             return {
                 "success": False,
-                "message": f"Güncelleme sırasında hata: {str(e)}"
+                "message": error_msg
             }
     
-    @staticmethod
-    def delete_material(material_id: str) -> Dict[str, Any]:
-        """Malzeme sil"""
+    @classmethod
+    def update_material(cls, material_id: str, update_data: dict) -> Dict[str, Any]:
+        """Malzeme güncelle"""
         try:
+            print(f"[MaterialService] 🔧 Updating material {material_id}: {update_data}")
+            
+            # ObjectId formatını kontrol et
             if not ObjectId.is_valid(material_id):
                 return {
                     "success": False,
-                    "message": "Geçersiz malzeme ID'si"
+                    "message": "Geçersiz malzeme ID formatı"
                 }
             
-            # Mevcut malzeme kontrolü
+            # Mevcut malzemeyi kontrol et
             existing_material = Material.find_by_id(material_id)
             if not existing_material:
                 return {
                     "success": False,
-                    "message": "Malzeme bulunamadı"
+                    "message": "Güncellenecek malzeme bulunamadı"
                 }
             
-            success = Material.delete_material(material_id)
-            if success:
-                return {
-                    "success": True,
-                    "message": "Malzeme başarıyla silindi"
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": "Silme işlemi başarısız"
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Silme sırasında hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def get_categories() -> Dict[str, Any]:
-        """Malzeme kategorilerini getir"""
-        try:
-            categories = Material.get_categories()
-            return {
-                "success": True,
-                "categories": sorted(categories) if categories else []
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Kategoriler getirilirken hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def bulk_update_prices(price_updates: Dict[str, float]) -> Dict[str, Any]:
-        """Toplu fiyat güncelleme"""
-        try:
-            if not price_updates:
-                return {
-                    "success": False,
-                    "message": "Güncellenecek fiyat bilgisi yok"
-                }
-            
-            # Fiyat değerlerini kontrol et
-            for name, price in price_updates.items():
-                if not isinstance(price, (int, float)) or price < 0:
+            # İsim değişikliği kontrolü
+            if 'name' in update_data and update_data['name'] != existing_material['name']:
+                if Material.name_exists(update_data['name'], exclude_id=material_id):
                     return {
                         "success": False,
-                        "message": f"Geçersiz fiyat değeri: {name} = {price}"
+                        "message": f"'{update_data['name']}' isimli malzeme zaten mevcut"
                     }
             
-            updated_count = Material.bulk_update_prices(price_updates)
-            return {
-                "success": True,
-                "message": f"{updated_count} malzeme fiyatı güncellendi",
-                "updated_count": updated_count,
-                "total_requested": len(price_updates)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Toplu fiyat güncelleme hatası: {str(e)}"
-            }
-    
-    @staticmethod
-    def get_materials_for_analysis() -> Dict[str, Any]:
-        """Analiz için malzeme verilerini getir"""
-        try:
-            keyword_list, alias_map = Material.get_materials_for_matching()
-            material_prices = Material.get_material_prices()
-            
-            # Aktif malzeme sayısı
-            active_count = Material.get_count(active_only=True)
-            
-            return {
-                "success": True,
-                "keyword_list": keyword_list,
-                "alias_map": alias_map,
-                "material_prices": material_prices,
-                "stats": {
-                    "total_keywords": len(keyword_list),
-                    "total_aliases": len(alias_map),
-                    "materials_with_prices": len(material_prices),
-                    "active_materials": active_count
-                }
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Analiz verileri getirilirken hata: {str(e)}"
-            }
-    
-    @staticmethod
-    def add_aliases_to_material(material_id: str, new_aliases: List[str]) -> Dict[str, Any]:
-        """Malzemeye alias ekle"""
-        try:
-            if not ObjectId.is_valid(material_id):
+            # Pydantic validation (sadece gönderilen alanlar için)
+            try:
+                MaterialUpdate(**update_data)
+            except Exception as validation_error:
                 return {
                     "success": False,
-                    "message": "Geçersiz malzeme ID'si"
+                    "message": f"Veri doğrulama hatası: {str(validation_error)}"
                 }
             
-            if not new_aliases:
-                return {
-                    "success": False,
-                    "message": "Eklenecek alias bulunamadı"
-                }
+            # Güncelle
+            success = Material.update_material(material_id, update_data)
             
-            material = Material.find_by_id(material_id)
-            if not material:
-                return {
-                    "success": False,
-                    "message": "Malzeme bulunamadı"
-                }
-            
-            current_aliases = material.get('aliases', [])
-            
-            # Yeni alias'ları temizle ve ekle
-            cleaned_aliases = [alias.strip() for alias in new_aliases if alias.strip()]
-            if not cleaned_aliases:
-                return {
-                    "success": False,
-                    "message": "Geçerli alias bulunamadı"
-                }
-            
-            # Mevcut alias'ları ve yenileri birleştir, tekrarları kaldır
-            all_aliases = list(set(current_aliases + cleaned_aliases))
-            
-            success = Material.update_material(material_id, {"aliases": all_aliases})
             if success:
+                # Güncellenmiş malzemeyi getir
                 updated_material = Material.find_by_id(material_id)
-                added_count = len(all_aliases) - len(current_aliases)
+                print(f"[MaterialService] ✅ Material updated: {updated_material['name']}")
                 return {
                     "success": True,
-                    "message": f"{added_count} alias başarıyla eklendi",
-                    "material": updated_material,
-                    "added_aliases": cleaned_aliases
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": "Alias ekleme başarısız"
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Alias ekleme hatası: {str(e)}"
-            }
-    
-    @staticmethod
-    def remove_alias_from_material(material_id: str, alias_to_remove: str) -> Dict[str, Any]:
-        """Malzemeden alias sil"""
-        try:
-            if not ObjectId.is_valid(material_id):
-                return {
-                    "success": False,
-                    "message": "Geçersiz malzeme ID'si"
-                }
-            
-            if not alias_to_remove.strip():
-                return {
-                    "success": False,
-                    "message": "Silinecek alias belirtilmedi"
-                }
-            
-            material = Material.find_by_id(material_id)
-            if not material:
-                return {
-                    "success": False,
-                    "message": "Malzeme bulunamadı"
-                }
-            
-            current_aliases = material.get('aliases', [])
-            if not current_aliases:
-                return {
-                    "success": False,
-                    "message": "Malzemenin alias'ı bulunmuyor"
-                }
-            
-            # Case-insensitive alias silme
-            updated_aliases = [
-                alias for alias in current_aliases 
-                if alias.strip().lower() != alias_to_remove.strip().lower()
-            ]
-            
-            if len(updated_aliases) == len(current_aliases):
-                return {
-                    "success": False,
-                    "message": f"Alias '{alias_to_remove}' bulunamadı"
-                }
-            
-            success = Material.update_material(material_id, {"aliases": updated_aliases})
-            if success:
-                updated_material = Material.find_by_id(material_id)
-                return {
-                    "success": True,
-                    "message": f"Alias '{alias_to_remove}' başarıyla silindi",
+                    "message": "Malzeme başarıyla güncellendi",
                     "material": updated_material
                 }
             else:
                 return {
                     "success": False,
-                    "message": "Alias silme başarısız"
+                    "message": "Malzeme güncellenemedi"
                 }
+                
         except Exception as e:
+            error_msg = f"Malzeme güncellenemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
             return {
                 "success": False,
-                "message": f"Alias silme hatası: {str(e)}"
+                "message": error_msg
             }
     
-    @staticmethod
-    def get_material_statistics() -> Dict[str, Any]:
-        """Malzeme istatistikleri"""
+    @classmethod
+    def delete_material(cls, material_id: str) -> Dict[str, Any]:
+        """Malzeme sil (soft delete)"""
         try:
-            total_materials = Material.get_count(active_only=False)
-            active_materials = Material.get_count(active_only=True)
-            inactive_materials = total_materials - active_materials
+            print(f"[MaterialService] 🗑️ Deleting material: {material_id}")
+            
+            # ObjectId formatını kontrol et
+            if not ObjectId.is_valid(material_id):
+                return {
+                    "success": False,
+                    "message": "Geçersiz malzeme ID formatı"
+                }
+            
+            # Mevcut malzemeyi kontrol et
+            existing_material = Material.find_by_id(material_id)
+            if not existing_material:
+                return {
+                    "success": False,
+                    "message": "Silinecek malzeme bulunamadı"
+                }
+            
+            # Soft delete (is_active = False)
+            success = Material.delete_material(material_id)
+            
+            if success:
+                print(f"[MaterialService] ✅ Material deleted: {existing_material['name']}")
+                return {
+                    "success": True,
+                    "message": f"'{existing_material['name']}' malzemesi başarıyla silindi"
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Malzeme silinemedi"
+                }
+                
+        except Exception as e:
+            error_msg = f"Malzeme silinemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg
+            }
+    
+    @classmethod
+    def get_categories(cls) -> Dict[str, Any]:
+        """Malzeme kategorilerini getir"""
+        try:
+            print("[MaterialService] 📂 Getting categories")
             
             categories = Material.get_categories()
-            materials_with_prices = len(Material.get_material_prices())
             
-            # Yoğunluğu olan malzemeler
-            collection = Material.get_collection()
-            materials_with_density = collection.count_documents({
-                "is_active": True,
-                "density": {"$ne": None, "$gt": 0}
-            })
-            
+            print(f"[MaterialService] ✅ Found {len(categories)} categories")
             return {
                 "success": True,
-                "statistics": {
-                    "total_materials": total_materials,
-                    "active_materials": active_materials,
-                    "inactive_materials": inactive_materials,
-                    "materials_with_prices": materials_with_prices,
-                    "materials_with_density": materials_with_density,
-                    "total_categories": len(categories),
-                    "categories": categories
-                }
+                "categories": categories
             }
+            
         except Exception as e:
+            error_msg = f"Kategoriler getirilemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
             return {
                 "success": False,
-                "message": f"İstatistikler getirilirken hata: {str(e)}"
+                "message": error_msg,
+                "categories": []
             }
     
-    @staticmethod
-    def validate_material_data(material_data: dict) -> Dict[str, Any]:
-        """Malzeme verilerini doğrula"""
+    @classmethod
+    def bulk_update_prices(cls, price_updates: Dict[str, float]) -> Dict[str, Any]:
+        """Toplu fiyat güncelleme"""
         try:
-            errors = []
+            print(f"[MaterialService] 💰 Bulk updating prices: {len(price_updates)} items")
             
-            # İsim kontrolü
-            if not material_data.get('name', '').strip():
-                errors.append("Malzeme adı gerekli")
+            updated_count = Material.bulk_update_prices(price_updates)
             
-            # Yoğunluk kontrolü
-            density = material_data.get('density')
-            if density is not None:
-                if not isinstance(density, (int, float)) or density <= 0:
-                    errors.append("Yoğunluk pozitif bir sayı olmalı")
-            
-            # Fiyat kontrolü
-            price = material_data.get('price_per_kg')
-            if price is not None:
-                if not isinstance(price, (int, float)) or price < 0:
-                    errors.append("Fiyat sıfır veya pozitif bir sayı olmalı")
-            
-            # Alias kontrolü
-            aliases = material_data.get('aliases', [])
-            if aliases and not isinstance(aliases, list):
-                errors.append("Alias'lar liste formatında olmalı")
-            
+            print(f"[MaterialService] ✅ Bulk update completed: {updated_count} items updated")
             return {
-                "success": len(errors) == 0,
-                "errors": errors,
-                "message": "Doğrulama başarılı" if len(errors) == 0 else "Doğrulama hatası"
+                "success": True,
+                "message": f"{updated_count} malzeme fiyatı güncellendi",
+                "updated_count": updated_count
             }
+            
         except Exception as e:
+            error_msg = f"Toplu fiyat güncellemesi başarısız: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
             return {
                 "success": False,
-                "message": f"Doğrulama sırasında hata: {str(e)}"
+                "message": error_msg,
+                "updated_count": 0
+            }
+    
+    @classmethod
+    def add_aliases_to_material(cls, material_id: str, new_aliases: List[str]) -> Dict[str, Any]:
+        """Malzemeye alias ekle"""
+        try:
+            print(f"[MaterialService] 🏷️ Adding aliases to {material_id}: {new_aliases}")
+            
+            # ObjectId formatını kontrol et
+            if not ObjectId.is_valid(material_id):
+                return {
+                    "success": False,
+                    "message": "Geçersiz malzeme ID formatı"
+                }
+            
+            # Mevcut malzemeyi getir
+            material = Material.find_by_id(material_id)
+            if not material:
+                return {
+                    "success": False,
+                    "message": "Malzeme bulunamadı"
+                }
+            
+            # Mevcut aliasları al
+            current_aliases = material.get('aliases', [])
+            
+            # Yeni aliasları ekle (duplikasyon kontrolü)
+            all_aliases = list(set(current_aliases + new_aliases))
+            
+            # Güncelle
+            success = Material.update_material(material_id, {"aliases": all_aliases})
+            
+            if success:
+                # Güncellenmiş malzemeyi getir
+                updated_material = Material.find_by_id(material_id)
+                print(f"[MaterialService] ✅ Aliases added to {material['name']}")
+                return {
+                    "success": True,
+                    "message": "Aliaslar başarıyla eklendi",
+                    "material": updated_material
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Aliaslar eklenemedi"
+                }
+                
+        except Exception as e:
+            error_msg = f"Alias eklenemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg
+            }
+    
+    @classmethod
+    def remove_alias_from_material(cls, material_id: str, alias_to_remove: str) -> Dict[str, Any]:
+        """Malzemeden alias sil"""
+        try:
+            print(f"[MaterialService] 🗑️ Removing alias '{alias_to_remove}' from {material_id}")
+            
+            # ObjectId formatını kontrol et
+            if not ObjectId.is_valid(material_id):
+                return {
+                    "success": False,
+                    "message": "Geçersiz malzeme ID formatı"
+                }
+            
+            # Mevcut malzemeyi getir
+            material = Material.find_by_id(material_id)
+            if not material:
+                return {
+                    "success": False,
+                    "message": "Malzeme bulunamadı"
+                }
+            
+            # Mevcut aliasları al
+            current_aliases = material.get('aliases', [])
+            
+            # Alias'ı çıkar
+            updated_aliases = [alias for alias in current_aliases if alias != alias_to_remove]
+            
+            # Güncelle
+            success = Material.update_material(material_id, {"aliases": updated_aliases})
+            
+            if success:
+                # Güncellenmiş malzemeyi getir
+                updated_material = Material.find_by_id(material_id)
+                print(f"[MaterialService] ✅ Alias '{alias_to_remove}' removed from {material['name']}")
+                return {
+                    "success": True,
+                    "message": "Alias başarıyla silindi",
+                    "material": updated_material
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Alias silinemedi"
+                }
+                
+        except Exception as e:
+            error_msg = f"Alias silinemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg
+            }
+    
+    @classmethod
+    def get_materials_for_analysis(cls) -> Dict[str, Any]:
+        """Analiz için malzeme verilerini getir"""
+        try:
+            print("[MaterialService] 📊 Getting materials for analysis")
+            
+            # Sadece aktif malzemeleri al
+            materials = Material.get_all_materials(limit=10000, active_only=True)
+            
+            # Analiz için gerekli alanları filtrele
+            analysis_materials = []
+            for material in materials:
+                analysis_materials.append({
+                    "id": material['id'],
+                    "name": material['name'],
+                    "aliases": material.get('aliases', []),
+                    "density": material.get('density'),
+                    "price_per_kg": material.get('price_per_kg'),
+                    "category": material.get('category')
+                })
+            
+            print(f"[MaterialService] ✅ Analysis materials: {len(analysis_materials)} items")
+            return {
+                "success": True,
+                "materials": analysis_materials,
+                "total_count": len(analysis_materials)
+            }
+            
+        except Exception as e:
+            error_msg = f"Analiz malzemeleri getirilemedi: {str(e)}"
+            print(f"[MaterialService] ❌ Error: {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg,
+                "materials": []
             }

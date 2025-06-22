@@ -191,7 +191,7 @@ export const AuthPage = () => {
                   <strong>Admin:</strong> admin / engteklif
                 </p>
                 <p style={{ margin: '4px 0' }}>
-                  <strong>User:</strong> testuser / test123
+                  <strong>User:</strong> user / engteklif
                 </p>
               </div>
               <div style={{ marginTop: '12px' }}>
@@ -211,7 +211,7 @@ export const AuthPage = () => {
                   size="small"
                   outlined
                   onClick={() => {
-                    form.setFieldsValue({ username: 'testuser', password: 'test123' });
+                    form.setFieldsValue({ username: 'user', password: 'engteklif' });
                   }}
                   style={{ fontSize: '12px' }}
                 />

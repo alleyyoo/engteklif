@@ -58,6 +58,21 @@ class AuthService {
     };
   }
 
+  isAdmin(): boolean {
+    const user = this.getCurrentUserFromStorage();
+    return user?.role === 'admin';
+  }
+  
+  isUser(): boolean {
+    const user = this.getCurrentUserFromStorage();
+    return user?.role === 'user';
+  }
+  
+  hasRole(role: string): boolean {
+    const user = this.getCurrentUserFromStorage();
+    return user?.role === role;
+  }
+
   async login(credentials: LoginRequest): Promise<AuthResponse> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -67,9 +82,9 @@ class AuthService {
         },
         body: JSON.stringify(credentials),
       });
-
+  
       const data: AuthResponse = await response.json();
-
+  
       if (data.success && data.tokens) {
         // Token'ları localStorage'a kaydet
         localStorage.setItem('accessToken', data.tokens.access_token);
@@ -80,14 +95,44 @@ class AuthService {
         // Kullanıcı bilgilerini kaydet
         if (data.user) {
           localStorage.setItem('user', JSON.stringify(data.user));
+          console.log('✅ User logged in:', {
+            username: data.user.username,
+            role: data.user.role,
+            id: data.user.id
+          });
         }
       }
-
+  
       return data;
     } catch (error) {
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Bağlantı hatası'
+      };
+    }
+  }
+  
+  // Logout'ta user bilgilerini de temizle
+  async logout(): Promise<{ success: boolean; message?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+      });
+  
+      const data = await response.json();
+  
+      // Her durumda localStorage'ı temizle
+      this.clearLocalStorage();
+      console.log('👋 User logged out');
+  
+      return { success: true, message: 'Başarıyla çıkış yapıldı' };
+    } catch (error) {
+      // Hata durumunda da localStorage'ı temizle
+      this.clearLocalStorage();
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Çıkış yapılırken hata oluştu'
       };
     }
   }
@@ -187,29 +232,6 @@ class AuthService {
     }
   }
 
-  async logout(): Promise<{ success: boolean; message?: string }> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-      });
-
-      const data = await response.json();
-
-      // Her durumda localStorage'ı temizle
-      this.clearLocalStorage();
-
-      return { success: true, message: 'Başarıyla çıkış yapıldı' };
-    } catch (error) {
-      // Hata durumunda da localStorage'ı temizle
-      this.clearLocalStorage();
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Çıkış yapılırken hata oluştu'
-      };
-    }
-  }
-
   async changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
@@ -287,10 +309,20 @@ class AuthService {
     try {
       const userStr = localStorage.getItem('user');
       if (userStr) {
-        return JSON.parse(userStr);
+        const user = JSON.parse(userStr);
+        console.log('👤 Current user from storage:', {
+          username: user.username,
+          role: user.role,
+          id: user.id
+        });
+        return user;
       }
+      console.log('👤 No user found in localStorage');
       return null;
     } catch (error) {
+      console.error('👤 Error parsing user from localStorage:', error);
+      // Corrupted user data varsa temizle
+      localStorage.removeItem('user');
       return null;
     }
   }

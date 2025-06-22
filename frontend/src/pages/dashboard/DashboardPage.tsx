@@ -1,13 +1,20 @@
-// src/pages/dashboard/DashboardPage.tsx - Basit 3D Viewer entegrasyonu
+// src/pages/dashboard/DashboardPage.tsx - Excel Merge entegrasyonu
 import React, { useState, useRef } from "react";
 import { DashboardPageStyles } from "./DashboardPage.styles";
 import { useFileUpload } from "../../hooks/useFileUpload";
 import { Image } from "primereact/image";
+import { apiService } from "../../services/api";
 
 export const DashboardPage = () => {
   const classes = DashboardPageStyles();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  
+  // Excel merge state
+  const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState(0);
   
   const {
     files,
@@ -32,6 +39,111 @@ export const DashboardPage = () => {
     }
     // Reset input
     event.target.value = '';
+  };
+
+  // ✅ Excel dosya seçimi
+  const handleExcelFileSelect = () => {
+    excelInputRef.current?.click();
+  };
+
+  const handleExcelFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Excel dosya tipini kontrol et
+      const validTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'application/excel'
+      ];
+      
+      if (validTypes.includes(file.type) || file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+        setSelectedExcelFile(file);
+        console.log('✅ Excel dosyası seçildi:', file.name);
+      } else {
+        alert('Lütfen geçerli bir Excel dosyası (.xlsx, .xls) seçin.');
+      }
+    }
+    // Reset input
+    event.target.value = '';
+  };
+
+  // ✅ Excel merge işlemi
+  const handleExcelMerge = async () => {
+    if (!selectedExcelFile) {
+      alert('Lütfen önce bir Excel dosyası seçin.');
+      return;
+    }
+
+    // Tamamlanmış analizleri bul
+    const completedAnalyses = files.filter(f => 
+      f.status === 'completed' && 
+      f.result?.analysis?.id
+    );
+
+    if (completedAnalyses.length === 0) {
+      alert('Birleştirilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.');
+      return;
+    }
+
+    setIsMerging(true);
+    setMergeProgress(10);
+
+    try {
+      console.log('📊 Excel merge başlıyor...', {
+        excelFile: selectedExcelFile.name,
+        analysisCount: completedAnalyses.length
+      });
+
+      // Analysis ID'lerini topla
+      const analysisIds = completedAnalyses.map(f => f.result!.analysis.id);
+
+      setMergeProgress(30);
+
+      // API çağrısı
+      const result = await apiService.mergeWithExcel(selectedExcelFile, analysisIds);
+
+      setMergeProgress(80);
+
+      if (result.success) {
+        // Başarılı - dosyayı indir
+        console.log('✅ Excel merge başarılı');
+        
+        // Blob olarak dönen dosyayı indir
+        const url = window.URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = result.filename || `merged_excel_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        setMergeProgress(100);
+        
+        // Başarı mesajı
+        setTimeout(() => {
+          alert('✅ Excel dosyası başarıyla birleştirildi ve indirildi!');
+          setSelectedExcelFile(null);
+          setMergeProgress(0);
+          setIsMerging(false);
+        }, 500);
+
+      } else {
+        throw new Error(result.message || 'Excel birleştirme başarısız');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Excel merge hatası:', error);
+      alert(`Excel birleştirme hatası: ${error.message || 'Bilinmeyen hata'}`);
+      setMergeProgress(0);
+      setIsMerging(false);
+    }
+  };
+
+  // ✅ Excel dosyasını kaldır
+  const removeExcelFile = () => {
+    setSelectedExcelFile(null);
   };
 
   const toggleExpanded = (index: number) => {
@@ -83,7 +195,7 @@ export const DashboardPage = () => {
   const open3DViewer = (analysisId: string, fileName: string) => {
     // Backend'deki 3D viewer HTML dosyasını yeni sekmede aç
     const viewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/3d-viewer/${analysisId}/${accessToken}`;
-    window.open(viewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+    window.open(viewerUrl, '_blank', 'width=1600,height=1200,scrollbars=yes,resizable=yes');
   };
 
   // STL dosyasını direkt görüntüle
@@ -554,21 +666,110 @@ export const DashboardPage = () => {
 
                 <div className={classes.line}></div>
 
+                {/* ✅ Excel Merge Bölümü - Fonksiyonel */}
                 <div className={classes.iconTextDiv}>
                   <span>📤</span>
                   <p className={classes.title}>Excel Yükle ve Analiz Sonuçlarıyla Birleştir</p>
                 </div>
 
+                {/* Excel dosya seçimi */}
                 <div className={classes.fileSelection}>
-                  <button className={classes.fileSelectionButton}>Choose File</button>
-                  <span className={classes.fileIcon}>📁</span>
-                  <p className={classes.fileSelectionText}>no file selected</p>
+                  <button 
+                    className={classes.fileSelectionButton}
+                    onClick={handleExcelFileSelect}
+                    disabled={isMerging}
+                  >
+                    Choose File
+                  </button>
+                  <span className={classes.fileIcon}>📊</span>
+                  <p className={classes.fileSelectionText}>
+                    {selectedExcelFile ? selectedExcelFile.name : 'no file selected'}
+                  </p>
+                  {selectedExcelFile && (
+                    <button 
+                      onClick={removeExcelFile}
+                      style={{ 
+                        marginLeft: '10px',
+                        backgroundColor: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                      disabled={isMerging}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
 
-                <button className={classes.excelButton}>
+                {/* Excel input (hidden) */}
+                <input
+                  ref={excelInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleExcelFileChange}
+                  style={{ display: 'none' }}
+                />
+
+                {/* Excel merge progress */}
+                {isMerging && (
+                  <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+                    <div style={{ backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          width: `${mergeProgress}%`, 
+                          height: '20px', 
+                          backgroundColor: '#28a745', 
+                          transition: 'width 0.3s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {mergeProgress}%
+                      </div>
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                      Excel dosyası birleştiriliyor...
+                    </p>
+                  </div>
+                )}
+
+                {/* Merge butonu */}
+                <button 
+                  className={classes.excelButton}
+                  onClick={handleExcelMerge}
+                  disabled={!selectedExcelFile || isMerging || !files.some(f => f.status === 'completed')}
+                >
                   <img src="/upload.svg" alt="" />
-                  Excel Dosyasını Yükle ve Birleştir
+                  {isMerging 
+                    ? 'Birleştiriliyor...' 
+                    : 'Excel Dosyasını Yükle ve Birleştir'
+                  }
                 </button>
+
+                {/* Bilgi mesajı */}
+                {files.some(f => f.status === 'completed') && (
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: '#666', 
+                    marginTop: '10px',
+                    padding: '8px',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: '4px',
+                    border: '1px solid #dee2e6'
+                  }}>
+                    💡 <strong>Nasıl çalışır:</strong> Excel dosyanızı seçin ve analiz sonuçlarıyla birleştirin. 
+                    Sistem otomatik olarak ürün kodlarını eşleştirip malzeme bilgilerini, boyutları ve 3D görsellerini ekleyecek.
+                    <br />
+                    <strong>Birleştirilecek {files.filter(f => f.status === 'completed').length} analiz sonucu mevcut.</strong>
+                  </div>
+                )}
               </div>
             </>
           )}

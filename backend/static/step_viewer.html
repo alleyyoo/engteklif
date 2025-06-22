@@ -102,10 +102,12 @@
         z-index: 100;
         transform: translateX(-320px);
         transition: transform 0.3s ease;
+        display: none;
       }
 
       .control-panel.visible {
         transform: translateX(0);
+        display: block;
       }
 
       .control-section {
@@ -354,6 +356,52 @@
         gap: 10px;
         margin-bottom: 12px;
       }
+
+      /* Measurement popup styles */
+      #distance-popup {
+        position: absolute;
+        top: 520px;
+        right: 24px;
+        left: auto;
+        transform: none;
+        background: #f8fafc;
+        border-radius: 15px;
+        padding: 22px 28px 18px 28px;
+        box-shadow: 0 6px 28px rgba(60, 72, 90, 0.11);
+        font-family: inherit;
+        font-size: 0.97rem;
+        color: #205087;
+        z-index: 20;
+        transition: opacity 0.3s ease;
+        min-width: 210px;
+        display: none;
+      }
+
+      #popup-content {
+        position: relative;
+        padding-top: 6px;
+      }
+
+      #popup-close {
+        position: absolute;
+        top: -13px;
+        right: -13px;
+        background: #eaf1fb;
+        color: #205087;
+        border-radius: 999px;
+        padding: 4px 10px 4px 10px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 17px;
+        line-height: 20px;
+        box-shadow: 0 0 6px rgba(60, 72, 90, 0.12);
+        border: 1.5px solid #eaf1fb;
+        transition: background 0.12s;
+      }
+
+      #popup-close:hover {
+        background: #dbeafb;
+      }
     </style>
   </head>
   <body>
@@ -364,6 +412,7 @@
         <button id="toggle-controls" class="btn secondary">
           🎮 Kontroller
         </button>
+        <button id="measure-btn" class="btn secondary">📏 Ölçüm</button>
         <button id="toggle-fullscreen" class="btn secondary">
           📺 Tam Ekran
         </button>
@@ -374,7 +423,7 @@
     <div id="viewer-container"></div>
 
     <!-- Control Panel -->
-    <div id="control-panel" class="control-panel">
+    <div id="control-panel" class="control-panel visible">
       <div class="control-section">
         <div class="section-title">🎮 Görünüm Kontrolleri</div>
         <div class="control-row">
@@ -412,6 +461,22 @@
           <span>Eksenler:</span>
           <div id="axes-toggle" class="toggle-switch active"></div>
         </div>
+        <div class="feature-toggle">
+          <span>Prizma:</span>
+          <div id="bbox-toggle" class="toggle-switch"></div>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <div class="section-title">🎨 Renk Modu</div>
+        <div class="control-row">
+          <button id="vertex-color-btn" class="control-btn">
+            🌈 Vertex Renk
+          </button>
+          <button id="solid-color-btn" class="control-btn active">
+            🎨 Düz Gri
+          </button>
+        </div>
       </div>
 
       <div class="control-section">
@@ -446,10 +511,18 @@
     <!-- Toast Notifications -->
     <div id="toast" class="toast"></div>
 
+    <!-- Distance Measurement Popup -->
+    <div id="distance-popup">
+      <div id="popup-content">
+        <span id="popup-close">&times;</span>
+        <p id="popup-text"></p>
+      </div>
+    </div>
+
     <script type="module">
-      import * as THREE from "https://esm.sh/three@0.160.0";
-      import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
-      import { STLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/STLLoader.js";
+      import * as THREE from "https://esm.sh/three@0.176.0";
+      import { OrbitControls } from "https://esm.sh/three@0.176.0/examples/jsm/controls/OrbitControls.js";
+      import { STLLoader } from "https://esm.sh/three@0.176.0/examples/jsm/loaders/STLLoader.js";
 
       class EngTeklifSTEPViewer {
         constructor() {
@@ -462,6 +535,12 @@
           this.isLoading = false;
           this.currentAnalysisId = null;
           this.accessToken = null;
+          this.currentColorMode = "solid";
+          this.measurementMode = false;
+          this.selectedPoints = [];
+          this.raycaster = new THREE.Raycaster();
+          this.mouse = new THREE.Vector2();
+          this.mouse3D = new THREE.Vector3();
 
           this.init();
           this.setupEventListeners();
@@ -471,16 +550,16 @@
         init() {
           // Scene setup
           this.scene = new THREE.Scene();
-          this.scene.background = new THREE.Color(0xf8f9fa);
+          this.scene.background = new THREE.Color(0xf4f4f4);
 
           // Camera setup
           this.camera = new THREE.PerspectiveCamera(
             60,
             window.innerWidth / window.innerHeight,
-            0.1,
-            10000
+            1,
+            1000
           );
-          this.camera.position.set(150, 150, 150);
+          this.camera.position.set(50, 50, 50);
 
           // Renderer setup
           this.renderer = new THREE.WebGLRenderer({
@@ -515,36 +594,52 @@
         }
 
         setupLighting() {
-          // Ambient light
-          const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
-          this.scene.add(ambientLight);
-          this.lights.push(ambientLight);
+          // Enhanced lighting similar to original
+          const light1 = new THREE.DirectionalLight(0xffffff, 0.8);
+          light1.position.set(1, 1, 1);
+          this.scene.add(light1);
 
-          // Directional light
-          const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
-          directionalLight.position.set(100, 100, 50);
-          directionalLight.castShadow = true;
-          directionalLight.shadow.mapSize.width = 2048;
-          directionalLight.shadow.mapSize.height = 2048;
-          this.scene.add(directionalLight);
-          this.lights.push(directionalLight);
+          const light2 = new THREE.AmbientLight(0xffffff, 0.2);
+          this.scene.add(light2);
 
-          // Point lights
-          const pointLight1 = new THREE.PointLight(0xffffff, 0.5, 300);
-          pointLight1.position.set(-100, -100, 100);
-          this.scene.add(pointLight1);
-          this.lights.push(pointLight1);
+          const light3 = new THREE.DirectionalLight(0xffffff, 0.5);
+          light3.position.set(0, -1, 0);
+          this.scene.add(light3);
 
-          const pointLight2 = new THREE.PointLight(0xffffff, 0.3, 300);
-          pointLight2.position.set(100, -100, -100);
-          this.scene.add(pointLight2);
-          this.lights.push(pointLight2);
+          const lightZ1 = new THREE.DirectionalLight(0xffffff, 0.4);
+          lightZ1.position.set(0, 0, 1);
+          this.scene.add(lightZ1);
+
+          const lightZ2 = new THREE.DirectionalLight(0xffffff, 0.4);
+          lightZ2.position.set(0, 0, -1);
+          this.scene.add(lightZ2);
+
+          const lightX1 = new THREE.DirectionalLight(0xffffff, 0.25);
+          lightX1.position.set(1, 0, 0);
+          this.scene.add(lightX1);
+
+          const lightX2 = new THREE.DirectionalLight(0xffffff, 0.25);
+          lightX2.position.set(-1, 0, 0);
+          this.scene.add(lightX2);
+
+          const topLight = new THREE.DirectionalLight(0xffffff, 0.9);
+          topLight.position.set(0, 1, 0);
+          this.scene.add(topLight);
+
+          const sideLight1 = new THREE.DirectionalLight(0xffffff, 0.4);
+          sideLight1.position.set(1, 0.5, 0.5);
+          this.scene.add(sideLight1);
+
+          const sideLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+          sideLight2.position.set(-1, 0.5, -0.5);
+          this.scene.add(sideLight2);
         }
 
         setupGridAndAxes() {
           // Grid
-          const gridHelper = new THREE.GridHelper(200, 20, 0x888888, 0xcccccc);
+          const gridHelper = new THREE.GridHelper(200, 50);
           gridHelper.name = "grid";
+          gridHelper.visible = false;
           this.scene.add(gridHelper);
 
           // Axes
@@ -554,8 +649,8 @@
         }
 
         setupEventListeners() {
-          // Control buttons
           this.setupControlButtons();
+          this.setupMeasurement();
 
           // Window resize
           window.addEventListener("resize", () => {
@@ -583,6 +678,191 @@
                 document.documentElement.requestFullscreen();
               }
             });
+        }
+
+        setupMeasurement() {
+          // Measurement button
+          const measureBtn = document.getElementById("measure-btn");
+          measureBtn.addEventListener("click", () => {
+            this.measurementMode = !this.measurementMode;
+            measureBtn.classList.toggle("active", this.measurementMode);
+
+            // Update button text and style
+            if (this.measurementMode) {
+              measureBtn.style.background =
+                "linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)";
+              measureBtn.textContent = "📏 Ölçüm Aktif";
+            } else {
+              measureBtn.style.background = "";
+              measureBtn.textContent = "📏 Ölçüm";
+              this.clearMeasurements();
+            }
+          });
+
+          // Close popup handler
+          document
+            .getElementById("popup-close")
+            .addEventListener("click", () => {
+              document.getElementById("distance-popup").style.display = "none";
+              this.clearMeasurements();
+            });
+        }
+
+        setupMeasurementEvents() {
+          // Remove existing event listeners to avoid duplicates
+          if (this.measurementEventsSetup) return;
+
+          // Mouse events for measurement
+          this.renderer.domElement.addEventListener("mousemove", (event) => {
+            if (
+              this.measurementMode &&
+              this.selectedPoints.length === 1 &&
+              this.model
+            ) {
+              // Calculate mouse position relative to the renderer canvas
+              const rect = this.renderer.domElement.getBoundingClientRect();
+              this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+              this.mouse.y =
+                -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+              this.raycaster.setFromCamera(this.mouse, this.camera);
+              const intersects = this.raycaster.intersectObject(
+                this.model,
+                true
+              );
+              if (intersects.length > 0) {
+                this.mouse3D.copy(intersects[0].point);
+              }
+            }
+          });
+
+          this.renderer.domElement.addEventListener("click", (event) => {
+            this.onClick(event);
+          });
+
+          this.measurementEventsSetup = true;
+        }
+
+        onClick(event) {
+          if (
+            document.getElementById("distance-popup").style.display === "block"
+          )
+            return;
+          if (!this.model || !this.measurementMode) return;
+
+          // Calculate mouse position relative to the renderer canvas
+          const rect = this.renderer.domElement.getBoundingClientRect();
+          this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+          this.raycaster.setFromCamera(this.mouse, this.camera);
+          const intersects = this.raycaster.intersectObject(this.model, true);
+
+          if (intersects.length > 0) {
+            const point = intersects[0].point.clone();
+            this.selectedPoints.push(point);
+
+            // Add marker
+            const marker = new THREE.Mesh(
+              new THREE.SphereGeometry(0.5), // Larger marker for visibility
+              new THREE.MeshBasicMaterial({ color: 0xff6666 })
+            );
+            marker.position.copy(point);
+            this.scene.add(marker);
+            if (!window._currentMarkers) window._currentMarkers = [];
+            window._currentMarkers.push(marker);
+
+            console.log(
+              `Measurement point ${this.selectedPoints.length} added:`,
+              point
+            );
+
+            if (this.selectedPoints.length === 1) {
+              // Create preview line
+              this.createPreviewLine();
+              this.showToast("İkinci noktayı seçin", "info");
+            }
+
+            if (this.selectedPoints.length === 2) {
+              this.showDistance();
+              this.showToast("Mesafe ölçüldü!", "success");
+            }
+          }
+        }
+
+        createPreviewLine() {
+          if (window._previewLine) {
+            this.scene.remove(window._previewLine);
+            window._previewLine = null;
+          }
+
+          const dynamicLineGeometry = new THREE.BufferGeometry().setFromPoints([
+            this.selectedPoints[0],
+            this.selectedPoints[0].clone(),
+          ]);
+
+          const dynamicLine = new THREE.Line(
+            dynamicLineGeometry,
+            new THREE.LineDashedMaterial({
+              color: 0xff0000,
+              dashSize: 0.2,
+              gapSize: 0.1,
+            })
+          );
+
+          this.scene.add(dynamicLine);
+          window._previewLine = dynamicLine;
+        }
+
+        showDistance() {
+          const geometry = new THREE.BufferGeometry().setFromPoints(
+            this.selectedPoints
+          );
+          const line = new THREE.Line(
+            geometry,
+            new THREE.LineBasicMaterial({ color: 0x0000ff })
+          );
+          this.scene.add(line);
+
+          const distance = this.selectedPoints[0].distanceTo(
+            this.selectedPoints[1]
+          );
+          const popup = document.getElementById("distance-popup");
+          const popupText = document.getElementById("popup-text");
+          popupText.textContent = `Mesafe: ${distance.toFixed(2)} birim`;
+          popup.style.display = "block";
+
+          window._currentLine = line;
+
+          if (window._previewLine) {
+            this.scene.remove(window._previewLine);
+            window._previewLine = null;
+          }
+        }
+
+        clearMeasurements() {
+          console.log("Clearing measurements...");
+
+          if (window._currentMarkers) {
+            window._currentMarkers.forEach((m) => this.scene.remove(m));
+            window._currentMarkers = [];
+          }
+          if (window._currentLine) {
+            this.scene.remove(window._currentLine);
+            window._currentLine = null;
+          }
+          if (window._previewLine) {
+            this.scene.remove(window._previewLine);
+            window._previewLine = null;
+          }
+          this.selectedPoints = [];
+
+          // Update button style
+          const measureBtn = document.getElementById("measure-btn");
+          if (measureBtn && !this.measurementMode) {
+            measureBtn.style.background = "";
+            measureBtn.textContent = "📏 Ölçüm";
+          }
         }
 
         setupControlButtons() {
@@ -632,6 +912,19 @@
             this.setStandardView("isometric");
           });
 
+          // Color mode buttons
+          document
+            .getElementById("vertex-color-btn")
+            .addEventListener("click", () => {
+              this.setColorMode("vertex");
+            });
+
+          document
+            .getElementById("solid-color-btn")
+            .addEventListener("click", () => {
+              this.setColorMode("solid");
+            });
+
           // Visual toggles
           this.setupToggle("wireframe-toggle", (active) => {
             if (this.model) {
@@ -661,6 +954,10 @@
             true
           );
 
+          this.setupToggle("bbox-toggle", (active) => {
+            this.toggleBoundingBox(active);
+          });
+
           // Material buttons
           document
             .getElementById("material-aluminum")
@@ -679,6 +976,130 @@
             .addEventListener("click", () => {
               this.setMaterial("plastic");
             });
+        }
+
+        setColorMode(mode) {
+          if (mode === this.currentColorMode) return;
+
+          this.currentColorMode = mode;
+
+          // Update button states
+          document
+            .querySelectorAll("#vertex-color-btn, #solid-color-btn")
+            .forEach((btn) => {
+              btn.classList.remove("active");
+            });
+
+          if (mode === "vertex") {
+            document.getElementById("vertex-color-btn").classList.add("active");
+          } else {
+            document.getElementById("solid-color-btn").classList.add("active");
+          }
+
+          // Reload model with new color mode
+          if (this.model && this.currentAnalysisId) {
+            this.reloadModelWithColorMode(mode);
+          }
+        }
+
+        async reloadModelWithColorMode(mode) {
+          try {
+            const modelPath = `/static/stepviews/${this.currentAnalysisId}/model_${this.currentAnalysisId}.stl`;
+
+            const loader = new STLLoader();
+            loader.load(modelPath, (geometry) => {
+              geometry.computeVertexNormals();
+
+              let material;
+              if (mode === "vertex") {
+                const colors = [];
+                const position = geometry.attributes.position;
+                for (let i = 0; i < position.count; i++) {
+                  const y = position.getY(i);
+                  const color = new THREE.Color().setHSL(
+                    (y + 50) / 100,
+                    1.0,
+                    0.5
+                  );
+                  colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute(
+                  "color",
+                  new THREE.Float32BufferAttribute(colors, 3)
+                );
+                material = new THREE.MeshPhongMaterial({
+                  vertexColors: true,
+                  side: THREE.DoubleSide,
+                  shininess: 100,
+                });
+              } else {
+                material = new THREE.MeshPhongMaterial({
+                  color: 0xb0bec5,
+                  shininess: 25,
+                  specular: 0x222222,
+                  flatShading: false,
+                  side: THREE.DoubleSide,
+                });
+              }
+
+              if (this.model) {
+                this.scene.remove(this.model);
+              }
+
+              this.model = new THREE.Mesh(geometry, material);
+
+              geometry.computeBoundingBox();
+              const center = new THREE.Vector3();
+              geometry.boundingBox.getCenter(center);
+              this.model.position.sub(center);
+
+              this.model.castShadow = true;
+              this.model.receiveShadow = true;
+              this.scene.add(this.model);
+            });
+          } catch (error) {
+            console.error("Color mode reload error:", error);
+          }
+        }
+
+        toggleBoundingBox(active) {
+          if (!active) {
+            const bbox = this.scene.getObjectByName("boundingBox");
+            if (bbox) {
+              this.scene.remove(bbox);
+            }
+            return;
+          }
+
+          if (this.model) {
+            const box = new THREE.Box3().setFromObject(this.model);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+
+            // Add padding
+            const dims = [size.x, size.y, size.z];
+            const minIndex = dims.indexOf(Math.min(...dims));
+
+            if (minIndex === 0) size.x += 0.5;
+            else size.x += 1.0;
+            if (minIndex === 1) size.y += 0.5;
+            else size.y += 1.0;
+            if (minIndex === 2) size.z += 0.5;
+            else size.z += 1.0;
+
+            const boxGeom = new THREE.BoxGeometry(size.x, size.y, size.z);
+            const boxMat = new THREE.MeshBasicMaterial({
+              color: 0x999999,
+              transparent: true,
+              opacity: 0.8,
+            });
+            const bboxMesh = new THREE.Mesh(boxGeom, boxMat);
+            bboxMesh.name = "boundingBox";
+            bboxMesh.position.copy(center);
+            this.scene.add(bboxMesh);
+          }
         }
 
         setupToggle(id, callback, initialState = false) {
@@ -707,7 +1128,6 @@
           const simpleMatch = path.match(/\/step-viewer\/([^\/]+)$/);
 
           if (fullMatch) {
-            // Token ile erişim
             this.currentAnalysisId = fullMatch[1];
             this.accessToken = fullMatch[2];
             console.log(
@@ -716,13 +1136,11 @@
             );
             this.loadAnalysisModel(this.currentAnalysisId);
           } else if (simpleMatch) {
-            // Sadece analysis_id ile erişim
             this.currentAnalysisId = simpleMatch[1];
             this.accessToken = null;
             console.log("[VIEWER] 📋 Basit erişim:", this.currentAnalysisId);
             this.loadAnalysisModel(this.currentAnalysisId);
           } else {
-            // Ana sayfa veya geçersiz format
             console.log("[VIEWER] 🏠 Ana sayfa");
             this.showMainPage();
           }
@@ -740,10 +1158,20 @@
               headers["Authorization"] = `Bearer ${this.accessToken}`;
             }
 
-            // 1. ÖNCE ANALİZ BİLGİLERİNİ AL
-            console.log("[VIEWER] 📡 Analiz bilgileri alınıyor...");
+            // Try to load STL directly first
+            const modelPath = `/static/stepviews/${analysisId}/model_${analysisId}.stl`;
 
-            // Model bilgilerini kontrol et
+            try {
+              await this.loadSTLFromPath(modelPath);
+              await this.loadAnalysisInfo(analysisId);
+              this.showToast("3D model başarıyla yüklendi!", "success");
+              this.hideLoading();
+              return;
+            } catch (stlLoadError) {
+              console.log("[VIEWER] Direct STL load failed, trying API...");
+            }
+
+            // If direct STL fails, try API approach
             const modelInfoResponse = await fetch(
               `/api/upload/model-3d/${analysisId}`,
               {
@@ -761,7 +1189,6 @@
             const modelInfo = await modelInfoResponse.json();
             console.log("[VIEWER] 📊 Model bilgileri:", modelInfo);
 
-            // 2. STL DOSYASINI KONTROL ET
             let stlPath = null;
 
             if (
@@ -771,32 +1198,22 @@
               stlPath = modelInfo.model_info.models_available.stl.path;
               console.log("[VIEWER] ✅ STL dosyası mevcut:", stlPath);
 
-              // PDF'den gelen özel STL kontrolü
-              if (modelInfo.model_info.models_available.stl.from_pdf) {
-                console.log("[VIEWER] 📄 PDF'den çıkarılan STEP için STL");
-              }
-
               try {
                 await this.loadSTLFromPath(stlPath);
-
-                // Analiz bilgilerini yükle
                 await this.loadAnalysisInfo(analysisId);
-
                 this.showToast("3D model başarıyla yüklendi!", "success");
                 this.hideLoading();
                 return;
               } catch (stlLoadError) {
                 console.error("[VIEWER] ❌ STL yükleme hatası:", stlLoadError);
-                // STL yüklenemezse oluşturmayı dene
               }
             }
 
-            // 3. STL YOKSA VEYA YÜKLENEMEDİYSE OLUŞTUR
+            // Generate STL if not available
             if (!stlPath || !modelInfo.model_info.models_available.stl?.ready) {
               console.log("[VIEWER] 🔧 STL oluşturuluyor...");
               this.showLoading("STL dosyası oluşturuluyor...");
 
-              // Önce analiz edilmiş mi kontrol et
               const analyzeResponse = await fetch(
                 `/api/upload/analyze/${analysisId}`,
                 {
@@ -805,17 +1222,11 @@
                 }
               );
 
-              if (!analyzeResponse.ok) {
-                console.error(
-                  "[VIEWER] ❌ Analiz başarısız:",
-                  analyzeResponse.status
-                );
-              } else {
+              if (analyzeResponse.ok) {
                 const analyzeResult = await analyzeResponse.json();
                 console.log("[VIEWER] ✅ Analiz tamamlandı:", analyzeResult);
               }
 
-              // STL oluştur
               const generateResponse = await fetch(
                 `/api/upload/generate-stl/${analysisId}`,
                 {
@@ -832,47 +1243,25 @@
                 );
 
                 if (generateResult.success) {
-                  console.log(
-                    "[VIEWER] ✅ STL oluşturuldu:",
-                    generateResult.stl_path
+                  const newStlPath =
+                    generateResult.stl_url || generateResult.stl_path;
+                  console.log("[VIEWER] 🔄 Yeni STL yükleniyor:", newStlPath);
+
+                  await this.loadSTLFromPath(newStlPath);
+                  await this.loadAnalysisInfo(analysisId);
+
+                  this.showToast(
+                    "3D model oluşturuldu ve yüklendi!",
+                    "success"
                   );
-
-                  try {
-                    // Yeni STL path'i kullan
-                    const newStlPath =
-                      generateResult.stl_url || generateResult.stl_path;
-                    console.log("[VIEWER] 🔄 Yeni STL yükleniyor:", newStlPath);
-
-                    await this.loadSTLFromPath(newStlPath);
-
-                    // Analiz bilgilerini yükle
-                    await this.loadAnalysisInfo(analysisId);
-
-                    this.showToast(
-                      "3D model oluşturuldu ve yüklendi!",
-                      "success"
-                    );
-                    this.hideLoading();
-                    return;
-                  } catch (stlLoadError) {
-                    console.error(
-                      "[VIEWER] ❌ Yeni STL yükleme hatası:",
-                      stlLoadError
-                    );
-                    throw stlLoadError;
-                  }
+                  this.hideLoading();
+                  return;
                 } else {
                   throw new Error(
                     generateResult.message || "STL oluşturulamadı"
                   );
                 }
               } else {
-                const errorText = await generateResponse.text();
-                console.error("[VIEWER] ❌ STL oluşturma isteği başarısız:", {
-                  status: generateResponse.status,
-                  statusText: generateResponse.statusText,
-                  error: errorText,
-                });
                 throw new Error(
                   `STL oluşturulamadı (${generateResponse.status})`
                 );
@@ -897,7 +1286,6 @@
               headers["Authorization"] = `Bearer ${this.accessToken}`;
             }
 
-            // Config endpoint'inden analiz bilgilerini al
             const configUrl = this.accessToken
               ? `/api/step-viewer/config/${analysisId}/${this.accessToken}`
               : `/api/step-viewer/config/${analysisId}`;
@@ -910,7 +1298,6 @@
             if (configResponse.ok) {
               const configData = await configResponse.json();
               if (configData.success && configData.config) {
-                // Analiz bilgilerini göster
                 const analysis = {
                   original_filename:
                     configData.config.file_info.original_filename,
@@ -927,12 +1314,10 @@
           }
         }
 
-        // STL yükleme fonksiyonunu optimize et
         async loadSTLFromPath(stlPath) {
           return new Promise((resolve, reject) => {
             console.log("[STL-LOADER] 📁 STL yükleme başlıyor:", stlPath);
 
-            // Path'i normalize et
             if (!stlPath.startsWith("/")) {
               stlPath = "/" + stlPath;
             }
@@ -982,7 +1367,6 @@
                   message: error.message || error.toString(),
                 });
 
-                // Daha detaylı hata mesajı
                 let errorMessage = "STL dosyası yüklenemedi";
                 if (error.message) {
                   errorMessage += `: ${error.message}`;
@@ -996,216 +1380,7 @@
           });
         }
 
-        async create3DModelFromJSON(analysisData) {
-          try {
-            this.showLoading("3D model oluşturuluyor...");
-
-            const stepAnalysis = analysisData.step_analysis;
-
-            if (!stepAnalysis || stepAnalysis.error) {
-              throw new Error("STEP analiz verisi bulunamadı");
-            }
-
-            // ✅ JSON VERİSİNDEN GEOMETRİ OLUŞTUR
-            const geometry = this.createGeometryFromStepData(stepAnalysis);
-
-            // Material oluştur
-            const material = new THREE.MeshPhongMaterial({
-              color: 0x888888,
-              shininess: 100,
-              side: THREE.DoubleSide,
-            });
-
-            // Mevcut model'i kaldır
-            if (this.model) {
-              this.scene.remove(this.model);
-            }
-
-            // Yeni model oluştur
-            this.model = new THREE.Mesh(geometry, material);
-            this.model.castShadow = true;
-            this.model.receiveShadow = true;
-            this.scene.add(this.model);
-
-            // Kamerayı ayarla
-            this.fitToView();
-
-            // Renderer'ı container'a ekle
-            const container = document.getElementById("viewer-container");
-            container.innerHTML = "";
-            container.appendChild(this.renderer.domElement);
-
-            console.log("[VIEWER] ✅ 3D model JSON'dan oluşturuldu");
-          } catch (error) {
-            console.error(
-              "[VIEWER] ❌ JSON'dan model oluşturma hatası:",
-              error
-            );
-            throw error;
-          }
-        }
-
-        createGeometryFromStepData(stepData) {
-          try {
-            // STEP analiz verisinden boyutları al
-            const width = stepData["X (mm)"] || 50;
-            const height = stepData["Y (mm)"] || 30;
-            const depth = stepData["Z (mm)"] || 20;
-
-            console.log(
-              `[GEOMETRY] 📐 Boyutlar: ${width}x${height}x${depth} mm`
-            );
-
-            // ✅ METHOD 1: BufferGeometry ile manuel oluştur
-            if (stepData.method === "cadquery_analysis") {
-              return this.createDetailedGeometry(
-                width,
-                height,
-                depth,
-                stepData
-              );
-            } else {
-              // ✅ METHOD 2: Basit box geometry (fallback)
-              return this.createSimpleBoxGeometry(width, height, depth);
-            }
-          } catch (error) {
-            console.error("[GEOMETRY] ❌ Geometry oluşturma hatası:", error);
-            // Fallback: 50x30x20 mm box
-            return this.createSimpleBoxGeometry(50, 30, 20);
-          }
-        }
-
-        createDetailedGeometry(width, height, depth, stepData) {
-          try {
-            console.log("[GEOMETRY] 🔧 Detaylı geometry oluşturuluyor...");
-
-            // ✅ BOUNDING BOX VERTICES (8 köşe noktası)
-            const halfW = width / 2;
-            const halfH = height / 2;
-            const halfD = depth / 2;
-
-            const vertices = new Float32Array([
-              // Front face (z = +halfD)
-              -halfW,
-              -halfH,
-              halfD, // 0: bottom-left
-              halfW,
-              -halfH,
-              halfD, // 1: bottom-right
-              halfW,
-              halfH,
-              halfD, // 2: top-right
-              -halfW,
-              halfH,
-              halfD, // 3: top-left
-
-              // Back face (z = -halfD)
-              -halfW,
-              -halfH,
-              -halfD, // 4: bottom-left
-              halfW,
-              -halfH,
-              -halfD, // 5: bottom-right
-              halfW,
-              halfH,
-              -halfD, // 6: top-right
-              -halfW,
-              halfH,
-              -halfD, // 7: top-left
-            ]);
-
-            // ✅ TRIANGLE FACES (2 triangles per face = 12 triangles total)
-            const indices = new Uint16Array([
-              // Front face
-              0, 1, 2, 0, 2, 3,
-              // Back face
-              4, 6, 5, 4, 7, 6,
-              // Left face
-              4, 0, 3, 4, 3, 7,
-              // Right face
-              1, 5, 6, 1, 6, 2,
-              // Top face
-              3, 2, 6, 3, 6, 7,
-              // Bottom face
-              4, 5, 1, 4, 1, 0,
-            ]);
-
-            // BufferGeometry oluştur
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute(
-              "position",
-              new THREE.BufferAttribute(vertices, 3)
-            );
-            geometry.setIndex(indices);
-
-            // Normals hesapla
-            geometry.computeVertexNormals();
-            geometry.computeBoundingBox();
-            geometry.computeBoundingSphere();
-
-            console.log(
-              `[GEOMETRY] ✅ Detaylı geometry: ${
-                vertices.length / 3
-              } vertices, ${indices.length / 3} faces`
-            );
-
-            return geometry;
-          } catch (error) {
-            console.error("[GEOMETRY] ❌ Detaylı geometry hatası:", error);
-            return this.createSimpleBoxGeometry(width, height, depth);
-          }
-        }
-
-        createSimpleBoxGeometry(width, height, depth) {
-          console.log(
-            `[GEOMETRY] 📦 Basit box geometry: ${width}x${height}x${depth}`
-          );
-          return new THREE.BoxGeometry(width, height, depth);
-        }
-
-        async trySTLFallback(analysisId) {
-          try {
-            console.log("[FALLBACK] 🔄 STL fallback deneniyor...");
-            const stlPath = `/static/stepviews/${analysisId}/model_${analysisId}.stl`;
-            await this.loadSTLFromPath(stlPath);
-            this.showToast("STL dosyasından yüklendi", "success");
-          } catch (stlError) {
-            console.error("[FALLBACK] ❌ STL fallback başarısız:", stlError);
-            this.showErrorState(
-              "Model yüklenemedi - JSON ve STL yükleme başarısız"
-            );
-          }
-        }
-
-        async loadSTLFromPath(stlPath) {
-          return new Promise((resolve, reject) => {
-            const loader = new STLLoader();
-
-            loader.load(
-              stlPath,
-              (geometry) => {
-                try {
-                  this.processLoadedGeometry(geometry);
-                  resolve();
-                } catch (error) {
-                  reject(error);
-                }
-              },
-              (progress) => {
-                const percent = Math.round(
-                  (progress.loaded / progress.total) * 100
-                );
-                this.showLoading(`STL yükleniyor... ${percent}%`);
-              },
-              (error) => {
-                reject(new Error("STL dosyası yüklenemedi"));
-              }
-            );
-          });
-        }
-
         processLoadedGeometry(geometry) {
-          // STL geometry işleme
           geometry.computeVertexNormals();
           geometry.computeBoundingBox();
 
@@ -1213,11 +1388,33 @@
           geometry.boundingBox.getCenter(center);
           geometry.translate(-center.x, -center.y, -center.z);
 
-          const material = new THREE.MeshPhongMaterial({
-            color: 0x888888,
-            shininess: 100,
-            side: THREE.DoubleSide,
-          });
+          let material;
+          if (this.currentColorMode === "vertex") {
+            const colors = [];
+            const position = geometry.attributes.position;
+            for (let i = 0; i < position.count; i++) {
+              const y = position.getY(i);
+              const color = new THREE.Color().setHSL((y + 50) / 100, 1.0, 0.5);
+              colors.push(color.r, color.g, color.b);
+            }
+            geometry.setAttribute(
+              "color",
+              new THREE.Float32BufferAttribute(colors, 3)
+            );
+            material = new THREE.MeshPhongMaterial({
+              vertexColors: true,
+              side: THREE.DoubleSide,
+              shininess: 100,
+            });
+          } else {
+            material = new THREE.MeshPhongMaterial({
+              color: 0xb0bec5,
+              shininess: 25,
+              specular: 0x222222,
+              flatShading: false,
+              side: THREE.DoubleSide,
+            });
+          }
 
           if (this.model) {
             this.scene.remove(this.model);
@@ -1233,6 +1430,9 @@
           const container = document.getElementById("viewer-container");
           container.innerHTML = "";
           container.appendChild(this.renderer.domElement);
+
+          // Setup measurement event listeners after renderer is added
+          this.setupMeasurementEvents();
         }
 
         displayAnalysisInfo(analysis) {
@@ -1242,7 +1442,7 @@
           let detailsHTML = `
             <div class="info-row">
               <span class="info-label">Durum:</span>
-              <span class="info-value" style="color: #27ae60;">JSON'dan Oluşturuldu</span>
+              <span class="info-value" style="color: #27ae60;">Yüklendi</span>
             </div>
             <div class="info-row">
               <span class="info-label">Dosya:</span>
@@ -1251,8 +1451,8 @@
               }</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Yöntem:</span>
-              <span class="info-value">JSON Geometry</span>
+              <span class="info-label">Tip:</span>
+              <span class="info-value">${analysis.file_type || "STL"}</span>
             </div>
           `;
 
@@ -1281,46 +1481,13 @@
                 <span class="info-label">Yüzey:</span>
                 <span class="info-value">${surfaceArea.toLocaleString()} mm²</span>
               </div>
-              <div class="info-row">
-                <span class="info-label">Metod:</span>
-                <span class="info-value">${
-                  stepAnalysis.method || "Unknown"
-                }</span>
-              </div>
             `;
-          }
-
-          // Malzeme bilgileri
-          if (
-            analysis.material_matches &&
-            analysis.material_matches.length > 0
-          ) {
-            const materials = analysis.material_matches.slice(0, 3);
-            detailsHTML += `
-              <div class="info-row">
-                <span class="info-label">Malzemeler:</span>
-                <span class="info-value">${materials.length} adet</span>
-              </div>
-            `;
-
-            materials.forEach((material, index) => {
-              const materialName = material.split("(")[0].trim();
-              detailsHTML += `
-                <div class="info-row">
-                  <span class="info-label">• ${materialName}:</span>
-                  <span class="info-value" style="font-size: 11px;">${
-                    material.includes("%100") ? "Kesin" : "Tahmini"
-                  }</span>
-                </div>
-              `;
-            });
           }
 
           analysisDetails.innerHTML = detailsHTML;
         }
 
         showMainPage() {
-          // Ana sayfa gösterimi
           const container = document.getElementById("viewer-container");
 
           const mainPageContainer = document.createElement("div");
@@ -1333,14 +1500,14 @@
           const welcomeText = document.createElement("div");
           welcomeText.className = "welcome-text";
           welcomeText.innerHTML = `
-                    <div style="font-size: 24px; margin-bottom: 15px; color: #3498db;">🔧 EngTeklif 3D Viewer</div>
-                    <div style="font-size: 16px; margin-bottom: 20px;">3D STEP model görüntüleyici</div>
-                    <div style="font-size: 14px; color: #7f8c8d; line-height: 1.6;">
-                        Model görüntülemek için doğru URL formatını kullanın:<br><br>
-                        📋 <strong>/step-viewer/{analysis_id}</strong><br>
-                        🔐 <strong>/step-viewer/{analysis_id}/{access_token}</strong>
-                    </div>
-                `;
+            <div style="font-size: 24px; margin-bottom: 15px; color: #3498db;">🔧 EngTeklif 3D Viewer</div>
+            <div style="font-size: 16px; margin-bottom: 20px;">3D STEP model görüntüleyici</div>
+            <div style="font-size: 14px; color: #7f8c8d; line-height: 1.6;">
+                Model görüntülemek için doğru URL formatını kullanın:<br><br>
+                📋 <strong>/step-viewer/{analysis_id}</strong><br>
+                🔐 <strong>/step-viewer/{analysis_id}/{access_token}</strong>
+            </div>
+          `;
 
           const uploadButton = document.createElement("button");
           uploadButton.className = "btn";
@@ -1355,7 +1522,6 @@
           container.innerHTML = "";
           container.appendChild(mainPageContainer);
 
-          // Status'u güncelle
           document.getElementById("status-value").textContent = "Hazır";
           document.getElementById("status-value").style.color = "#27ae60";
         }
@@ -1373,9 +1539,9 @@
           const errorText = document.createElement("div");
           errorText.className = "error-text";
           errorText.innerHTML = `
-                    <div style="font-size: 18px; margin-bottom: 10px;">Model Yüklenemedi</div>
-                    <div style="font-size: 14px; color: #7f8c8d;">${message}</div>
-                `;
+            <div style="font-size: 18px; margin-bottom: 10px;">Model Yüklenemedi</div>
+            <div style="font-size: 14px; color: #7f8c8d;">${message}</div>
+          `;
 
           const backButton = document.createElement("button");
           backButton.className = "btn";
@@ -1393,7 +1559,7 @@
 
         resetView() {
           if (this.model) {
-            this.camera.position.set(150, 150, 150);
+            this.camera.position.set(50, 50, 50);
             this.camera.lookAt(0, 0, 0);
             this.controls.target.set(0, 0, 0);
             this.controls.update();
@@ -1411,12 +1577,10 @@
             const cameraDistance =
               Math.abs(maxDim / (2 * Math.tan(fov / 2))) * 1.5;
 
-            this.camera.position.copy(center);
-            this.camera.position.x += cameraDistance * 0.8;
-            this.camera.position.y += cameraDistance * 0.6;
-            this.camera.position.z += cameraDistance * 0.8;
-
+            const direction = new THREE.Vector3(1, 1, 1).normalize();
+            this.camera.position.copy(direction.multiplyScalar(cameraDistance));
             this.camera.lookAt(center);
+
             this.controls.target.copy(center);
             this.controls.update();
           }
@@ -1487,10 +1651,23 @@
           const toast = document.getElementById("toast");
           toast.textContent = message;
           toast.className = `toast ${type}`;
+
+          // Add info class for measurement feedback
+          if (type === "info") {
+            toast.style.background =
+              "linear-gradient(135deg, #3498db 0%, #2980b9 100%)";
+            toast.style.boxShadow = "0 8px 25px rgba(52, 152, 219, 0.3)";
+          }
+
           toast.classList.add("show");
 
           setTimeout(() => {
             toast.classList.remove("show");
+            // Reset style for next use
+            if (type === "info") {
+              toast.style.background = "";
+              toast.style.boxShadow = "";
+            }
           }, 3000);
         }
 
@@ -1499,6 +1676,16 @@
 
           if (this.controls) {
             this.controls.update();
+          }
+
+          // Update preview line during measurement
+          if (window._previewLine && this.selectedPoints.length === 1) {
+            const positions =
+              window._previewLine.geometry.attributes.position.array;
+            positions[3] = this.mouse3D.x;
+            positions[4] = this.mouse3D.y;
+            positions[5] = this.mouse3D.z;
+            window._previewLine.geometry.attributes.position.needsUpdate = true;
           }
 
           if (this.renderer && this.scene && this.camera) {

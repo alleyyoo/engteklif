@@ -1,9 +1,11 @@
+# controllers/material_controller.py - FIXED VERSION
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from pydantic import ValidationError
-from models.material import MaterialCreate, MaterialUpdate
-from services.material_service import MaterialService
+from bson import ObjectId
 from models.user import User, UserRole
+from services.material_service import MaterialService
+import traceback
 
 material_bp = Blueprint('materials', __name__, url_prefix='/api/materials')
 
@@ -19,20 +21,27 @@ def get_materials():
     try:
         page = request.args.get('page', 1, type=int)
         limit = request.args.get('limit', 50, type=int)
-        search = request.args.get('search', None, type=str)
-        category = request.args.get('category', None, type=str)
+        search = request.args.get('search', '', type=str)
+        category = request.args.get('category', '', type=str)
+        
+        print(f"[MATERIALS] 📄 Request: page={page}, limit={limit}, search='{search}', category='{category}'")
         
         result = MaterialService.get_all_materials(page, limit, search, category)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Found {len(result['materials'])} materials")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Error: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
+        print(f"[MATERIALS] 📋 Traceback: {traceback.format_exc()}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('', methods=['POST'])
@@ -56,24 +65,31 @@ def create_material():
                 "message": "Veri gönderilmedi"
             }), 400
         
-        material_data = MaterialCreate(**data)
-        result = MaterialService.create_material(material_data)
+        print(f"[MATERIALS] 🆕 Creating material: {data}")
+        
+        result = MaterialService.create_material(data)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Material created: {result['material']['name']}")
             return jsonify(result), 201
         else:
+            print(f"[MATERIALS] ❌ Creation failed: {result['message']}")
             return jsonify(result), 400
             
     except ValidationError as e:
+        error_details = [{"field": err["loc"][0], "message": err["msg"]} for err in e.errors()]
+        print(f"[MATERIALS] 🔍 Validation error: {error_details}")
         return jsonify({
             "success": False,
             "message": "Veri doğrulama hatası",
-            "errors": [{"field": err["loc"][0], "message": err["msg"]} for err in e.errors()]
+            "errors": error_details
         }), 400
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/<material_id>', methods=['GET'])
@@ -81,17 +97,23 @@ def create_material():
 def get_material(material_id):
     """Belirli bir malzemeyi getir"""
     try:
+        print(f"[MATERIALS] 🔍 Getting material: {material_id}")
+        
         result = MaterialService.get_material_by_id(material_id)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Material found: {result['material']['name']}")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Material not found: {material_id}")
             return jsonify(result), 404
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/<material_id>', methods=['PUT'])
@@ -115,24 +137,31 @@ def update_material(material_id):
                 "message": "Güncellenecek veri gönderilmedi"
             }), 400
         
-        update_data = MaterialUpdate(**data)
-        result = MaterialService.update_material(material_id, update_data)
+        print(f"[MATERIALS] 🔧 Updating material {material_id}: {data}")
+        
+        result = MaterialService.update_material(material_id, data)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Material updated: {result['material']['name']}")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Update failed: {result['message']}")
             return jsonify(result), 400
             
     except ValidationError as e:
+        error_details = [{"field": err["loc"][0], "message": err["msg"]} for err in e.errors()]
+        print(f"[MATERIALS] 🔍 Validation error: {error_details}")
         return jsonify({
             "success": False,
             "message": "Veri doğrulama hatası",
-            "errors": [{"field": err["loc"][0], "message": err["msg"]} for err in e.errors()]
+            "errors": error_details
         }), 400
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/<material_id>', methods=['DELETE'])
@@ -149,17 +178,23 @@ def delete_material(material_id):
                 "message": "Bu işlem için admin yetkisi gerekli"
             }), 403
         
+        print(f"[MATERIALS] 🗑️ Deleting material: {material_id}")
+        
         result = MaterialService.delete_material(material_id)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Material deleted: {material_id}")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Delete failed: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/categories', methods=['GET'])
@@ -167,17 +202,23 @@ def delete_material(material_id):
 def get_categories():
     """Malzeme kategorilerini getir"""
     try:
+        print("[MATERIALS] 📂 Getting categories")
+        
         result = MaterialService.get_categories()
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Found {len(result['categories'])} categories")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Categories error: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/bulk-update-prices', methods=['POST'])
@@ -208,17 +249,23 @@ def bulk_update_prices():
                 "message": "Geçersiz fiyat güncellleme formatı"
             }), 400
         
+        print(f"[MATERIALS] 💰 Bulk updating prices: {len(price_updates)} items")
+        
         result = MaterialService.bulk_update_prices(price_updates)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Bulk update completed: {result.get('updated_count', 0)} items")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Bulk update failed: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/<material_id>/aliases', methods=['POST'])
@@ -249,17 +296,23 @@ def add_aliases(material_id):
                 "message": "Alias listesi geçersiz formatda"
             }), 400
         
+        print(f"[MATERIALS] 🏷️ Adding aliases to {material_id}: {new_aliases}")
+        
         result = MaterialService.add_aliases_to_material(material_id, new_aliases)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Aliases added to {material_id}")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Alias addition failed: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/<material_id>/aliases/<alias>', methods=['DELETE'])
@@ -276,17 +329,23 @@ def remove_alias(material_id, alias):
                 "message": "Bu işlem için admin yetkisi gerekli"
             }), 403
         
+        print(f"[MATERIALS] 🗑️ Removing alias '{alias}' from {material_id}")
+        
         result = MaterialService.remove_alias_from_material(material_id, alias)
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Alias '{alias}' removed from {material_id}")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Alias removal failed: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
         }), 500
 
 @material_bp.route('/analysis-data', methods=['GET'])
@@ -294,15 +353,51 @@ def remove_alias(material_id, alias):
 def get_analysis_data():
     """Analiz için malzeme verilerini getir"""
     try:
+        print("[MATERIALS] 📊 Getting analysis data")
+        
         result = MaterialService.get_materials_for_analysis()
         
         if result['success']:
+            print(f"[MATERIALS] ✅ Analysis data: {len(result.get('materials', []))} materials")
             return jsonify(result), 200
         else:
+            print(f"[MATERIALS] ❌ Analysis data error: {result['message']}")
             return jsonify(result), 400
             
     except Exception as e:
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        print(f"[MATERIALS] 💥 Exception: {error_msg}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen hata: {str(e)}"
+            "message": error_msg
+        }), 500
+
+# Health check endpoint
+@material_bp.route('/health', methods=['GET'])
+def health_check():
+    """Material API sağlık kontrolü"""
+    try:
+        from utils.database import db
+        # Database bağlantısını test et
+        db.get_db().command('ping')
+        
+        return jsonify({
+            "success": True,
+            "message": "Materials API çalışıyor",
+            "database": "connected",
+            "endpoints": {
+                "GET /api/materials": "Tüm malzemeleri listele",
+                "POST /api/materials": "Yeni malzeme oluştur",
+                "GET /api/materials/{id}": "Malzeme detayı",
+                "PUT /api/materials/{id}": "Malzeme güncelle", 
+                "DELETE /api/materials/{id}": "Malzeme sil",
+                "POST /api/materials/{id}/aliases": "Alias ekle",
+                "DELETE /api/materials/{id}/aliases/{alias}": "Alias sil"
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Materials API hatası: {str(e)}",
+            "database": "disconnected"
         }), 500
