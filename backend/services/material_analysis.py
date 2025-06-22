@@ -119,30 +119,78 @@ class MaterialAnalysisService:
         # ✅ STEP çıkarma - Enhanced
         step_paths = self._extract_step_from_pdf(file_path)
         extracted_step_path = None
+        permanent_step_path = None  # ✅ Kalıcı STEP dosya yolu
         
         if step_paths:
             extracted_step_path = step_paths[0]
             step_filename = os.path.basename(extracted_step_path)
             result["processing_log"].append(f"📎 STEP çıkarıldı: {step_filename}")
             
+            # ✅ STEP dosyasını kalıcı olarak sakla
+            # Analysis ID'yi file path'den türet
+            import hashlib
+            file_hash = hashlib.md5(file_path.encode()).hexdigest()[:8]
+            analysis_id = f"pdf_{int(time.time())}_{file_hash}"
+            
+            # Kalıcı dizin oluştur
+            permanent_dir = os.path.join("static", "stepviews", analysis_id)
+            os.makedirs(permanent_dir, exist_ok=True)
+            
+            # STEP dosyasını kopyala
+            permanent_step_filename = f"extracted_{analysis_id}.step"
+            permanent_step_path = os.path.join(permanent_dir, permanent_step_filename)
+            
+            import shutil
+            shutil.copy2(extracted_step_path, permanent_step_path)
+            print(f"[PDF-STEP] 📁 STEP dosyası kalıcı olarak kaydedildi: {permanent_step_path}")
+            
+            # Result'a kalıcı STEP path'i ekle
+            result["extracted_step_path"] = permanent_step_path
+            result["pdf_analysis_id"] = analysis_id
+            
             # ✅ STEP ANALİZİ
-            result["step_analysis"] = self.analyze_step_file(extracted_step_path)
+            result["step_analysis"] = self.analyze_step_file(permanent_step_path)  # ✅ Kalıcı dosyayı kullan
             result["processing_log"].append("🔧 STEP analizi tamamlandı")
             
             # ✅ STEP RENDERING - PDF'den çıkarılan dosya için
             if not result["step_analysis"].get("error"):
                 print(f"[PDF-RENDER] 🎨 PDF'den çıkarılan STEP rendering başlıyor: {step_filename}")
                 
-                analysis_id = f"pdf_step_{int(time.time())}"
-                render_result = self._render_step_file(extracted_step_path, analysis_id)
+                render_result = self._render_step_file(permanent_step_path, analysis_id)  # ✅ Kalıcı dosyayı kullan
                 
                 if render_result["success"]:
                     result["enhanced_renders"] = render_result["renders"]
                     result["isometric_view"] = render_result.get("main_render")
                     result["isometric_view_clean"] = render_result.get("excel_render")
-                    result["step_file_hash"] = self._calculate_file_hash(extracted_step_path)
+                    result["step_file_hash"] = self._calculate_file_hash(permanent_step_path)
                     result["processing_log"].append(f"🎨 PDF STEP render tamamlandı - {len(render_result['renders'])} görünüm")
                     print(f"[PDF-RENDER] ✅ Rendering başarılı - {len(render_result['renders'])} görünüm oluşturuldu")
+                    
+                    # ✅ STL OLUŞTUR
+                    try:
+                        import cadquery as cq
+                        from cadquery import exporters
+                        
+                        stl_filename = f"model_{analysis_id}.stl"
+                        stl_path = os.path.join(permanent_dir, stl_filename)
+                        
+                        # STEP'ten STL oluştur
+                        assembly = cq.importers.importStep(permanent_step_path)
+                        shape = assembly.val()
+                        exporters.export(shape, stl_path)
+                        
+                        if os.path.exists(stl_path):
+                            stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
+                            result["stl_generated"] = True
+                            result["stl_path"] = stl_relative
+                            result["stl_file_size"] = os.path.getsize(stl_path)
+                            result["processing_log"].append(f"🎯 STL oluşturuldu: {stl_filename}")
+                            print(f"[PDF-STL] ✅ STL oluşturuldu: {stl_path}")
+                            
+                    except Exception as stl_error:
+                        print(f"[PDF-STL] ⚠️ STL oluşturma hatası: {stl_error}")
+                        result["processing_log"].append(f"⚠️ STL oluşturulamadı: {str(stl_error)}")
+                        
                 else:
                     result["processing_log"].append(f"⚠️ PDF STEP render hatası: {render_result.get('message')}")
                     print(f"[PDF-RENDER] ❌ Rendering başarısız: {render_result.get('message')}")
@@ -189,8 +237,8 @@ class MaterialAnalysisService:
             result["material_matches"] = ["6061-T6 (%estimated)"]
             result["processing_log"].append("⚠️ Malzeme tespit edilemedi, varsayılan kullanıldı")
         
-        # ✅ Geçici STEP dosyasını temizle
-        if extracted_step_path and os.path.exists(extracted_step_path):
+        # ✅ GEÇİCİ STEP dosyasını temizle AMA KALICI OLANINI SAKLA
+        if extracted_step_path and extracted_step_path != permanent_step_path and os.path.exists(extracted_step_path):
             try:
                 os.remove(extracted_step_path)
                 print(f"[CLEANUP] 🗑️ Geçici STEP dosyası temizlendi: {os.path.basename(extracted_step_path)}")

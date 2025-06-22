@@ -730,9 +730,8 @@
 
         async loadAnalysisModel(analysisId) {
           try {
-            this.showLoading("Analiz verisi alınıyor...");
+            this.showLoading("3D model yükleniyor...");
 
-            // API headers
             const headers = {
               "Content-Type": "application/json",
             };
@@ -741,55 +740,260 @@
               headers["Authorization"] = `Bearer ${this.accessToken}`;
             }
 
-            console.log(
-              "[VIEWER] 📡 Analyze endpoint'i çağırılıyor:",
-              analysisId
-            );
+            // 1. ÖNCE ANALİZ BİLGİLERİNİ AL
+            console.log("[VIEWER] 📡 Analiz bilgileri alınıyor...");
 
-            // ✅ MEVCUT ANALYZE ENDPOINT'İNİ KULLAN
-            const analyzeResponse = await fetch(
-              `/api/upload/analyze/${analysisId}`,
+            // Model bilgilerini kontrol et
+            const modelInfoResponse = await fetch(
+              `/api/upload/model-3d/${analysisId}`,
               {
-                method: "POST",
+                method: "GET",
                 headers: headers,
               }
             );
 
-            if (!analyzeResponse.ok) {
-              if (analyzeResponse.status === 401) {
-                throw new Error("Erişim yetkisi yok - Geçersiz token");
-              } else if (analyzeResponse.status === 403) {
-                throw new Error("Bu analiz için erişim yetkiniz bulunmuyor");
-              } else if (analyzeResponse.status === 404) {
-                throw new Error("Analiz bulunamadı");
-              } else {
-                throw new Error(`Analiz başarısız (${analyzeResponse.status})`);
+            if (!modelInfoResponse.ok) {
+              throw new Error(
+                `Model bilgileri alınamadı (${modelInfoResponse.status})`
+              );
+            }
+
+            const modelInfo = await modelInfoResponse.json();
+            console.log("[VIEWER] 📊 Model bilgileri:", modelInfo);
+
+            // 2. STL DOSYASINI KONTROL ET
+            let stlPath = null;
+
+            if (
+              modelInfo.success &&
+              modelInfo.model_info.models_available.stl?.ready
+            ) {
+              stlPath = modelInfo.model_info.models_available.stl.path;
+              console.log("[VIEWER] ✅ STL dosyası mevcut:", stlPath);
+
+              // PDF'den gelen özel STL kontrolü
+              if (modelInfo.model_info.models_available.stl.from_pdf) {
+                console.log("[VIEWER] 📄 PDF'den çıkarılan STEP için STL");
+              }
+
+              try {
+                await this.loadSTLFromPath(stlPath);
+
+                // Analiz bilgilerini yükle
+                await this.loadAnalysisInfo(analysisId);
+
+                this.showToast("3D model başarıyla yüklendi!", "success");
+                this.hideLoading();
+                return;
+              } catch (stlLoadError) {
+                console.error("[VIEWER] ❌ STL yükleme hatası:", stlLoadError);
+                // STL yüklenemezse oluşturmayı dene
               }
             }
 
-            const analyzeData = await analyzeResponse.json();
-            if (!analyzeData.success) {
-              throw new Error(analyzeData.message || "Analiz başarısız");
+            // 3. STL YOKSA VEYA YÜKLENEMEDİYSE OLUŞTUR
+            if (!stlPath || !modelInfo.model_info.models_available.stl?.ready) {
+              console.log("[VIEWER] 🔧 STL oluşturuluyor...");
+              this.showLoading("STL dosyası oluşturuluyor...");
+
+              // Önce analiz edilmiş mi kontrol et
+              const analyzeResponse = await fetch(
+                `/api/upload/analyze/${analysisId}`,
+                {
+                  method: "POST",
+                  headers: headers,
+                }
+              );
+
+              if (!analyzeResponse.ok) {
+                console.error(
+                  "[VIEWER] ❌ Analiz başarısız:",
+                  analyzeResponse.status
+                );
+              } else {
+                const analyzeResult = await analyzeResponse.json();
+                console.log("[VIEWER] ✅ Analiz tamamlandı:", analyzeResult);
+              }
+
+              // STL oluştur
+              const generateResponse = await fetch(
+                `/api/upload/generate-stl/${analysisId}`,
+                {
+                  method: "POST",
+                  headers: headers,
+                }
+              );
+
+              if (generateResponse.ok) {
+                const generateResult = await generateResponse.json();
+                console.log(
+                  "[VIEWER] 📦 STL oluşturma sonucu:",
+                  generateResult
+                );
+
+                if (generateResult.success) {
+                  console.log(
+                    "[VIEWER] ✅ STL oluşturuldu:",
+                    generateResult.stl_path
+                  );
+
+                  try {
+                    // Yeni STL path'i kullan
+                    const newStlPath =
+                      generateResult.stl_url || generateResult.stl_path;
+                    console.log("[VIEWER] 🔄 Yeni STL yükleniyor:", newStlPath);
+
+                    await this.loadSTLFromPath(newStlPath);
+
+                    // Analiz bilgilerini yükle
+                    await this.loadAnalysisInfo(analysisId);
+
+                    this.showToast(
+                      "3D model oluşturuldu ve yüklendi!",
+                      "success"
+                    );
+                    this.hideLoading();
+                    return;
+                  } catch (stlLoadError) {
+                    console.error(
+                      "[VIEWER] ❌ Yeni STL yükleme hatası:",
+                      stlLoadError
+                    );
+                    throw stlLoadError;
+                  }
+                } else {
+                  throw new Error(
+                    generateResult.message || "STL oluşturulamadı"
+                  );
+                }
+              } else {
+                const errorText = await generateResponse.text();
+                console.error("[VIEWER] ❌ STL oluşturma isteği başarısız:", {
+                  status: generateResponse.status,
+                  statusText: generateResponse.statusText,
+                  error: errorText,
+                });
+                throw new Error(
+                  `STL oluşturulamadı (${generateResponse.status})`
+                );
+              }
             }
-
-            console.log("[VIEWER] ✅ Analyze data:", analyzeData);
-
-            // Analiz bilgilerini göster
-            this.displayAnalysisInfo(analyzeData.analysis);
-
-            // ✅ JSON'DAN 3D MODEL OLUŞTUR
-            await this.create3DModelFromJSON(analyzeData.analysis);
-
-            this.showToast("3D model JSON'dan oluşturuldu!", "success");
           } catch (error) {
-            console.error("Model yükleme hatası:", error);
+            console.error("[VIEWER] ❌ Model yükleme hatası:", error);
             this.showToast(`Model yüklenemedi: ${error.message}`, "error");
-
-            // Fallback: STL dosyasını dene
-            await this.trySTLFallback(analysisId);
+            this.showErrorState(error.message);
           } finally {
             this.hideLoading();
           }
+        }
+
+        async loadAnalysisInfo(analysisId) {
+          try {
+            const headers = {
+              "Content-Type": "application/json",
+            };
+
+            if (this.accessToken) {
+              headers["Authorization"] = `Bearer ${this.accessToken}`;
+            }
+
+            // Config endpoint'inden analiz bilgilerini al
+            const configUrl = this.accessToken
+              ? `/api/step-viewer/config/${analysisId}/${this.accessToken}`
+              : `/api/step-viewer/config/${analysisId}`;
+
+            const configResponse = await fetch(configUrl, {
+              method: "GET",
+              headers: headers,
+            });
+
+            if (configResponse.ok) {
+              const configData = await configResponse.json();
+              if (configData.success && configData.config) {
+                // Analiz bilgilerini göster
+                const analysis = {
+                  original_filename:
+                    configData.config.file_info.original_filename,
+                  file_type: configData.config.file_info.file_type,
+                  step_analysis: configData.config.step_analysis,
+                  enhanced_renders: configData.config.enhanced_renders,
+                };
+
+                this.displayAnalysisInfo(analysis);
+              }
+            }
+          } catch (error) {
+            console.warn("[VIEWER] Analiz bilgileri yüklenemedi:", error);
+          }
+        }
+
+        // STL yükleme fonksiyonunu optimize et
+        async loadSTLFromPath(stlPath) {
+          return new Promise((resolve, reject) => {
+            console.log("[STL-LOADER] 📁 STL yükleme başlıyor:", stlPath);
+
+            // Path'i normalize et
+            if (!stlPath.startsWith("/")) {
+              stlPath = "/" + stlPath;
+            }
+
+            console.log("[STL-LOADER] 📍 Normalized path:", stlPath);
+
+            const loader = new STLLoader();
+
+            loader.load(
+              stlPath,
+              (geometry) => {
+                try {
+                  console.log("[STL-LOADER] ✅ Geometry yüklendi:", {
+                    vertices: geometry.attributes.position.count,
+                    faces: geometry.index
+                      ? geometry.index.count / 3
+                      : "calculated",
+                  });
+
+                  this.processLoadedGeometry(geometry);
+                  console.log("[STL-LOADER] ✅ STL başarıyla işlendi");
+                  resolve();
+                } catch (error) {
+                  console.error(
+                    "[STL-LOADER] ❌ Geometry işleme hatası:",
+                    error
+                  );
+                  reject(error);
+                }
+              },
+              (progress) => {
+                if (progress.total > 0) {
+                  const percent = Math.round(
+                    (progress.loaded / progress.total) * 100
+                  );
+                  console.log(
+                    `[STL-LOADER] 📊 Yükleme ilerlemesi: ${percent}% (${progress.loaded}/${progress.total})`
+                  );
+                  this.showLoading(`STL yükleniyor... ${percent}%`);
+                }
+              },
+              (error) => {
+                console.error("[STL-LOADER] ❌ STL yükleme hatası:", {
+                  error: error,
+                  path: stlPath,
+                  errorType: error.type || "unknown",
+                  message: error.message || error.toString(),
+                });
+
+                // Daha detaylı hata mesajı
+                let errorMessage = "STL dosyası yüklenemedi";
+                if (error.message) {
+                  errorMessage += `: ${error.message}`;
+                } else if (error.type === "load") {
+                  errorMessage += " - Dosya bulunamadı veya erişilemiyor";
+                }
+
+                reject(new Error(errorMessage));
+              }
+            );
+          });
         }
 
         async create3DModelFromJSON(analysisData) {

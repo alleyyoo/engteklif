@@ -306,6 +306,28 @@ def analyze_uploaded_file(analysis_id):
                 if analysis_success:
                     processing_time = time.time() - start_time
                     
+                    # ✅ STEP DOSYASI İÇİN STL OLUŞTUR
+                    if analysis['file_type'] in ['step', 'stp']:
+                        stl_result = create_stl_for_step_analysis(analysis['file_path'], analysis_id)
+                        if stl_result['success']:
+                            result['stl_generated'] = True
+                            result['stl_path'] = stl_result['stl_path']
+                            result['stl_url'] = stl_result['stl_url']
+                            print(f"[ANALYSIS] ✅ STEP için STL oluşturuldu: {stl_result['stl_path']}")
+                    
+                    # PDF'den çıkarılan STEP için STL
+                    elif analysis['file_type'] == 'pdf' and result.get('step_file_hash'):
+                        # PDF'den çıkarılan kalıcı STEP dosyasını kullan
+                        if result.get('extracted_step_path') and os.path.exists(result['extracted_step_path']):
+                            stl_result = create_stl_for_step_analysis(result['extracted_step_path'], analysis_id)
+                            if stl_result['success']:
+                                result['stl_generated'] = True
+                                result['stl_path'] = stl_result['stl_path']
+                                result['stl_url'] = stl_result['stl_url']
+                                print(f"[ANALYSIS] ✅ PDF-STEP için STL oluşturuldu: {stl_result['stl_path']}")
+                        else:
+                            print(f"[ANALYSIS] ⚠️ PDF-STEP dosyası bulunamadı: {result.get('extracted_step_path')}")
+                    
                     # Sonuçları kaydet
                     update_data = {
                         "analysis_status": "completed",
@@ -323,13 +345,17 @@ def analyze_uploaded_file(analysis_id):
                         "isometric_view_clean": result.get('isometric_view_clean'),
                         "enhanced_renders": result.get('enhanced_renders', {}),
                         "step_file_hash": result.get('step_file_hash'),
-                        "render_quality": "high" if result.get('enhanced_renders') else "none"
+                        "render_quality": "high" if result.get('enhanced_renders') else "none",
+                        "stl_path": result.get('stl_path'),
+                        "stl_generated": result.get('stl_generated', False)
                     }
                     
                     # PDF özel alanlar
                     if analysis['file_type'] == 'pdf':
                         update_data["pdf_step_extracted"] = bool(result.get('step_file_hash'))
                         update_data["pdf_rotation_count"] = result.get('rotation_count', 0)
+                        update_data["extracted_step_path"] = result.get('extracted_step_path')
+                        update_data["pdf_analysis_id"] = result.get('pdf_analysis_id')
                     
                     FileAnalysis.update_analysis(analysis_id, update_data)
                     
@@ -338,20 +364,19 @@ def analyze_uploaded_file(analysis_id):
                     
                     # ✅ STEP viewer bilgilerini ekle
                     step_viewer_info = {}
-                    if analysis['file_type'] == 'step' or (analysis['file_type'] == 'pdf' and result.get('step_file_hash')):
-                        stl_path = f"static/stepviews/{analysis_id}/model_{analysis_id}.stl"
-                        if os.path.exists(stl_path):
-                            step_viewer_info = {
-                                "viewer_url": f"/step-viewer/{analysis_id}",
-                                "stl_ready": True,
-                                "stl_path": stl_path
-                            }
-                        else:
-                            step_viewer_info = {
-                                "viewer_url": f"/step-viewer/{analysis_id}",
-                                "stl_ready": False,
-                                "note": "STL henüz oluşturulmamış, /api/upload/generate-stl/{analysis_id} ile oluşturabilirsiniz"
-                            }
+                    if result.get('stl_generated'):
+                        step_viewer_info = {
+                            "viewer_url": f"/step-viewer/{analysis_id}",
+                            "stl_ready": True,
+                            "stl_path": result.get('stl_path'),
+                            "stl_url": result.get('stl_url')
+                        }
+                    elif analysis['file_type'] == 'step' or (analysis['file_type'] == 'pdf' and result.get('step_file_hash')):
+                        step_viewer_info = {
+                            "viewer_url": f"/step-viewer/{analysis_id}",
+                            "stl_ready": False,
+                            "note": "STL henüz oluşturulmamış, otomatik oluşturulacak"
+                        }
                     
                     response_data = {
                         "success": True,
@@ -369,7 +394,8 @@ def analyze_uploaded_file(analysis_id):
                             "excel_friendly_render": bool(result.get('isometric_view_clean')),
                             "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
                             "step_file_hash": result.get('step_file_hash'),
-                            "pdf_rotation_attempts": result.get('rotation_count', 0)
+                            "pdf_rotation_attempts": result.get('rotation_count', 0),
+                            "stl_generated": result.get('stl_generated', False)
                         }
                     }
                     
@@ -1181,3 +1207,282 @@ def get_user_statistics():
             "success": False,
             "message": f"İstatistik hatası: {str(e)}"
         }), 500
+    
+@upload_bp.route('/generate-stl/<analysis_id>', methods=['POST'])
+@jwt_required()
+def generate_stl_for_analysis(analysis_id):
+    """Analiz için STL dosyası oluştur"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını bul
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # STEP dosyası kontrolü
+        if analysis['file_type'] not in ['step', 'stp']:
+            # PDF'den çıkarılan STEP kontrolü
+            if not (analysis['file_type'] == 'pdf' and analysis.get('step_file_hash')):
+                return jsonify({
+                    "success": False,
+                    "message": "Bu analiz için STEP dosyası bulunamadı"
+                }), 400
+        
+        # STEP dosya yolunu bul
+        step_path = None
+        
+        if analysis['file_type'] in ['step', 'stp']:
+            # Direkt STEP dosyası
+            step_path = analysis['file_path']
+        else:
+            # PDF'den çıkarılan STEP dosyasını kullan
+            if analysis.get('extracted_step_path'):
+                step_path = analysis['extracted_step_path']
+                print(f"[STL-GEN] 📄 PDF'den çıkarılan STEP kullanılıyor: {step_path}")
+            else:
+                # Fallback: PDF analysis ID varsa o dizinde ara
+                if analysis.get('pdf_analysis_id'):
+                    pdf_dir = os.path.join("static", "stepviews", analysis['pdf_analysis_id'])
+                    if os.path.exists(pdf_dir):
+                        for file in os.listdir(pdf_dir):
+                            if file.endswith(('.step', '.stp')):
+                                step_path = os.path.join(pdf_dir, file)
+                                print(f"[STL-GEN] 📂 PDF dizininde STEP bulundu: {step_path}")
+                                break
+        
+        if not step_path or not os.path.exists(step_path):
+            return jsonify({
+                "success": False,
+                "message": "STEP dosyası bulunamadı"
+            }), 404
+        
+        print(f"[STL-GEN] 🔧 STL oluşturuluyor: {analysis_id}")
+        
+        # StepRendererEnhanced kullan
+        step_renderer = StepRendererEnhanced()
+        
+        # Session output directory
+        session_output_dir = os.path.join("static", "stepviews", analysis_id)
+        os.makedirs(session_output_dir, exist_ok=True)
+        
+        # STL dosya yolu
+        stl_filename = f"model_{analysis_id}.stl"
+        stl_path_full = os.path.join(session_output_dir, stl_filename)
+        
+        try:
+            # CadQuery ile STEP'i import et ve STL olarak export et
+            import cadquery as cq
+            from cadquery import exporters
+            
+            # STEP dosyasını yükle
+            assembly = cq.importers.importStep(step_path)
+            shape = assembly.val()
+            
+            # STL olarak export et
+            exporters.export(shape, stl_path_full)
+            
+            # Dosya boyutunu kontrol et
+            if os.path.exists(stl_path_full):
+                file_size = os.path.getsize(stl_path_full)
+                print(f"[STL-GEN] ✅ STL oluşturuldu: {stl_filename} ({file_size} bytes)")
+                
+                # Analiz kaydını güncelle
+                stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
+                
+                update_data = {
+                    "stl_generated": True,
+                    "stl_path": stl_relative,
+                    "stl_file_size": file_size
+                }
+                
+                # Enhanced renders'a ekle
+                if not analysis.get('enhanced_renders'):
+                    analysis['enhanced_renders'] = {}
+                
+                analysis['enhanced_renders']['stl_model'] = {
+                    "success": True,
+                    "file_path": stl_relative,
+                    "file_size": file_size,
+                    "format": "stl"
+                }
+                
+                FileAnalysis.update_analysis(analysis_id, {
+                    "enhanced_renders": analysis['enhanced_renders'],
+                    "stl_generated": True,
+                    "stl_path": stl_relative
+                })
+                
+                return jsonify({
+                    "success": True,
+                    "message": "STL dosyası başarıyla oluşturuldu",
+                    "stl_path": stl_relative,
+                    "stl_url": stl_relative,
+                    "file_size": file_size,
+                    "viewer_url": f"/step-viewer/{analysis_id}"
+                }), 200
+            else:
+                raise Exception("STL dosyası oluşturulamadı")
+                
+        except Exception as stl_error:
+            print(f"[STL-GEN] ❌ STL oluşturma hatası: {stl_error}")
+            return jsonify({
+                "success": False,
+                "message": f"STL oluşturma hatası: {str(stl_error)}"
+            }), 500
+        
+    except Exception as e:
+        print(f"[STL-GEN] ❌ Beklenmeyen hata: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Beklenmeyen hata: {str(e)}"
+        }), 500
+
+@upload_bp.route('/model-3d/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_3d_model_info(analysis_id):
+    """3D model bilgilerini getir"""
+    try:
+        current_user = get_current_user()
+        
+        # Analiz kaydını bul
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # 3D model bilgilerini topla
+        model_info = {
+            "analysis_id": analysis_id,
+            "has_step": analysis['file_type'] in ['step', 'stp'] or (analysis['file_type'] == 'pdf' and analysis.get('step_file_hash')),
+            "is_pdf_with_step": analysis['file_type'] == 'pdf' and analysis.get('step_file_hash'),
+            "step_analysis": analysis.get('step_analysis', {}),
+            "models_available": {}
+        }
+        
+        # STL kontrolü
+        stl_path = f"static/stepviews/{analysis_id}/model_{analysis_id}.stl"
+        if os.path.exists(stl_path):
+            model_info["models_available"]["stl"] = {
+                "path": f"/{stl_path}",
+                "size": os.path.getsize(stl_path),
+                "ready": True
+            }
+        else:
+            # PDF için özel kontrol
+            if analysis['file_type'] == 'pdf' and analysis.get('pdf_analysis_id'):
+                # PDF analysis dizininde STL kontrolü
+                pdf_stl_path = f"static/stepviews/{analysis['pdf_analysis_id']}/model_{analysis['pdf_analysis_id']}.stl"
+                if os.path.exists(pdf_stl_path):
+                    model_info["models_available"]["stl"] = {
+                        "path": f"/{pdf_stl_path}",
+                        "size": os.path.getsize(pdf_stl_path),
+                        "ready": True,
+                        "from_pdf": True
+                    }
+                else:
+                    model_info["models_available"]["stl"] = {
+                        "ready": False,
+                        "generate_endpoint": f"/api/upload/generate-stl/{analysis_id}",
+                        "note": "PDF'den çıkarılan STEP için STL oluşturulabilir"
+                    }
+            else:
+                model_info["models_available"]["stl"] = {
+                    "ready": False,
+                    "generate_endpoint": f"/api/upload/generate-stl/{analysis_id}"
+                }
+        
+        # STEP dosya bilgisi
+        if analysis.get('extracted_step_path'):
+            model_info["extracted_step"] = {
+                "path": analysis['extracted_step_path'],
+                "exists": os.path.exists(analysis['extracted_step_path'])
+            }
+        
+        # Viewer URL'leri
+        model_info["viewer_urls"] = {
+            "direct": f"/step-viewer/{analysis_id}",
+            "with_token": f"/step-viewer/{analysis_id}/{{access_token}}"
+        }
+        
+        # Render bilgileri
+        if analysis.get('enhanced_renders'):
+            model_info["renders_available"] = len(analysis['enhanced_renders'])
+            model_info["render_types"] = list(analysis['enhanced_renders'].keys())
+        
+        return jsonify({
+            "success": True,
+            "model_info": model_info
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Model bilgisi hatası: {str(e)}"
+        }), 500
+    
+def create_stl_for_step_analysis(step_path, analysis_id):
+    """STEP dosyasından STL oluştur"""
+    try:
+        import cadquery as cq
+        from cadquery import exporters
+        
+        # Session output directory
+        session_output_dir = os.path.join("static", "stepviews", analysis_id)
+        os.makedirs(session_output_dir, exist_ok=True)
+        
+        # STL dosya yolu
+        stl_filename = f"model_{analysis_id}.stl"
+        stl_path_full = os.path.join(session_output_dir, stl_filename)
+        
+        # STEP dosyasını yükle
+        assembly = cq.importers.importStep(step_path)
+        shape = assembly.val()
+        
+        # STL olarak export et
+        exporters.export(shape, stl_path_full)
+        
+        # Dosya boyutunu kontrol et
+        if os.path.exists(stl_path_full):
+            file_size = os.path.getsize(stl_path_full)
+            stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
+            
+            print(f"[STL-CREATE] ✅ STL oluşturuldu: {stl_filename} ({file_size} bytes)")
+            
+            return {
+                "success": True,
+                "stl_path": stl_relative,
+                "stl_url": stl_relative,
+                "file_size": file_size
+            }
+        else:
+            return {
+                "success": False,
+                "error": "STL dosyası oluşturulamadı"
+            }
+            
+    except Exception as e:
+        print(f"[STL-CREATE] ❌ STL oluşturma hatası: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
