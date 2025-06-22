@@ -1,4 +1,4 @@
-# services/material_analysis.py - COMPLETE REWRITE with Material Calculations
+# services/material_analysis.py - ENHANCED WITH PDF STEP RENDERING
 import re
 import os
 import time
@@ -10,37 +10,55 @@ from tempfile import NamedTemporaryFile
 from docx import Document
 import subprocess
 from utils.database import db
+from services.step_renderer import StepRendererEnhanced
 
-print("[INFO] ✅ Material Analysis Service - Full Active with All Material Calculations")
+print("[INFO] ✅ Material Analysis Service - Enhanced with PDF STEP Rendering")
 
 class MaterialAnalysisService:
     def __init__(self):
         self.database = db.get_db()
         self._ensure_materials_exist()
+        # Initialize STEP renderer
+        self.step_renderer = StepRendererEnhanced()
     
     def analyze_document_comprehensive(self, file_path, file_type, user_id):
-        """Ana analiz fonksiyonu - TÜM MALZEME HESAPLAMALARI İLE"""
+        """Ana analiz fonksiyonu - TÜM MALZEME HESAPLAMALARI İLE + ENHANCED PDF STEP RENDERING"""
         result = {
             "material_matches": [],
             "step_analysis": {},
             "cost_estimation": {},
             "ai_price_prediction": {},
-            "all_material_calculations": [],  # ✅ BULUNAN MALZEMELER İÇİN
-            "material_options": [],           # ✅ TÜM MALZEMELER İÇİN
-            "processing_log": []
+            "all_material_calculations": [],  
+            "material_options": [],           
+            "processing_log": [],
+            "isometric_view": None,           # ← Ana render dosyası
+            "isometric_view_clean": None,     # ← Excel uyumlu versiyon
+            "enhanced_renders": {},           # ← Tüm render'lar
+            "step_file_hash": None            # ← STEP dosya hash'i
         }
         
         try:
             print(f"[DEBUG] Analiz başlatılıyor: {file_path} ({file_type})")
             
             if file_type == 'pdf':
-                result = self._analyze_pdf(file_path, result)
+                result = self._analyze_pdf_with_step_rendering(file_path, result)
             elif file_type in ['step', 'stp']:
                 result["step_analysis"] = self.analyze_step_file(file_path)
                 result["processing_log"].append("🔧 STEP analizi tamamlandı")
-                # STEP-only dosyalar için varsayılan malzeme
+                
+                # ✅ STEP dosyası için rendering
+                render_result = self._render_step_file(file_path, f"step_{int(time.time())}")
+                if render_result["success"]:
+                    result["enhanced_renders"] = render_result["renders"]
+                    result["isometric_view"] = render_result.get("main_render")
+                    result["isometric_view_clean"] = render_result.get("excel_render")
+                    result["processing_log"].append(f"🎨 {len(render_result['renders'])} render oluşturuldu")
+                else:
+                    result["processing_log"].append(f"⚠️ Render hatası: {render_result.get('message')}")
+                
                 if not result.get("material_matches"):
                     result["material_matches"] = ["6061-T6 (%default)"]
+                    
             elif file_type in ['doc', 'docx']:
                 result = self._analyze_document(file_path, result)
             
@@ -94,15 +112,43 @@ class MaterialAnalysisService:
             result["processing_log"].append(f"❌ HATA: {error_msg}")
             return result
     
-    def _analyze_pdf(self, file_path, result):
-        """PDF analizi"""
+    def _analyze_pdf_with_step_rendering(self, file_path, result):
+        """✅ PDF analizi - ENHANCED WITH STEP RENDERING"""
         result["processing_log"].append("📄 PDF analizi başlatıldı")
         
-        # STEP çıkarma
+        # ✅ STEP çıkarma - Enhanced
         step_paths = self._extract_step_from_pdf(file_path)
+        extracted_step_path = None
+        
         if step_paths:
-            result["processing_log"].append(f"📎 STEP çıkarıldı: {os.path.basename(step_paths[0])}")
-            result["step_analysis"] = self.analyze_step_file(step_paths[0])
+            extracted_step_path = step_paths[0]
+            step_filename = os.path.basename(extracted_step_path)
+            result["processing_log"].append(f"📎 STEP çıkarıldı: {step_filename}")
+            
+            # ✅ STEP ANALİZİ
+            result["step_analysis"] = self.analyze_step_file(extracted_step_path)
+            result["processing_log"].append("🔧 STEP analizi tamamlandı")
+            
+            # ✅ STEP RENDERING - PDF'den çıkarılan dosya için
+            if not result["step_analysis"].get("error"):
+                print(f"[PDF-RENDER] 🎨 PDF'den çıkarılan STEP rendering başlıyor: {step_filename}")
+                
+                analysis_id = f"pdf_step_{int(time.time())}"
+                render_result = self._render_step_file(extracted_step_path, analysis_id)
+                
+                if render_result["success"]:
+                    result["enhanced_renders"] = render_result["renders"]
+                    result["isometric_view"] = render_result.get("main_render")
+                    result["isometric_view_clean"] = render_result.get("excel_render")
+                    result["step_file_hash"] = self._calculate_file_hash(extracted_step_path)
+                    result["processing_log"].append(f"🎨 PDF STEP render tamamlandı - {len(render_result['renders'])} görünüm")
+                    print(f"[PDF-RENDER] ✅ Rendering başarılı - {len(render_result['renders'])} görünüm oluşturuldu")
+                else:
+                    result["processing_log"].append(f"⚠️ PDF STEP render hatası: {render_result.get('message')}")
+                    print(f"[PDF-RENDER] ❌ Rendering başarısız: {render_result.get('message')}")
+            else:
+                result["processing_log"].append("⚠️ STEP analizi başarısız, render yapılamadı")
+                
         else:
             result["processing_log"].append("⚠️ PDF'de STEP bulunamadı, varsayılan boyutlar kullanılacak")
             # Varsayılan STEP analizi
@@ -143,7 +189,83 @@ class MaterialAnalysisService:
             result["material_matches"] = ["6061-T6 (%estimated)"]
             result["processing_log"].append("⚠️ Malzeme tespit edilemedi, varsayılan kullanıldı")
         
+        # ✅ Geçici STEP dosyasını temizle
+        if extracted_step_path and os.path.exists(extracted_step_path):
+            try:
+                os.remove(extracted_step_path)
+                print(f"[CLEANUP] 🗑️ Geçici STEP dosyası temizlendi: {os.path.basename(extracted_step_path)}")
+            except Exception as cleanup_error:
+                print(f"[CLEANUP] ⚠️ Temizlik hatası: {cleanup_error}")
+        
         return result
+    
+    def _render_step_file(self, step_path, analysis_id):
+        """✅ STEP dosyası rendering wrapper"""
+        try:
+            print(f"[STEP-RENDER] 🎨 Rendering başlıyor: {os.path.basename(step_path)}")
+            
+            # StepRendererEnhanced kullan
+            render_result = self.step_renderer.generate_comprehensive_views(
+                step_path=step_path,
+                analysis_id=analysis_id,
+                include_dimensions=True,
+                include_materials=True,
+                high_quality=True
+            )
+            
+            if render_result["success"]:
+                # Ana render dosyasını belirle (isometric öncelikli)
+                main_render = None
+                excel_render = None
+                
+                if "isometric" in render_result["renders"]:
+                    isometric_data = render_result["renders"]["isometric"]
+                    if isometric_data.get("success"):
+                        main_render = isometric_data.get("file_path")
+                        excel_render = isometric_data.get("excel_path")
+                
+                # Ana render bulunamazsa ilk başarılı render'ı kullan
+                if not main_render:
+                    for view_name, view_data in render_result["renders"].items():
+                        if view_data.get("success") and view_data.get("file_path"):
+                            main_render = view_data["file_path"]
+                            break
+                
+                return {
+                    "success": True,
+                    "renders": render_result["renders"],
+                    "main_render": main_render,
+                    "excel_render": excel_render,
+                    "session_id": render_result.get("session_id"),
+                    "total_views": len(render_result["renders"])
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": render_result.get("message", "Rendering başarısız"),
+                    "renders": {}
+                }
+                
+        except Exception as e:
+            import traceback
+            print(f"[STEP-RENDER] ❌ Rendering hatası: {str(e)}")
+            print(f"[STEP-RENDER] 📋 Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "message": f"Rendering hatası: {str(e)}",
+                "error": str(e)
+            }
+    
+    def _calculate_file_hash(self, file_path):
+        """Dosya hash'i hesapla"""
+        try:
+            import hashlib
+            with open(file_path, 'rb') as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+            return file_hash
+        except Exception as e:
+            print(f"[HASH] ⚠️ Hash hesaplama hatası: {e}")
+            return None
     
     def _analyze_document(self, file_path, result):
         """DOC/DOCX analizi"""
@@ -650,9 +772,11 @@ class MaterialAnalysisService:
             return ""
     
     def _extract_step_from_pdf(self, pdf_path):
-        """PDF'den STEP çıkarma"""
+        """PDF'den STEP çıkarma - Enhanced with better error handling"""
         extracted = []
         try:
+            print(f"[PDF-STEP] 🔍 PDF'den STEP aranıyor: {os.path.basename(pdf_path)}")
+            
             with pikepdf.open(pdf_path) as pdf:
                 # EmbeddedFiles method
                 try:
@@ -661,28 +785,57 @@ class MaterialAnalysisService:
                     embedded = names.get("/EmbeddedFiles", {})
                     files = embedded.get("/Names", [])
                     
+                    print(f"[PDF-STEP] 📋 {len(files)//2} embedded dosya bulundu")
+                    
                     for i in range(0, len(files), 2):
                         if i + 1 < len(files):
-                            file_spec = files[i + 1]
-                            file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
-                            
-                            if file_name.lower().endswith(('.stp', '.step')):
-                                try:
+                            try:
+                                file_spec = files[i + 1]
+                                file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
+                                
+                                print(f"[PDF-STEP] 📄 Embedded dosya: {file_name}")
+                                
+                                if file_name.lower().endswith(('.stp', '.step')):
+                                    print(f"[PDF-STEP] 🎯 STEP dosyası tespit edildi: {file_name}")
+                                    
+                                    # Dosya verilerini çıkar
                                     file_data = file_spec['/EF']['/F'].read_bytes()
-                                    output_path = os.path.join("temp", file_name)
-                                    os.makedirs("temp", exist_ok=True)
+                                    
+                                    # Güvenli dosya adı oluştur
+                                    safe_filename = "".join(c for c in file_name if c.isalnum() or c in "._-")
+                                    if not safe_filename.lower().endswith(('.stp', '.step')):
+                                        safe_filename += '.stp'
+                                    
+                                    # Temp klasöründe kaydet
+                                    temp_dir = os.path.join(os.getcwd(), "temp")
+                                    os.makedirs(temp_dir, exist_ok=True)
+                                    
+                                    output_path = os.path.join(temp_dir, safe_filename)
                                     
                                     with open(output_path, 'wb') as f:
                                         f.write(file_data)
-                                    extracted.append(output_path)
-                                    print(f"[SUCCESS] STEP çıkarıldı: {file_name}")
-                                except Exception as e:
-                                    print(f"[ERROR] STEP çıkarma hatası: {e}")
+                                    
+                                    # Dosya boyutunu kontrol et
+                                    file_size = os.path.getsize(output_path)
+                                    print(f"[PDF-STEP] ✅ STEP çıkarıldı: {safe_filename} ({file_size} bytes)")
+                                    
+                                    if file_size > 100:  # En az 100 byte olmalı
+                                        extracted.append(output_path)
+                                    else:
+                                        print(f"[PDF-STEP] ⚠️ Dosya çok küçük, geçersiz: {safe_filename}")
+                                        os.remove(output_path)
+                                        
+                            except Exception as extract_error:
+                                print(f"[PDF-STEP] ❌ Dosya çıkarma hatası: {extract_error}")
+                                continue
+                                
                 except Exception as e:
-                    print(f"[WARN] EmbeddedFiles başarısız: {e}")
+                    print(f"[PDF-STEP] ⚠️ EmbeddedFiles okuma hatası: {e}")
+                    
         except Exception as e:
-            print(f"[ERROR] PDF STEP çıkarma: {e}")
+            print(f"[PDF-STEP] ❌ PDF okuma hatası: {e}")
         
+        print(f"[PDF-STEP] 📊 Toplam {len(extracted)} STEP dosyası çıkarıldı")
         return extracted
     
     def _rotate_pdf(self, input_path):
@@ -736,27 +889,6 @@ class MaterialAnalysisService:
         except Exception as e:
             print(f"[ERROR] AI fiyat tahmini: {e}")
             return {"error": str(e)}
-    
-    def _ensure_materials_exist(self):
-        """Malzeme veritabanını kontrol et"""
-        try:
-            count = self.database.materials.count_documents({})
-            if count < 5:
-                # Temel malzemeleri ekle
-                basic_materials = [
-                    {"name": "6061-T6", "aliases": ["6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum"},
-                    {"name": "7075-T6", "aliases": ["7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum"},
-                    {"name": "304 Paslanmaz", "aliases": ["304"], "density": 7.93, "price_per_kg": 8.50, "category": "Paslanmaz Çelik"},
-                    {"name": "316 Paslanmaz", "aliases": ["316"], "density": 7.98, "price_per_kg": 12.00, "category": "Paslanmaz Çelik"},
-                    {"name": "St37", "aliases": ["S235"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik"},
-                    {"name": "C45", "aliases": ["CK45"], "density": 7.85, "price_per_kg": 2.80, "category": "Karbon Çelik"},
-                    {"name": "Ti-6Al-4V", "aliases": ["Grade 5"], "density": 4.43, "price_per_kg": 45.00, "category": "Titanyum"},
-                    {"name": "Pirinç CuZn37", "aliases": ["Brass"], "density": 8.50, "price_per_kg": 7.80, "category": "Bakır Alaşımı"}
-                ]
-                self.database.materials.insert_many(basic_materials)
-                print(f"[INFO] {len(basic_materials)} temel malzeme eklendi")
-        except Exception as e:
-            print(f"[WARN] Malzeme ekleme hatası: {e}")
 
 
 class CostEstimationService:
@@ -858,5 +990,3 @@ class CostEstimationService:
             return round(max(total_hours, 0.5), 2)  # Min 0.5 saat
         except:
             return 1.0
-        
-    

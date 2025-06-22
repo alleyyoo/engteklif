@@ -243,7 +243,7 @@ def upload_multiple_files():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file(analysis_id):
-    """Yüklenmiş dosyayı analiz et - ENHANCED WITH DETAILED RENDERING"""
+    """✅ ENHANCED - Yüklenmiş dosyayı analiz et - PDF STEP RENDERING dahil"""
     try:
         current_user = get_current_user()
         
@@ -285,11 +285,13 @@ def analyze_uploaded_file(analysis_id):
         
         start_time = time.time()
         
-        # Enhanced Material Analysis Service kullan
+        # ✅ ENHANCED Material Analysis Service kullan - PDF STEP RENDERING dahil
         try:
             material_service = MaterialAnalysisService()
             
-            # Kapsamlı analiz yap
+            print(f"[ANALYSIS] 🔍 Analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
+            
+            # ✅ Kapsamlı analiz - PDF için STEP rendering dahil
             if analysis['file_type'] in ['pdf', 'document', 'step']:
                 result = material_service.analyze_document_comprehensive(
                     analysis['file_path'], 
@@ -297,49 +299,15 @@ def analyze_uploaded_file(analysis_id):
                     current_user['id']
                 )
                 
-                # ✅ ENHANCED STEP RENDERING - process_uploaded_files'dan uyarlanan detaylı
-                enhanced_renders = {}
-                if analysis['file_type'] == 'step' and result.get('step_analysis') and not result.get('error'):
-                    try:
-                        print(f"[INFO] 🎨 Detaylı STEP rendering başlıyor: {analysis_id}")
-                        
-                        # Enhanced Step Renderer kullan
-                        step_renderer = StepRendererEnhanced()
-                        
-                        # Çoklu görünüm oluştur - process_uploaded_files tarzında
-                        render_result = step_renderer.generate_comprehensive_views(
-                            analysis['file_path'],
-                            analysis_id=analysis_id,
-                            include_dimensions=True,
-                            include_materials=True,
-                            high_quality=True
-                        )
-                        
-                        if render_result['success']:
-                            enhanced_renders = render_result['renders']
-                            print(f"[SUCCESS] ✅ {len(enhanced_renders)} detaylı render oluşturuldu")
-                            
-                            # Ana isometric render'ı result'a ekle (app.py process_uploaded_files gibi)
-                            if 'isometric' in enhanced_renders:
-                                result['isometric_view'] = enhanced_renders['isometric']['file_path']
-                                result['isometric_view_enhanced'] = enhanced_renders['isometric']
-                                # Excel-friendly version da ekle
-                                if 'excel_path' in enhanced_renders['isometric']:
-                                    result['isometric_view_clean'] = enhanced_renders['isometric']['excel_path']
-                        else:
-                            print(f"[WARN] ⚠️ Enhanced rendering başarısız: {render_result.get('message')}")
-                            
-                    except Exception as render_error:
-                        print(f"[ERROR] ❌ Enhanced rendering hatası: {render_error}")
-                        # Rendering hatası ana analizi etkilemez
+                print(f"[ANALYSIS] 📊 Material analysis tamamlandı - Success: {not result.get('error')}")
                 
-                # Başarılı analiz kontrolü
+                # ✅ Başarılı analiz kontrolü
                 analysis_success = not result.get('error')
                 
                 if analysis_success:
                     processing_time = time.time() - start_time
                     
-                    # Sonuçları kaydet
+                    # ✅ ENHANCED - Sonuçları kaydet (PDF STEP rendering dahil)
                     update_data = {
                         "analysis_status": "completed",
                         "processing_time": processing_time,
@@ -349,21 +317,47 @@ def analyze_uploaded_file(analysis_id):
                         "step_analysis": result.get('step_analysis', {}),
                         "cost_estimation": result.get('cost_estimation', {}),
                         "ai_price_prediction": result.get('ai_price_prediction', {}),
-                        "isometric_view": result.get('isometric_view'),
-                        "isometric_view_clean": result.get('isometric_view_clean'),  # Excel version
                         "processing_log": result.get('processing_log', []),
-                        "step_file_hash": result.get('step_file_hash'),
                         "all_material_calculations": result.get('all_material_calculations', []),
                         "material_options": result.get('material_options', []),
-                        # ✅ Enhanced rendering results - process_uploaded_files benzeri
-                        "enhanced_renders": enhanced_renders,
-                        "render_quality": "high" if enhanced_renders else "standard"
+                        
+                        # ✅ ENHANCED RENDERING - PDF'den çıkarılan STEP dahil
+                        "isometric_view": result.get('isometric_view'),           # Ana render
+                        "isometric_view_clean": result.get('isometric_view_clean'), # Excel version
+                        "enhanced_renders": result.get('enhanced_renders', {}),   # Tüm render'lar
+                        "step_file_hash": result.get('step_file_hash'),           # STEP dosya hash'i
+                        "render_quality": "high" if result.get('enhanced_renders') else "none"
                     }
+                    
+                    # PDF özel alanlar
+                    if analysis['file_type'] == 'pdf':
+                        update_data["pdf_step_extracted"] = bool(result.get('step_file_hash'))
+                        update_data["pdf_rotation_count"] = result.get('rotation_count', 0)
                     
                     FileAnalysis.update_analysis(analysis_id, update_data)
                     
                     # Güncellenmiş analizi döndür
                     updated_analysis = FileAnalysis.find_by_id(analysis_id)
+                    
+                    # ✅ ENHANCED RESPONSE - PDF STEP rendering bilgileri dahil
+                    enhanced_render_info = {}
+                    if result.get('enhanced_renders'):
+                        enhanced_render_info = {
+                            "total_renders": len(result['enhanced_renders']),
+                            "render_types": list(result['enhanced_renders'].keys()),
+                            "main_render_available": bool(result.get('isometric_view')),
+                            "excel_render_available": bool(result.get('isometric_view_clean')),
+                            "pdf_step_rendered": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash'))
+                        }
+                        
+                        # Her render için detay
+                        for render_name, render_data in result['enhanced_renders'].items():
+                            if render_data.get('success'):
+                                enhanced_render_info[f"{render_name}_details"] = {
+                                    "file_path": render_data.get('file_path'),
+                                    "view_type": render_data.get('view_type'),
+                                    "quality": render_data.get('quality', 'standard')
+                                }
                     
                     return jsonify({
                         "success": True,
@@ -378,16 +372,14 @@ def analyze_uploaded_file(analysis_id):
                             "all_material_calculations_count": len(result.get('all_material_calculations', [])),
                             "material_options_count": len(result.get('material_options', [])),
                             "3d_render_available": bool(result.get('isometric_view')),
-                            "enhanced_renders_count": len(enhanced_renders),
-                            "render_types": list(enhanced_renders.keys()) if enhanced_renders else [],
-                            "excel_friendly_render": bool(result.get('isometric_view_clean'))  # Excel uyumlu render var mı
+                            "excel_friendly_render": bool(result.get('isometric_view_clean')),
+                            
+                            # ✅ PDF STEP özel bilgiler
+                            "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
+                            "step_file_hash": result.get('step_file_hash'),
+                            "pdf_rotation_attempts": result.get('rotation_count', 0)
                         },
-                        "enhanced_features": {
-                            "detailed_wireframe": bool(enhanced_renders.get('wireframe')),
-                            "dimensioned_views": bool(enhanced_renders.get('technical')),
-                            "material_annotated": bool(enhanced_renders.get('material')),
-                            "multi_view_projection": bool(len(enhanced_renders) > 1)
-                        }
+                        "enhanced_features": enhanced_render_info
                     }), 200
                     
                 else:
@@ -427,9 +419,14 @@ def analyze_uploaded_file(analysis_id):
                 "processing_time": time.time() - start_time
             })
             
+            print(f"[ANALYSIS] ❌ Analiz hatası: {error_message}")
+            import traceback
+            print(f"[ANALYSIS] 📋 Traceback: {traceback.format_exc()}")
+            
             return jsonify({
                 "success": False,
-                "message": error_message
+                "message": error_message,
+                "traceback": traceback.format_exc()
             }), 500
         
     except Exception as e:
@@ -442,10 +439,15 @@ def analyze_uploaded_file(analysis_id):
         except:
             pass
             
+        print(f"[ANALYSIS] ❌ Beklenmeyen hata: {str(e)}")
+        import traceback
+        print(f"[ANALYSIS] 📋 Traceback: {traceback.format_exc()}")
+            
         return jsonify({
             "success": False,
             "message": f"Beklenmeyen analiz hatası: {str(e)}"
         }), 500
+
 
 # ===== RENDER ENDPOINTS =====
 
