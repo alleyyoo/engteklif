@@ -77,6 +77,8 @@ export const DashboardPage = () => {
     }
   };
 
+  const accessToken = localStorage.getItem('accessToken');
+
   // 3D Model görüntüleme - Backend'deki HTML dosyasını aç
   const open3DViewer = (analysisId: string, fileName: string) => {
     // Backend'deki 3D viewer HTML dosyasını yeni sekmede aç
@@ -136,18 +138,6 @@ export const DashboardPage = () => {
                 🎯 3D Model Viewer
               </button>
               
-              {analysis.enhanced_renders && Object.keys(analysis.enhanced_renders).length > 0 && (
-                <button 
-                  className={classes.modelShowButton}
-                  onClick={() => openSTLViewer(analysis.id, file.file.name)}
-                  style={{ backgroundColor: '#10b86b' }}
-                  title="STL Viewer'da aç"
-                >
-                  🔧 STL Viewer
-                </button>
-              )}
-              
-              {/* Render linklerini göster */}
               {analysis.enhanced_renders && (
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>

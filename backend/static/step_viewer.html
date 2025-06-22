@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EngTeklif 3D STEP Viewer</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Inter", "Segoe UI", Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #2c3e50;
+        overflow: hidden;
+        height: 100vh;
+      }
+
+      .header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid rgba(52, 152, 219, 0.2);
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        z-index: 1000;
+        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+      }
+
+      .logo {
+        font-weight: 800;
+        font-size: 24px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .header-controls {
+        margin-left: auto;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 10px 16px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+      }
+
+      .btn.secondary {
+        background: rgba(255, 255, 255, 0.9);
+        color: #667eea;
+        border: 2px solid #667eea;
+      }
+
+      #viewer-container {
+        position: fixed;
+        top: 60px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #f8f9fa;
+      }
+
+      .control-panel {
+        position: fixed;
+        top: 80px;
+        left: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        min-width: 280px;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+        z-index: 100;
+        transform: translateX(-320px);
+        transition: transform 0.3s ease;
+      }
+
+      .control-panel.visible {
+        transform: translateX(0);
+      }
+
+      .control-section {
+        margin-bottom: 20px;
+      }
+
+      .section-title {
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 12px;
+        font-size: 16px;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .control-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+
+      .control-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        flex: 1;
+        min-width: 80px;
+      }
+
+      .control-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+      }
+
+      .control-btn.active {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+      }
+
+      .info-panel {
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        min-width: 250px;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+        z-index: 100;
+      }
+
+      .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(52, 152, 219, 0.2);
+      }
+
+      .info-label {
+        font-weight: 500;
+        color: #34495e;
+        font-size: 14px;
+      }
+
+      .info-value {
+        color: #2980b9;
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .loading {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        padding: 30px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        text-align: center;
+        z-index: 2000;
+        display: none;
+      }
+
+      .loading.show {
+        display: block;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 15px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(46, 204, 113, 0.3);
+        z-index: 2000;
+        transform: translateX(400px);
+        transition: transform 0.3s ease;
+        font-weight: 600;
+      }
+
+      .toast.show {
+        transform: translateX(0);
+      }
+
+      .toast.error {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        box-shadow: 0 8px 25px rgba(231, 76, 60, 0.3);
+      }
+
+      .error-state {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #f8f9fa;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .error-icon {
+        font-size: 72px;
+        color: #e74c3c;
+      }
+
+      .error-text {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 20px 30px;
+        border-radius: 12px;
+        color: #e74c3c;
+        font-weight: 600;
+        text-align: center;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        max-width: 400px;
+      }
+
+      .image-render {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #f8f9fa;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .image-render img {
+        max-width: 90%;
+        max-height: 80%;
+        object-fit: contain;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      }
+
+      .image-info {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 15px 25px;
+        border-radius: 8px;
+        color: #2c3e50;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      .toggle-switch {
+        position: relative;
+        width: 50px;
+        height: 25px;
+        background: #bdc3c7;
+        border-radius: 25px;
+        cursor: pointer;
+        transition: background 0.3s ease;
+      }
+
+      .toggle-switch.active {
+        background: #3498db;
+      }
+
+      .toggle-switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 21px;
+        height: 21px;
+        background: white;
+        border-radius: 50%;
+        transition: transform 0.3s ease;
+      }
+
+      .toggle-switch.active::after {
+        transform: translateX(25px);
+      }
+
+      .feature-toggle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">🔧 EngTeklif 3D Viewer</div>
+      <div class="header-controls">
+        <button id="toggle-controls" class="btn secondary">
+          🎮 Kontroller
+        </button>
+        <button id="toggle-fullscreen" class="btn secondary">
+          📺 Tam Ekran
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Viewer Container -->
+    <div id="viewer-container"></div>
+
+    <!-- Control Panel -->
+    <div id="control-panel" class="control-panel">
+      <div class="control-section">
+        <div class="section-title">🎮 Görünüm Kontrolleri</div>
+        <div class="control-row">
+          <button id="reset-view" class="control-btn">🔄 Sıfırla</button>
+          <button id="fit-view" class="control-btn">📐 Sığdır</button>
+        </div>
+        <div class="control-row">
+          <button id="front-view" class="control-btn">📋 Ön</button>
+          <button id="back-view" class="control-btn">🔙 Arka</button>
+          <button id="left-view" class="control-btn">⬅️ Sol</button>
+          <button id="right-view" class="control-btn">➡️ Sağ</button>
+        </div>
+        <div class="control-row">
+          <button id="top-view" class="control-btn">⬆️ Üst</button>
+          <button id="bottom-view" class="control-btn">⬇️ Alt</button>
+          <button id="iso-view" class="control-btn">🎯 İzometrik</button>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <div class="section-title">🎨 Görsel Ayarlar</div>
+        <div class="feature-toggle">
+          <span>Wireframe:</span>
+          <div id="wireframe-toggle" class="toggle-switch"></div>
+        </div>
+        <div class="feature-toggle">
+          <span>Gölgeler:</span>
+          <div id="shadows-toggle" class="toggle-switch active"></div>
+        </div>
+        <div class="feature-toggle">
+          <span>Grid:</span>
+          <div id="grid-toggle" class="toggle-switch"></div>
+        </div>
+        <div class="feature-toggle">
+          <span>Eksenler:</span>
+          <div id="axes-toggle" class="toggle-switch active"></div>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <div class="section-title">🎨 Malzeme</div>
+        <div class="control-row">
+          <button id="material-aluminum" class="control-btn">
+            🔗 Alüminyum
+          </button>
+          <button id="material-steel" class="control-btn">🔩 Çelik</button>
+          <button id="material-plastic" class="control-btn">🎨 Plastik</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="info-panel" class="info-panel">
+      <div class="section-title">📊 Model Bilgileri</div>
+      <div id="model-info">
+        <div class="info-row">
+          <span class="info-label">Durum:</span>
+          <span class="info-value" id="status-value">Yükleniyor...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loading-text">Model yükleniyor...</div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast"></div>
+
+    <script type="module">
+      import * as THREE from "https://esm.sh/three@0.160.0";
+      import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+      import { STLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/STLLoader.js";
+
+      class EngTeklifSTEPViewer {
+        constructor() {
+          this.scene = null;
+          this.camera = null;
+          this.renderer = null;
+          this.controls = null;
+          this.model = null;
+          this.lights = [];
+          this.isLoading = false;
+          this.currentAnalysisId = null;
+          this.accessToken = null;
+
+          this.init();
+          this.setupEventListeners();
+          this.checkForAnalysisId();
+        }
+
+        init() {
+          // Scene setup
+          this.scene = new THREE.Scene();
+          this.scene.background = new THREE.Color(0xf8f9fa);
+
+          // Camera setup
+          this.camera = new THREE.PerspectiveCamera(
+            60,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            10000
+          );
+          this.camera.position.set(150, 150, 150);
+
+          // Renderer setup
+          this.renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true,
+          });
+          this.renderer.setSize(window.innerWidth, window.innerHeight - 60);
+          this.renderer.shadowMap.enabled = true;
+          this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          this.renderer.toneMappingExposure = 1.2;
+
+          // Controls setup
+          this.controls = new OrbitControls(
+            this.camera,
+            this.renderer.domElement
+          );
+          this.controls.enableDamping = true;
+          this.controls.dampingFactor = 0.05;
+          this.controls.screenSpacePanning = false;
+          this.controls.minDistance = 10;
+          this.controls.maxDistance = 1000;
+
+          // Lighting setup
+          this.setupLighting();
+
+          // Grid and axes
+          this.setupGridAndAxes();
+
+          // Start render loop
+          this.animate();
+        }
+
+        setupLighting() {
+          // Ambient light
+          const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+          this.scene.add(ambientLight);
+          this.lights.push(ambientLight);
+
+          // Directional light
+          const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+          directionalLight.position.set(100, 100, 50);
+          directionalLight.castShadow = true;
+          directionalLight.shadow.mapSize.width = 2048;
+          directionalLight.shadow.mapSize.height = 2048;
+          this.scene.add(directionalLight);
+          this.lights.push(directionalLight);
+
+          // Point lights
+          const pointLight1 = new THREE.PointLight(0xffffff, 0.5, 300);
+          pointLight1.position.set(-100, -100, 100);
+          this.scene.add(pointLight1);
+          this.lights.push(pointLight1);
+
+          const pointLight2 = new THREE.PointLight(0xffffff, 0.3, 300);
+          pointLight2.position.set(100, -100, -100);
+          this.scene.add(pointLight2);
+          this.lights.push(pointLight2);
+        }
+
+        setupGridAndAxes() {
+          // Grid
+          const gridHelper = new THREE.GridHelper(200, 20, 0x888888, 0xcccccc);
+          gridHelper.name = "grid";
+          this.scene.add(gridHelper);
+
+          // Axes
+          const axesHelper = new THREE.AxesHelper(50);
+          axesHelper.name = "axes";
+          this.scene.add(axesHelper);
+        }
+
+        setupEventListeners() {
+          // Control buttons
+          this.setupControlButtons();
+
+          // Window resize
+          window.addEventListener("resize", () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight - 60);
+          });
+
+          // Toggle panels
+          document
+            .getElementById("toggle-controls")
+            .addEventListener("click", () => {
+              document
+                .getElementById("control-panel")
+                .classList.toggle("visible");
+            });
+
+          // Fullscreen
+          document
+            .getElementById("toggle-fullscreen")
+            .addEventListener("click", () => {
+              if (document.fullscreenElement) {
+                document.exitFullscreen();
+              } else {
+                document.documentElement.requestFullscreen();
+              }
+            });
+        }
+
+        setupControlButtons() {
+          // View controls
+          document
+            .getElementById("reset-view")
+            .addEventListener("click", () => {
+              this.resetView();
+            });
+
+          document.getElementById("fit-view").addEventListener("click", () => {
+            this.fitToView();
+          });
+
+          // Standard views
+          document
+            .getElementById("front-view")
+            .addEventListener("click", () => {
+              this.setStandardView("front");
+            });
+
+          document.getElementById("back-view").addEventListener("click", () => {
+            this.setStandardView("back");
+          });
+
+          document.getElementById("left-view").addEventListener("click", () => {
+            this.setStandardView("left");
+          });
+
+          document
+            .getElementById("right-view")
+            .addEventListener("click", () => {
+              this.setStandardView("right");
+            });
+
+          document.getElementById("top-view").addEventListener("click", () => {
+            this.setStandardView("top");
+          });
+
+          document
+            .getElementById("bottom-view")
+            .addEventListener("click", () => {
+              this.setStandardView("bottom");
+            });
+
+          document.getElementById("iso-view").addEventListener("click", () => {
+            this.setStandardView("isometric");
+          });
+
+          // Visual toggles
+          this.setupToggle("wireframe-toggle", (active) => {
+            if (this.model) {
+              this.model.material.wireframe = active;
+            }
+          });
+
+          this.setupToggle(
+            "shadows-toggle",
+            (active) => {
+              this.renderer.shadowMap.enabled = active;
+            },
+            true
+          );
+
+          this.setupToggle("grid-toggle", (active) => {
+            const grid = this.scene.getObjectByName("grid");
+            if (grid) grid.visible = active;
+          });
+
+          this.setupToggle(
+            "axes-toggle",
+            (active) => {
+              const axes = this.scene.getObjectByName("axes");
+              if (axes) axes.visible = active;
+            },
+            true
+          );
+
+          // Material buttons
+          document
+            .getElementById("material-aluminum")
+            .addEventListener("click", () => {
+              this.setMaterial("aluminum");
+            });
+
+          document
+            .getElementById("material-steel")
+            .addEventListener("click", () => {
+              this.setMaterial("steel");
+            });
+
+          document
+            .getElementById("material-plastic")
+            .addEventListener("click", () => {
+              this.setMaterial("plastic");
+            });
+        }
+
+        setupToggle(id, callback, initialState = false) {
+          const toggle = document.getElementById(id);
+          let active = initialState;
+
+          if (initialState) {
+            toggle.classList.add("active");
+          }
+
+          toggle.addEventListener("click", () => {
+            active = !active;
+            toggle.classList.toggle("active", active);
+            callback(active);
+          });
+        }
+
+        checkForAnalysisId() {
+          // URL'den analysis_id ve access_token al
+          const path = window.location.pathname;
+          const analysisMatch = path.match(/\/step-viewer\/([^\/]+)\/(.+)$/);
+
+          if (analysisMatch) {
+            this.currentAnalysisId = analysisMatch[1];
+            this.accessToken = analysisMatch[2];
+            this.loadAnalysisModel(this.currentAnalysisId);
+          } else {
+            this.showErrorState(
+              "Geçersiz URL formatı. Doğru format: /step-viewer/{analysis_id}/{access_token}"
+            );
+          }
+        }
+
+        async loadAnalysisModel(analysisId) {
+          try {
+            this.showLoading("Analiz verisi alınıyor...");
+
+            // API headers
+            const headers = {
+              "Content-Type": "application/json",
+            };
+
+            if (this.accessToken) {
+              headers["Authorization"] = `Bearer ${this.accessToken}`;
+            }
+
+            // Backend'den analiz bilgilerini al
+            const configResponse = await fetch(
+              `/api/step-viewer/config/${analysisId}`,
+              {
+                headers: headers,
+              }
+            );
+
+            if (!configResponse.ok) {
+              throw new Error(
+                `Analiz bilgileri alınamadı (${configResponse.status})`
+              );
+            }
+
+            const configData = await configResponse.json();
+            if (!configData.success) {
+              throw new Error(
+                configData.message || "Analiz bilgileri geçersiz"
+              );
+            }
+
+            console.log("Config data:", configData);
+
+            // Analiz bilgilerini göster
+            this.displayAnalysisInfo(configData.config);
+
+            // STL dosyası var mı kontrol et
+            const stlPath = configData.config.model_paths?.stl;
+            console.log("STL Path:", stlPath);
+
+            if (stlPath) {
+              // STL mevcut, direkt yükle
+              this.showLoading("3D model yükleniyor...");
+              await this.loadSTLFromPath(stlPath);
+              this.showToast("3D model başarıyla yüklendi!", "success");
+            } else {
+              // STL yok, oluşturmaya çalış
+              this.showLoading("3D model oluşturuluyor...");
+              await this.generateSTLForAnalysis(analysisId);
+            }
+          } catch (error) {
+            console.error("Model yükleme hatası:", error);
+            this.showToast(`Model yüklenemedi: ${error.message}`, "error");
+            this.showErrorState(error.message);
+          } finally {
+            this.hideLoading();
+          }
+        }
+
+        async generateSTLForAnalysis(analysisId) {
+          try {
+            // API headers
+            const headers = {
+              "Content-Type": "application/json",
+            };
+
+            if (this.accessToken) {
+              headers["Authorization"] = `Bearer ${this.accessToken}`;
+            }
+
+            // Backend'den STL oluşturma isteği
+            const renderResponse = await fetch(
+              `/api/upload/render/${analysisId}`,
+              {
+                method: "POST",
+                headers: headers,
+                body: JSON.stringify({
+                  include_dimensions: true,
+                  include_materials: true,
+                  high_quality: true,
+                }),
+              }
+            );
+
+            if (!renderResponse.ok) {
+              throw new Error("3D model oluşturulamadı");
+            }
+
+            const renderData = await renderResponse.json();
+            console.log("Render data:", renderData);
+
+            if (!renderData.success) {
+              throw new Error(renderData.message || "Render işlemi başarısız");
+            }
+
+            // STL dosyası oluşturuldu mu kontrol et
+            const stlPath = `/static/stepviews/${analysisId}/model_${analysisId}.stl`;
+
+            // STL'i yüklemeyi dene
+            await this.loadSTLFromPath(stlPath);
+            this.showToast("3D model başarıyla oluşturuldu!", "success");
+          } catch (error) {
+            console.error("STL oluşturma hatası:", error);
+
+            // STL oluşturulamadı, 2D render varsa onu göster
+            await this.tryShow2DRender(analysisId);
+            throw new Error("3D model oluşturulamadı, 2D görünüm gösteriliyor");
+          }
+        }
+
+        async tryShow2DRender(analysisId) {
+          try {
+            // API headers
+            const headers = {
+              "Content-Type": "application/json",
+            };
+
+            if (this.accessToken) {
+              headers["Authorization"] = `Bearer ${this.accessToken}`;
+            }
+
+            // Analiz bilgilerini tekrar al
+            const configResponse = await fetch(
+              `/api/step-viewer/config/${analysisId}`,
+              {
+                headers: headers,
+              }
+            );
+            const configData = await configResponse.json();
+
+            if (configData.success && configData.config.enhanced_renders) {
+              const renders = configData.config.enhanced_renders;
+
+              // Öncelik sırası: isometric > front > ilk mevcut render
+              const preferredOrder = [
+                "isometric",
+                "front",
+                "wireframe",
+                "technical",
+              ];
+              let renderToShow = null;
+
+              for (const renderType of preferredOrder) {
+                if (renders[renderType] && renders[renderType].success) {
+                  renderToShow = renders[renderType];
+                  break;
+                }
+              }
+
+              // Hiç render yoksa ilk mevcut olanı al
+              if (!renderToShow) {
+                const firstRender = Object.values(renders).find(
+                  (r) => r.success
+                );
+                if (firstRender) renderToShow = firstRender;
+              }
+
+              if (renderToShow) {
+                this.show2DRender(renderToShow.file_path);
+                this.showToast("2D render gösteriliyor", "success");
+                return;
+              }
+            }
+
+            throw new Error("Hiç render bulunamadı");
+          } catch (error) {
+            console.error("2D render gösterme hatası:", error);
+            this.showErrorState("Model görüntülenemedi");
+          }
+        }
+
+        displayAnalysisInfo(config) {
+          const analysisDetails = document.getElementById("model-info");
+
+          // Analiz detayları
+          const fileInfo = config.file_info || {};
+          const stepAnalysis = config.step_analysis || {};
+
+          let detailsHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Durum:</span>
+                        <span class="info-value" style="color: #27ae60;">Analiz Yüklendi</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Dosya:</span>
+                        <span class="info-value">${
+                          fileInfo.original_filename || "Bilinmeyen"
+                        }</span>
+                    </div>
+                `;
+
+          if (stepAnalysis["X (mm)"]) {
+            detailsHTML += `
+                        <div class="info-row">
+                            <span class="info-label">Genişlik:</span>
+                            <span class="info-value">${
+                              stepAnalysis["X (mm)"]
+                            } mm</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Yükseklik:</span>
+                            <span class="info-value">${
+                              stepAnalysis["Y (mm)"]
+                            } mm</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Derinlik:</span>
+                            <span class="info-value">${
+                              stepAnalysis["Z (mm)"]
+                            } mm</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Hacim:</span>
+                            <span class="info-value">${(
+                              stepAnalysis["Prizma Hacmi (mm³)"] || 0
+                            ).toLocaleString()} mm³</span>
+                        </div>
+                    `;
+          }
+
+          analysisDetails.innerHTML = detailsHTML;
+        }
+
+        async loadSTLFromPath(stlPath) {
+          return new Promise((resolve, reject) => {
+            const loader = new STLLoader();
+
+            loader.load(
+              stlPath,
+              (geometry) => {
+                try {
+                  this.processLoadedGeometry(geometry);
+                  resolve();
+                } catch (error) {
+                  reject(error);
+                }
+              },
+              (progress) => {
+                // Progress callback
+                const percent = Math.round(
+                  (progress.loaded / progress.total) * 100
+                );
+                this.showLoading(`Model yükleniyor... ${percent}%`);
+              },
+              (error) => {
+                reject(new Error("STL dosyası yüklenemedi"));
+              }
+            );
+          });
+        }
+
+        processLoadedGeometry(geometry) {
+          // Geometry'yi temizle ve hazırla
+          geometry.computeVertexNormals();
+          geometry.computeBoundingBox();
+
+          // Model'i merkeze al
+          const center = new THREE.Vector3();
+          geometry.boundingBox.getCenter(center);
+          geometry.translate(-center.x, -center.y, -center.z);
+
+          // Material oluştur
+          const material = new THREE.MeshPhongMaterial({
+            color: 0x888888,
+            shininess: 100,
+            side: THREE.DoubleSide,
+          });
+
+          // Mevcut model'i kaldır
+          if (this.model) {
+            this.scene.remove(this.model);
+          }
+
+          // Yeni model oluştur
+          this.model = new THREE.Mesh(geometry, material);
+          this.model.castShadow = true;
+          this.model.receiveShadow = true;
+          this.scene.add(this.model);
+
+          // Kamerayı ayarla
+          this.fitToView();
+
+          // Renderer'ı container'a ekle
+          const container = document.getElementById("viewer-container");
+          container.innerHTML = "";
+          container.appendChild(this.renderer.domElement);
+        }
+
+        show2DRender(imagePath) {
+          // 2D render'ı göster
+          const container = document.getElementById("viewer-container");
+
+          const imageContainer = document.createElement("div");
+          imageContainer.className = "image-render";
+
+          const img = document.createElement("img");
+          img.src = imagePath;
+
+          const infoText = document.createElement("div");
+          infoText.className = "image-info";
+          infoText.textContent = "📸 2D Teknik Çizim Görünümü";
+
+          imageContainer.appendChild(img);
+          imageContainer.appendChild(infoText);
+          container.innerHTML = "";
+          container.appendChild(imageContainer);
+        }
+
+        showErrorState(message) {
+          const container = document.getElementById("viewer-container");
+
+          const errorContainer = document.createElement("div");
+          errorContainer.className = "error-state";
+
+          const errorIcon = document.createElement("div");
+          errorIcon.className = "error-icon";
+          errorIcon.textContent = "⚠️";
+
+          const errorText = document.createElement("div");
+          errorText.className = "error-text";
+          errorText.innerHTML = `
+                    <div style="font-size: 18px; margin-bottom: 10px;">Model Yüklenemedi</div>
+                    <div style="font-size: 14px; color: #7f8c8d;">${message}</div>
+                `;
+
+          const backButton = document.createElement("button");
+          backButton.className = "btn";
+          backButton.textContent = "🏠 Ana Sayfaya Dön";
+          backButton.onclick = () => {
+            window.location.href = "/step-viewer";
+          };
+
+          errorContainer.appendChild(errorIcon);
+          errorContainer.appendChild(errorText);
+          errorContainer.appendChild(backButton);
+          container.innerHTML = "";
+          container.appendChild(errorContainer);
+        }
+
+        resetView() {
+          if (this.model) {
+            this.camera.position.set(150, 150, 150);
+            this.camera.lookAt(0, 0, 0);
+            this.controls.target.set(0, 0, 0);
+            this.controls.update();
+          }
+        }
+
+        fitToView() {
+          if (this.model) {
+            const box = new THREE.Box3().setFromObject(this.model);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = this.camera.fov * (Math.PI / 180);
+            const cameraDistance =
+              Math.abs(maxDim / (2 * Math.tan(fov / 2))) * 1.5;
+
+            this.camera.position.copy(center);
+            this.camera.position.x += cameraDistance * 0.8;
+            this.camera.position.y += cameraDistance * 0.6;
+            this.camera.position.z += cameraDistance * 0.8;
+
+            this.camera.lookAt(center);
+            this.controls.target.copy(center);
+            this.controls.update();
+          }
+        }
+
+        setStandardView(viewType) {
+          if (!this.model) return;
+
+          const box = new THREE.Box3().setFromObject(this.model);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const distance = maxDim * 2;
+
+          const positions = {
+            front: [center.x, center.y, center.z + distance],
+            back: [center.x, center.y, center.z - distance],
+            left: [center.x - distance, center.y, center.z],
+            right: [center.x + distance, center.y, center.z],
+            top: [center.x, center.y + distance, center.z],
+            bottom: [center.x, center.y - distance, center.z],
+            isometric: [
+              center.x + distance * 0.7,
+              center.y + distance * 0.7,
+              center.z + distance * 0.7,
+            ],
+          };
+
+          const position = positions[viewType];
+          if (position) {
+            this.camera.position.set(...position);
+            this.camera.lookAt(center);
+            this.controls.target.copy(center);
+            this.controls.update();
+          }
+        }
+
+        setMaterial(materialType) {
+          if (!this.model) return;
+
+          const materials = {
+            aluminum: { color: 0xc0c0c0, shininess: 100 },
+            steel: { color: 0x708090, shininess: 80 },
+            plastic: { color: 0x4a90e2, shininess: 30 },
+          };
+
+          const materialConfig = materials[materialType];
+          if (materialConfig) {
+            this.model.material.color.setHex(materialConfig.color);
+            this.model.material.shininess = materialConfig.shininess;
+          }
+        }
+
+        showLoading(message = "Yükleniyor...") {
+          const loading = document.getElementById("loading");
+          const loadingText = document.getElementById("loading-text");
+          loadingText.textContent = message;
+          loading.classList.add("show");
+          this.isLoading = true;
+        }
+
+        hideLoading() {
+          document.getElementById("loading").classList.remove("show");
+          this.isLoading = false;
+        }
+
+        showToast(message, type = "success") {
+          const toast = document.getElementById("toast");
+          toast.textContent = message;
+          toast.className = `toast ${type}`;
+          toast.classList.add("show");
+
+          setTimeout(() => {
+            toast.classList.remove("show");
+          }, 3000);
+        }
+
+        animate() {
+          requestAnimationFrame(() => this.animate());
+
+          if (this.controls) {
+            this.controls.update();
+          }
+
+          if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+          }
+        }
+      }
+
+      // Initialize the viewer
+      window.addEventListener("DOMContentLoaded", () => {
+        new EngTeklifSTEPViewer();
+      });
+    </script>
+  </body>
+</html>

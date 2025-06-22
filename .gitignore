@@ -1,6 +1,7 @@
 backend/uploads
 backend/temp
-backend/static
+backend/static/*
+!backend/static/step_viewer.html
 
 backend/__pycache__
 backend/*.pyc
