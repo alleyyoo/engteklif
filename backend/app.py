@@ -1,5 +1,5 @@
-# app.py - FIXED VERSION WITH 3D VIEWER SUPPORT
-from flask import Flask, jsonify, send_from_directory
+# app.py - ENHANCED VERSION WITH INTEGRATED STEP VIEWER
+from flask import Flask, jsonify, send_from_directory, redirect, url_for
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from config import Config
@@ -22,7 +22,7 @@ def create_app():
     app.config.from_object(Config)
     
     # CORS setup
-    CORS(app, origins=["http://localhost:3000"])
+    CORS(app, origins=["http://localhost:3000", "http://localhost:5050"])
     
     # JWT setup
     jwt = JWTManager(app)
@@ -41,7 +41,7 @@ def create_app():
     app.register_blueprint(cost_bp)
     app.register_blueprint(upload_bp)
 
-    # ===== STATIC FILE SERVING - FIXED =====
+    # ===== STATIC FILE SERVING - ENHANCED =====
     @app.route('/static/<path:filename>')
     def serve_static(filename):
         """Static dosyaları serve et"""
@@ -54,39 +54,126 @@ def create_app():
                 "message": f"Dosya bulunamadı: {filename}"
             }), 404
     
-    # ===== 3D VIEWER ROUTES - FIXED =====
-    @app.route('/3d-viewer')
-    def viewer_page():
-        """3D viewer ana sayfası"""
-        return send_from_directory('static', '3d-viewer.html')
-    
-    @app.route('/3d-viewer/<analysis_id>')
-    def viewer_with_analysis(analysis_id):
-        """Belirli analiz için 3D viewer"""
+    # ===== STEP VIEWER ROUTES - ENHANCED =====
+    @app.route('/step-viewer')
+    def step_viewer_main():
+        """✅ STEP Viewer Ana Sayfası - Enhanced"""
         try:
-            from flask import Response
-            viewer_html = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>3D Model Viewer - EngTeklif</title>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    body {{ margin: 0; overflow: hidden; }}
-                    iframe {{ width: 100vw; height: 100vh; border: none; }}
-                </style>
-            </head>
-            <body>
-                <iframe src="/static/3d-viewer.html?analysis_id={analysis_id}"></iframe>
-            </body>
-            </html>
-            '''
-            return Response(viewer_html, mimetype='text/html')
+            return send_from_directory('static', 'step_viewer.html')
+        except Exception as e:
+            print(f"STEP viewer dosya hatası: {e}")
+            return jsonify({
+                "success": False,
+                "message": "STEP viewer dosyası bulunamadı"
+            }), 404
+    
+    @app.route('/step-viewer/<analysis_id>')
+    def step_viewer_with_analysis(analysis_id):
+        """✅ Belirli analiz için STEP viewer - Analysis ID ile direkt viewer"""
+        try:
+            # Analysis ID'yi validate et
+            if not analysis_id or len(analysis_id) < 5:
+                return jsonify({
+                    "success": False,
+                    "message": "Geçersiz analiz ID'si"
+                }), 400
+            
+            # Direkt step_viewer.html'i döndür, analysis_id URL'den alınacak
+            return send_from_directory('static', 'step_viewer.html')
+                
         except Exception as e:
             return jsonify({
                 "success": False,
-                "message": f"3D viewer hatası: {str(e)}"
+                "message": f"STEP viewer hatası: {str(e)}"
+            }), 500
+    
+    @app.route('/3d-viewer')
+    def legacy_3d_viewer():
+        """Legacy 3D viewer redirect"""
+        return redirect(url_for('step_viewer_main'))
+    
+    @app.route('/3d-viewer/<analysis_id>')
+    def legacy_3d_viewer_with_analysis(analysis_id):
+        """Legacy 3D viewer with analysis redirect"""
+        return redirect(url_for('step_viewer_with_analysis', analysis_id=analysis_id))
+    
+    # ===== STEP VIEWER API ENDPOINTS =====
+    @app.route('/api/step-viewer/status')
+    def step_viewer_status():
+        """STEP viewer durumu"""
+        try:
+            import os
+            viewer_path = os.path.join('static', 'step_viewer.html')
+            viewer_exists = os.path.exists(viewer_path)
+            
+            return jsonify({
+                "success": True,
+                "viewer_available": viewer_exists,
+                "viewer_path": "/step-viewer",
+                "features": {
+                    "file_upload": True,
+                    "measurement_tools": True,
+                    "multiple_views": True,
+                    "wireframe_mode": True,
+                    "lighting_control": True,
+                    "standard_views": True
+                },
+                "supported_formats": [".step", ".stp"],
+                "integration": "backend_static"
+            })
+            
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "message": f"STEP viewer durum hatası: {str(e)}"
+            }), 500
+    
+    @app.route('/api/step-viewer/config/<analysis_id>')
+    def get_step_viewer_config(analysis_id):
+        """Belirli analiz için STEP viewer konfigürasyonu"""
+        try:
+            from models.file_analysis import FileAnalysis
+            
+            # Analiz kaydını bul
+            analysis = FileAnalysis.find_by_id(analysis_id)
+            if not analysis:
+                return jsonify({
+                    "success": False,
+                    "message": "Analiz bulunamadı"
+                }), 404
+            
+            # STEP viewer için konfigürasyon
+            config = {
+                "analysis_id": analysis_id,
+                "file_info": {
+                    "original_filename": analysis.get('original_filename'),
+                    "file_type": analysis.get('file_type'),
+                    "file_size": analysis.get('file_size')
+                },
+                "step_analysis": analysis.get('step_analysis', {}),
+                "enhanced_renders": analysis.get('enhanced_renders', {}),
+                "model_paths": {
+                    "stl": f"/static/stepviews/{analysis_id}/model_{analysis_id}.stl",
+                    "viewer_html": f"/static/stepviews/{analysis_id}/viewer.html"
+                },
+                "viewer_settings": {
+                    "auto_fit": True,
+                    "show_grid": False,
+                    "show_axes": True,
+                    "lighting": "enhanced",
+                    "material": "aluminum"
+                }
+            }
+            
+            return jsonify({
+                "success": True,
+                "config": config
+            })
+            
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "message": f"Konfigürasyon hatası: {str(e)}"
             }), 500
     
     # ===== MAIN ROUTES =====
@@ -94,17 +181,38 @@ def create_app():
     def home():
         return jsonify({
             "message": "EngTeklif API çalışıyor! 🚀",
-            "version": "2.0",
-            "description": "Mühendislik Teklif ve Dosya Analiz Sistemi",
+            "version": "2.1",
+            "description": "Mühendislik Teklif ve Dosya Analiz Sistemi - Enhanced STEP Viewer",
             "features": [
                 "✅ 3D STEP dosya analizi",
-                "✅ PDF malzeme tanıma",
+                "✅ PDF malzeme tanıma", 
                 "✅ Maliyet hesaplama",
-                "✅ 3D model görselleştirme",
-                "✅ Wireframe 3D viewer",
-                "✅ Malzeme veritabanı"
+                "✅ Enhanced 3D STEP viewer",
+                "✅ Interactive measurement tools",
+                "✅ Multi-view rendering",
+                "✅ Malzeme veritabanı",
+                "✅ Real-time 3D visualization"
             ],
+            "step_viewer": {
+                "main_url": "/step-viewer",
+                "with_analysis": "/step-viewer/{analysis_id}",
+                "api_status": "/api/step-viewer/status",
+                "features": [
+                    "File upload integration",
+                    "Real-time measurement",
+                    "Standard view presets", 
+                    "Wireframe/solid modes",
+                    "Dynamic lighting",
+                    "Responsive design"
+                ]
+            },
             "endpoints": {
+                "step_viewer": {
+                    "main": "/step-viewer",
+                    "with_analysis": "/step-viewer/{analysis_id}",
+                    "status": "/api/step-viewer/status",
+                    "config": "/api/step-viewer/config/{analysis_id}"
+                },
                 "auth": {
                     "login": "/api/auth/login",
                     "register": "/api/auth/register",
@@ -167,11 +275,6 @@ def create_app():
                     "wireframe": "/api/upload/wireframe/{analysis_id}",
                     "render": "/api/upload/render/{analysis_id}",
                     "3d_viewer": "/api/upload/3d-viewer/{analysis_id}"
-                },
-                "3d_viewer": {
-                    "main": "/3d-viewer",
-                    "with_analysis": "/3d-viewer/{analysis_id}",
-                    "static_files": "/static/{filename}"
                 }
             }
         })
@@ -196,15 +299,26 @@ def create_app():
             except Exception:
                 collections_info = {"error": "Collection count failed"}
             
+            # STEP viewer durumu
+            import os
+            step_viewer_status = {
+                "step_viewer_html": os.path.exists('static/step_viewer.html'),
+                "static_directory": os.path.exists('static'),
+                "stepviews_directory": os.path.exists('static/stepviews')
+            }
+            
             return jsonify({
                 "status": "healthy",
                 "database": "connected",
                 "collections": collections_info,
+                "step_viewer": step_viewer_status,
                 "features": {
-                    "3d_viewer": "active",
+                    "enhanced_step_viewer": "active",
                     "step_analysis": "active",
                     "material_analysis": "active",
-                    "cost_calculation": "active"
+                    "cost_calculation": "active",
+                    "3d_rendering": "active",
+                    "measurement_tools": "active"
                 },
                 "timestamp": "2025-01-01T00:00:00Z"
             }), 200
@@ -222,30 +336,35 @@ def create_app():
         """API bilgileri ve sürüm detayları"""
         return jsonify({
             "api_name": "EngTeklif API",
-            "version": "2.0.0",
-            "description": "Mühendislik dosya analizi ve teklif yönetim sistemi",
+            "version": "2.1.0",
+            "description": "Mühendislik dosya analizi ve teklif yönetim sistemi - Enhanced STEP Viewer",
             "database": "MongoDB",
             "framework": "Flask",
             "features": [
                 "Kullanıcı yönetimi ve yetkilendirme",
                 "PDF/DOC dosya analizi",
                 "STEP/CAD dosya işleme",
-                "3D model görselleştirme",
-                "Wireframe 3D viewer",
+                "Enhanced 3D STEP model görselleştirme",
+                "Interactive measurement tools",
+                "Multi-view 3D rendering",
                 "Malzeme tanıma ve fiyatlama",
                 "Geometrik tolerans yönetimi",
                 "Maliyet hesaplama",
                 "Excel export/import",
-                "Real-time 3D rendering"
+                "Real-time 3D visualization"
             ],
             "supported_file_types": [
                 "PDF", "DOC", "DOCX", "STEP", "STP"
             ],
-            "3d_capabilities": {
-                "wireframe_viewer": "Three.js tabanlı 3D görüntüleme",
-                "step_analysis": "CadQuery ile geometrik analiz",
-                "render_generation": "Matplotlib ile görsel oluşturma",
-                "interactive_controls": "Orbit, zoom, pan kontrolleri"
+            "step_viewer_capabilities": {
+                "interactive_3d": "Three.js tabanlı gerçek zamanlı görselleştirme",
+                "file_upload": "Drag & drop STEP dosya yükleme",
+                "measurement_tools": "İnteraktif mesafe ölçüm araçları",
+                "view_presets": "Standart mühendislik görünümleri (Front, Top, Iso, vb.)",
+                "wireframe_mode": "Wireframe/solid görünüm geçişi",
+                "lighting_control": "Dinamik ışıklandırma kontrolü",
+                "responsive_design": "Mobil ve masaüstü uyumlu",
+                "backend_integration": "Flask backend ile tam entegrasyon"
             },
             "authentication": "JWT Bearer Token",
             "documentation": "/api/docs"
@@ -311,7 +430,7 @@ def create_app():
             "status_code": 404,
             "available_endpoints": {
                 "api": "/api/info",
-                "3d_viewer": "/3d-viewer",
+                "step_viewer": "/step-viewer",
                 "health": "/health"
             }
         }), 404
@@ -369,12 +488,19 @@ if __name__ == '__main__':
     
     print("🚀 EngTeklif API başlatılıyor...")
     print(f"📊 Debug mode: {debug_mode}")
-    print(f"🌐 CORS origin: http://localhost:3000")
+    print(f"🌐 CORS origins: http://localhost:3000, http://localhost:5050")
     print(f"🗄️  Database: {Config.DATABASE_NAME}")
-    print("📐 3D Viewer: ACTIVE")
+    print("📐 Enhanced STEP Viewer: ACTIVE")
     print("🔧 STEP Analysis: ACTIVE")
-    print("🎯 Wireframe Rendering: ACTIVE")
-    print("=" * 50)
+    print("🎯 Interactive 3D Viewer: ACTIVE")
+    print("📏 Measurement Tools: ACTIVE")
+    print("🎨 Multi-view Rendering: ACTIVE")
+    print("=" * 60)
+    print("🔗 STEP Viewer URLs:")
+    print("   Main Viewer: http://localhost:5050/step-viewer")
+    print("   With Analysis: http://localhost:5050/step-viewer/{analysis_id}")
+    print("   API Status: http://localhost:5050/api/step-viewer/status")
+    print("=" * 60)
     
     app.run(
         host='0.0.0.0', 

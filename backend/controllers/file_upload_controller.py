@@ -243,7 +243,7 @@ def upload_multiple_files():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file(analysis_id):
-    """✅ ENHANCED - Yüklenmiş dosyayı analiz et - PDF STEP RENDERING dahil"""
+    """✅ ENHANCED - Yüklenmiş dosyayı analiz et + STEP viewer entegrasyonu"""
     try:
         current_user = get_current_user()
         
@@ -285,13 +285,13 @@ def analyze_uploaded_file(analysis_id):
         
         start_time = time.time()
         
-        # ✅ ENHANCED Material Analysis Service kullan - PDF STEP RENDERING dahil
+        # ✅ Material Analysis Service kullan
         try:
             material_service = MaterialAnalysisService()
             
-            print(f"[ANALYSIS] 🔍 Analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
+            print(f"[ANALYSIS] 🔍 Enhanced analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
             
-            # ✅ Kapsamlı analiz - PDF için STEP rendering dahil
+            # Kapsamlı analiz
             if analysis['file_type'] in ['pdf', 'document', 'step']:
                 result = material_service.analyze_document_comprehensive(
                     analysis['file_path'], 
@@ -301,13 +301,12 @@ def analyze_uploaded_file(analysis_id):
                 
                 print(f"[ANALYSIS] 📊 Material analysis tamamlandı - Success: {not result.get('error')}")
                 
-                # ✅ Başarılı analiz kontrolü
                 analysis_success = not result.get('error')
                 
                 if analysis_success:
                     processing_time = time.time() - start_time
                     
-                    # ✅ ENHANCED - Sonuçları kaydet (PDF STEP rendering dahil)
+                    # Sonuçları kaydet
                     update_data = {
                         "analysis_status": "completed",
                         "processing_time": processing_time,
@@ -320,12 +319,10 @@ def analyze_uploaded_file(analysis_id):
                         "processing_log": result.get('processing_log', []),
                         "all_material_calculations": result.get('all_material_calculations', []),
                         "material_options": result.get('material_options', []),
-                        
-                        # ✅ ENHANCED RENDERING - PDF'den çıkarılan STEP dahil
-                        "isometric_view": result.get('isometric_view'),           # Ana render
-                        "isometric_view_clean": result.get('isometric_view_clean'), # Excel version
-                        "enhanced_renders": result.get('enhanced_renders', {}),   # Tüm render'lar
-                        "step_file_hash": result.get('step_file_hash'),           # STEP dosya hash'i
+                        "isometric_view": result.get('isometric_view'),
+                        "isometric_view_clean": result.get('isometric_view_clean'),
+                        "enhanced_renders": result.get('enhanced_renders', {}),
+                        "step_file_hash": result.get('step_file_hash'),
                         "render_quality": "high" if result.get('enhanced_renders') else "none"
                     }
                     
@@ -339,27 +336,24 @@ def analyze_uploaded_file(analysis_id):
                     # Güncellenmiş analizi döndür
                     updated_analysis = FileAnalysis.find_by_id(analysis_id)
                     
-                    # ✅ ENHANCED RESPONSE - PDF STEP rendering bilgileri dahil
-                    enhanced_render_info = {}
-                    if result.get('enhanced_renders'):
-                        enhanced_render_info = {
-                            "total_renders": len(result['enhanced_renders']),
-                            "render_types": list(result['enhanced_renders'].keys()),
-                            "main_render_available": bool(result.get('isometric_view')),
-                            "excel_render_available": bool(result.get('isometric_view_clean')),
-                            "pdf_step_rendered": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash'))
-                        }
-                        
-                        # Her render için detay
-                        for render_name, render_data in result['enhanced_renders'].items():
-                            if render_data.get('success'):
-                                enhanced_render_info[f"{render_name}_details"] = {
-                                    "file_path": render_data.get('file_path'),
-                                    "view_type": render_data.get('view_type'),
-                                    "quality": render_data.get('quality', 'standard')
-                                }
+                    # ✅ STEP viewer bilgilerini ekle
+                    step_viewer_info = {}
+                    if analysis['file_type'] == 'step' or (analysis['file_type'] == 'pdf' and result.get('step_file_hash')):
+                        stl_path = f"static/stepviews/{analysis_id}/model_{analysis_id}.stl"
+                        if os.path.exists(stl_path):
+                            step_viewer_info = {
+                                "viewer_url": f"/step-viewer/{analysis_id}",
+                                "stl_ready": True,
+                                "stl_path": stl_path
+                            }
+                        else:
+                            step_viewer_info = {
+                                "viewer_url": f"/step-viewer/{analysis_id}",
+                                "stl_ready": False,
+                                "note": "STL henüz oluşturulmamış, /api/upload/generate-stl/{analysis_id} ile oluşturabilirsiniz"
+                            }
                     
-                    return jsonify({
+                    response_data = {
                         "success": True,
                         "message": "Analiz başarıyla tamamlandı",
                         "analysis": updated_analysis,
@@ -373,14 +367,17 @@ def analyze_uploaded_file(analysis_id):
                             "material_options_count": len(result.get('material_options', [])),
                             "3d_render_available": bool(result.get('isometric_view')),
                             "excel_friendly_render": bool(result.get('isometric_view_clean')),
-                            
-                            # ✅ PDF STEP özel bilgiler
                             "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
                             "step_file_hash": result.get('step_file_hash'),
                             "pdf_rotation_attempts": result.get('rotation_count', 0)
-                        },
-                        "enhanced_features": enhanced_render_info
-                    }), 200
+                        }
+                    }
+                    
+                    # ✅ STEP viewer bilgilerini response'a ekle
+                    if step_viewer_info:
+                        response_data["step_viewer"] = step_viewer_info
+                    
+                    return jsonify(response_data), 200
                     
                 else:
                     # Analiz hatası
@@ -447,6 +444,8 @@ def analyze_uploaded_file(analysis_id):
             "success": False,
             "message": f"Beklenmeyen analiz hatası: {str(e)}"
         }), 500
+
+# ===== ENHANCED STATUS AND MANAGEMENT ENDPOINTS =====
 
 
 # ===== RENDER ENDPOINTS =====

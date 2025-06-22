@@ -1,4 +1,4 @@
-// src/pages/dashboard/DashboardPage.tsx
+// src/pages/dashboard/DashboardPage.tsx - Basit 3D Viewer entegrasyonu
 import React, { useState, useRef } from "react";
 import { DashboardPageStyles } from "./DashboardPage.styles";
 import { useFileUpload } from "../../hooks/useFileUpload";
@@ -77,12 +77,18 @@ export const DashboardPage = () => {
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  // 3D Model görüntüleme - Backend'deki HTML dosyasını aç
+  const open3DViewer = (analysisId: string, fileName: string) => {
+    // Backend'deki 3D viewer HTML dosyasını yeni sekmede aç
+    const viewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/3d-viewer/${analysisId}`;
+    window.open(viewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+  };
+
+  // STL dosyasını direkt görüntüle
+  const openSTLViewer = (analysisId: string, fileName: string) => {
+    // Backend'deki STL viewer HTML dosyasını aç
+    const stlViewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/static/stepviews/${analysisId}/viewer.html`;
+    window.open(stlViewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
   };
 
   const renderAnalysisResults = (file: any, index: number) => {
@@ -103,8 +109,8 @@ export const DashboardPage = () => {
             <div className={classes.modelSection}>
               {analysis.enhanced_renders?.isometric ? (
                 <Image
-                  src={`http://localhost:5050/${analysis.enhanced_renders.isometric.file_path}`}
-                  zoomSrc={`http://localhost:5050/${analysis.enhanced_renders.isometric.file_path}`}
+                  src={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
+                  zoomSrc={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
                   className={classes.modelImage}
                   alt="3D Model"
                   width="200"
@@ -119,12 +125,56 @@ export const DashboardPage = () => {
                 </div>
               )}
             </div>
-            <button 
-              className={classes.modelShowButton}
-              onClick={() => window.open(`/3d-viewer/${analysis.id}`, '_blank')}
-            >
-              3D Modeli Görüntüle
-            </button>
+            
+            {/* 3D Viewer Butonları */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+              <button 
+                className={classes.modelShowButton}
+                onClick={() => open3DViewer(analysis.id, file.file.name)}
+                title="Gelişmiş 3D Viewer'da aç"
+              >
+                🎯 3D Model Viewer
+              </button>
+              
+              {analysis.enhanced_renders && Object.keys(analysis.enhanced_renders).length > 0 && (
+                <button 
+                  className={classes.modelShowButton}
+                  onClick={() => openSTLViewer(analysis.id, file.file.name)}
+                  style={{ backgroundColor: '#10b86b' }}
+                  title="STL Viewer'da aç"
+                >
+                  🔧 STL Viewer
+                </button>
+              )}
+              
+              {/* Render linklerini göster */}
+              {analysis.enhanced_renders && (
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
+                    Mevcut Görünümler:
+                  </div>
+                  {Object.entries(analysis.enhanced_renders).map(([viewName, viewData]: [string, any]) => (
+                    viewData.success && (
+                      <a
+                        key={viewName}
+                        href={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${viewData.file_path}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'block',
+                          fontSize: '11px',
+                          color: '#195cd7',
+                          textDecoration: 'none',
+                          padding: '2px 0',
+                        }}
+                      >
+                        📷 {viewName.charAt(0).toUpperCase() + viewName.slice(1)} View
+                      </a>
+                    )
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -386,7 +436,6 @@ export const DashboardPage = () => {
               <div className={classes.uploadedItemFirstSection}>
                 <p className={classes.exp}>{file.file.name}</p>
                 <div className={`${classes.uploadedItemStatus} ${getStatusClass(file.status)}`}>
-                 
                   <p className={classes.uploadedItemStatusText}>
                     {getStatusText(file.status)}
                   </p>
@@ -490,7 +539,7 @@ export const DashboardPage = () => {
                       >
                         <p className={classes.exp}>{file.file.name}</p>
                         <span style={{ transform: expandedItems.has(index) ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s' }}>
-                        <i className="fa fa-arrow-down"></i>
+                          <i className="fa fa-arrow-down"></i>
                         </span>
                       </div>
                       
