@@ -1609,7 +1609,7 @@ def create_stl_for_step_analysis(step_path, analysis_id):
 @upload_bp.route('/merge-with-excel', methods=['POST'])
 @jwt_required()
 def merge_with_excel():
-    """✅ Excel dosyasını analiz sonuçlarıyla birleştir"""
+    """✅ GÜNCELLENMIŞ - Excel dosyasını analiz sonuçlarıyla birleştir"""
     try:
         current_user = get_current_user()
         
@@ -1663,11 +1663,14 @@ def merge_with_excel():
             
             analyses.append(analysis)
         
+        print(f"[MERGE-API] ✅ {len(analyses)} analiz yüklendi")
+        
         # Excel işleme
         try:
             import openpyxl
             from openpyxl.drawing.image import Image as XLImage
-            import unicodedata
+            from openpyxl.styles import Alignment, PatternFill, Border, Side, Font
+            import re
             import math
             import io
             from datetime import datetime
@@ -1677,145 +1680,216 @@ def merge_with_excel():
             ws = wb.active
             print(f"[MERGE-API] ✅ Excel yüklendi. Satır: {ws.max_row}, Sütun: {ws.max_column}")
             
-            # ✅ NORMALIZE FONKSİYONU
+            # ✅ GELİŞTİRİLMİŞ NORMALIZE FONKSİYONU
             def normalize_robust(text):
-                """Güvenli normalize fonksiyonu"""
+                """Güvenli ve kapsamlı normalize fonksiyonu"""
                 if not text:
                     return ""
                 
                 if not isinstance(text, str):
                     text = str(text)
                 
-                # Boşlukları ve özel karakterleri temizle
-                import re
+                # Türkçe karakterleri çevir
+                replacements = {
+                    'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u',
+                    'Ç': 'C', 'Ğ': 'G', 'İ': 'I', 'Ö': 'O', 'Ş': 'S', 'Ü': 'U'
+                }
+                for tr_char, en_char in replacements.items():
+                    text = text.replace(tr_char, en_char)
+                
+                # Sadece sayı ve harf bırak, küçük harfe çevir
                 normalized = re.sub(r'[^\w]', '', text.lower())
                 return normalized
             
-            # ✅ HEADER ANALİZİ
+            def extract_numbers(text):
+                """Metinden sayıları çıkar"""
+                if not text:
+                    return []
+                numbers = re.findall(r'\d+', str(text))
+                return numbers
+            
+            # ✅ HEADER ANALİZİ VE SÜTUN TESPİTİ
             header_row = [ws.cell(row=1, column=col).value for col in range(1, ws.max_column + 1)]
             print(f"[MERGE-API] 📋 Header satırı: {header_row}")
             
-            # Ürün kodu sütununu bul
-            possible_product_headers = [
-                "malzeme no", "malzemeno", "malzeme_no", "malzeme numarası", 
-                "ürün kodu", "urun kodu", "ürün no", "urun no", "kod", "no", "part"
+            # Malzeme No sütununu bul (daha kapsamlı arama)
+            malzeme_no_patterns = [
+                "malzeme no", "malzemeno", "malzeme_no", "malzeme numarası", "malzeme numarasi",
+                "ürün kodu", "urun kodu", "ürün no", "urun no", "kod", "no", "part", "item"
             ]
             
-            product_col_index = None
+            malzeme_col_index = None
             for i, header in enumerate(header_row):
                 if header:
                     normalized_header = normalize_robust(header)
-                    for possible in possible_product_headers:
-                        if normalize_robust(possible) in normalized_header:
-                            product_col_index = i + 1  # 1-based
-                            print(f"[MERGE-API] ✅ Ürün kodu sütunu: '{header}' (sütun {product_col_index})")
+                    print(f"[MERGE-API] 🔍 Header {i+1}: '{header}' -> '{normalized_header}'")
+                    
+                    for pattern in malzeme_no_patterns:
+                        if normalize_robust(pattern) == normalized_header:
+                            malzeme_col_index = i + 1  # 1-based
+                            print(f"[MERGE-API] ✅ Malzeme No sütunu: '{header}' (sütun {malzeme_col_index})")
                             break
-                    if product_col_index:
+                    if malzeme_col_index:
                         break
             
-            if not product_col_index:
-                product_col_index = 1  # Fallback
-                print(f"[MERGE-API] ⚠️ Ürün kodu sütunu bulunamadı, ilk sütun kullanılıyor")
+            if not malzeme_col_index:
+                # Fallback: üçüncü sütun genelde malzeme no'dur
+                malzeme_col_index = 3
+                print(f"[MERGE-API] ⚠️ Malzeme No sütunu bulunamadı, sütun {malzeme_col_index} kullanılıyor")
             
             # İhale miktarı sütununu bul
             ihale_col_index = None
+            ihale_patterns = ["ihale", "miktar", "adet", "quantity", "amount"]
+            
             for i, header in enumerate(header_row):
-                if header and ("ihale" in normalize_robust(header) or "miktar" in normalize_robust(header)):
-                    ihale_col_index = i + 1
-                    print(f"[MERGE-API] ✅ İhale sütunu: '{header}' (sütun {ihale_col_index})")
-                    break
+                if header:
+                    normalized_header = normalize_robust(header)
+                    for pattern in ihale_patterns:
+                        if pattern in normalized_header:
+                            ihale_col_index = i + 1
+                            print(f"[MERGE-API] ✅ İhale sütunu: '{header}' (sütun {ihale_col_index})")
+                            break
+                    if ihale_col_index:
+                        break
             
             if not ihale_col_index:
-                ihale_col_index = min(4, ws.max_column)  # Güvenli fallback
+                # İhale sütununu malzeme no'dan sonraki ilk sütun olarak varsay
+                ihale_col_index = malzeme_col_index + 1
                 print(f"[MERGE-API] ⚠️ İhale sütunu bulunamadı, sütun {ihale_col_index} kullanılıyor")
             
             # ✅ İHALE SÜTUNUNDAN SONRAKİ SÜTUNLARI SİL
-            original_max_col = ws.max_column
-            columns_to_delete = max(0, original_max_col - ihale_col_index)
+            columns_to_keep = ihale_col_index
+            columns_to_delete = ws.max_column - columns_to_keep
             
             for _ in range(columns_to_delete):
-                if ws.max_column > ihale_col_index:
-                    ws.delete_cols(ihale_col_index + 1)
+                if ws.max_column > columns_to_keep:
+                    ws.delete_cols(columns_to_keep + 1)
             
             print(f"[MERGE-API] 🗑️ {columns_to_delete} sütun silindi")
-            max_col = ws.max_column
             
-            # ✅ YENİ SÜTUN BAŞLIKLARI
+            # ✅ YENİ SÜTUN BAŞLIKLARI EKLE
             new_headers = [
                 "Ürün Görseli", "Hammadde", "X+Pad (mm)", "Y+Pad (mm)", "Z+Pad (mm)",
                 "Silindirik Çap (mm)", "Kütle (kg)", "Hammadde Maliyeti (USD)",
                 "Kaplama", "Helicoil", "Markalama", "İşçilik", "Birim Fiyat", "Toplam"
             ]
             
-            # Header'ları ekle
-            for i, header in enumerate(new_headers, start=1):
-                ws.cell(row=1, column=max_col + i, value=header)
+            start_col = columns_to_keep + 1
+            for i, header in enumerate(new_headers):
+                ws.cell(row=1, column=start_col + i, value=header)
             
             # ✅ SÜTUN GENİŞLİKLERİ
-            import openpyxl.utils
-            for i in range(1, len(new_headers) + 1):
-                col_letter = openpyxl.utils.get_column_letter(max_col + i)
-                if i == 1:  # Görsel sütunu
-                    ws.column_dimensions[col_letter].width = 24
+            for i in range(len(new_headers)):
+                col_letter = openpyxl.utils.get_column_letter(start_col + i)
+                if i == 0:  # Görsel sütunu
+                    ws.column_dimensions[col_letter].width = 25
                 else:
-                    ws.column_dimensions[col_letter].width = 12
+                    ws.column_dimensions[col_letter].width = 14
             
-            # ✅ ANALİZ VERİLERİNİ HAZIRLA
+            # ✅ ANALİZ VERİLERİNİ LOOKUP TABLOSU HAZİRLA
             analysis_lookup = {}
+            
             for analysis in analyses:
-                # Ürün kodunu çıkar
-                product_code = analysis.get('product_code', '')
-                if not product_code:
-                    # Filename'den çıkarmaya çalış
-                    filename = analysis.get('original_filename', '')
-                    import re
-                    match = re.match(r'^(\d+)', filename)
-                    if match:
-                        product_code = match.group(1)
+                # ✅ PRODUCT CODE ÇIKARMA STRATEJİLERİ
+                product_codes = []
                 
-                if product_code:
-                    analysis_lookup[normalize_robust(product_code)] = analysis
-                    print(f"[MERGE-API] 📝 Analiz eklendi: {product_code} -> {analysis['id']}")
+                # 1. Direkt product_code alanından
+                if analysis.get('product_code'):
+                    product_codes.append(str(analysis['product_code']))
+                
+                # 2. Filename'den rakam çıkarma
+                filename = analysis.get('original_filename', '')
+                if filename:
+                    # Başından rakam çıkar
+                    front_numbers = re.findall(r'^\d+', filename)
+                    if front_numbers:
+                        product_codes.append(front_numbers[0])
+                    
+                    # Tüm rakamları çıkar
+                    all_numbers = re.findall(r'\d+', filename)
+                    product_codes.extend(all_numbers)
+                
+                # 3. Analysis ID'yi de ekle
+                product_codes.append(str(analysis.get('id', '')))
+                
+                # Benzersiz kodları normalize et ve ekle
+                for code in set(product_codes):
+                    if code and len(code) >= 3:  # En az 3 karakter
+                        normalized_code = normalize_robust(code)
+                        if normalized_code:
+                            analysis_lookup[normalized_code] = analysis
+                            print(f"[MERGE-API] 📝 Lookup eklendi: '{code}' -> '{normalized_code}' -> {analysis['id']}")
             
-            print(f"[MERGE-API] 📋 Toplam analiz lookup: {len(analysis_lookup)}")
+            print(f"[MERGE-API] 📋 Toplam lookup entries: {len(analysis_lookup)}")
             
-            # ✅ SATIR EŞLEŞTİRME VE VERİ YAZMA
+            # ✅ SATIRLARI İŞLE VE EŞLEŞTİR
             matched_count = 0
-            unmatched_count = 0
+            total_rows = 0
             
             for row in range(2, ws.max_row + 1):
-                # Excel'den ürün kodunu al
-                product_cell = ws.cell(row=row, column=product_col_index).value
+                total_rows += 1
                 
-                if not product_cell:
-                    unmatched_count += 1
+                # Excel'den malzeme numarasını al
+                malzeme_cell = ws.cell(row=row, column=malzeme_col_index).value
+                
+                if not malzeme_cell:
+                    print(f"[MERGE-API] ⚠️ Satır {row}: Malzeme numarası boş")
                     continue
                 
-                excel_code_norm = normalize_robust(str(product_cell))
+                excel_malzeme = str(malzeme_cell).strip()
+                print(f"[MERGE-API] 🔍 Satır {row}: Excel malzeme = '{excel_malzeme}'")
                 
-                # Eşleşen analizi bul
+                # ✅ EŞLEŞMEYİ BUL
                 matched_analysis = None
+                match_method = ""
                 
-                # Tam eşleşme
-                if excel_code_norm in analysis_lookup:
-                    matched_analysis = analysis_lookup[excel_code_norm]
-                else:
-                    # Kısmi eşleşme
-                    for code, analysis in analysis_lookup.items():
-                        if (excel_code_norm in code or code in excel_code_norm) and len(excel_code_norm) > 2:
-                            matched_analysis = analysis
-                            break
+                # 1. Tam eşleşme
+                excel_normalized = normalize_robust(excel_malzeme)
+                if excel_normalized in analysis_lookup:
+                    matched_analysis = analysis_lookup[excel_normalized]
+                    match_method = "exact"
                 
+                # 2. Kısmi eşleşme (başından)
+                if not matched_analysis:
+                    for lookup_code, analysis in analysis_lookup.items():
+                        if excel_normalized.startswith(lookup_code) or lookup_code.startswith(excel_normalized):
+                            if len(lookup_code) >= 4:  # Minimum güvenlik
+                                matched_analysis = analysis
+                                match_method = "partial_start"
+                                break
+                
+                # 3. Sayısal eşleşme
+                if not matched_analysis:
+                    excel_numbers = extract_numbers(excel_malzeme)
+                    for lookup_code, analysis in analysis_lookup.items():
+                        lookup_numbers = extract_numbers(lookup_code)
+                        if excel_numbers and lookup_numbers:
+                            # En büyük sayıları karşılaştır
+                            if max(excel_numbers) == max(lookup_numbers):
+                                matched_analysis = analysis
+                                match_method = "numeric"
+                                break
+                
+                # ✅ EŞLEŞME BULUNURSA VERİLERİ YAZ
                 if matched_analysis:
                     matched_count += 1
-                    print(f"[MERGE-API] ✅ Eşleşme: {product_cell} -> {matched_analysis['id']}")
+                    print(f"[MERGE-API] ✅ Satır {row}: '{excel_malzeme}' eşleşti -> {matched_analysis['id']} ({match_method})")
                     
-                    # Analiz verilerini al
+                    # ✅ ANALİZ VERİLERİNİ DEBUG ET
+                    print(f"[MERGE-API] 🔍 Analiz debug {matched_analysis['id']}:")
+                    print(f"   - calculated_mass: {matched_analysis.get('calculated_mass')}")
+                    print(f"   - material_cost: {matched_analysis.get('material_cost')}")
+                    print(f"   - cost_estimation: {matched_analysis.get('cost_estimation')}")
+                    print(f"   - ai_price_prediction: {matched_analysis.get('ai_price_prediction')}")
+                    print(f"   - step_analysis keys: {list(matched_analysis.get('step_analysis', {}).keys())}")
+                    
+                    # ✅ ANALİZ VERİLERİNİ HAZIRLA
                     step_analysis = matched_analysis.get('step_analysis', {})
                     
                     # Malzeme bilgisi
                     material_matches = matched_analysis.get('material_matches', [])
                     material_name = matched_analysis.get('material_used', 'Bilinmiyor')
+                    
                     if not material_name or material_name == 'Bilinmiyor':
                         if material_matches:
                             first_match = material_matches[0]
@@ -1824,33 +1898,97 @@ def merge_with_excel():
                             else:
                                 material_name = str(first_match)
                     
-                    # Değerleri hazırla
-                    values = [
-                        None,  # Görsel için placeholder
+                    # ✅ DEĞERLER - GELİŞTİRİLMİŞ VERİ ÇIKARTMA
+                    
+                    # Kütle hesaplama - çoklu kaynak
+                    kutle_kg = 0
+                    if matched_analysis.get("calculated_mass"):
+                        kutle_kg = matched_analysis["calculated_mass"]
+                    elif step_analysis.get("Kütle (kg)"):
+                        kutle_kg = step_analysis["Kütle (kg)"]
+                    elif step_analysis.get("Mass (kg)"):
+                        kutle_kg = step_analysis["Mass (kg)"]
+                    elif step_analysis.get("Ağırlık (kg)"):
+                        kutle_kg = step_analysis["Ağırlık (kg)"]
+                    
+                    # Maliye hesaplama - çoklu kaynak
+                    maliyet_usd = 0
+                    if matched_analysis.get("material_cost"):
+                        maliyet_usd = matched_analysis["material_cost"]
+                    elif matched_analysis.get("cost_estimation", {}).get("total_cost_usd"):
+                        maliyet_usd = matched_analysis["cost_estimation"]["total_cost_usd"]
+                    elif matched_analysis.get("ai_price_prediction", {}).get("predicted_price_usd"):
+                        maliyet_usd = matched_analysis["ai_price_prediction"]["predicted_price_usd"]
+                    
+                    # Cost estimation verilerinden ek maliyetler
+                    cost_est = matched_analysis.get("cost_estimation", {})
+                    ai_price = matched_analysis.get("ai_price_prediction", {})
+                    
+                    # İşçilik maliyeti hesaplama
+                    iscilik_usd = 0
+                    if cost_est.get("labor_cost_usd"):
+                        iscilik_usd = cost_est["labor_cost_usd"]
+                    elif ai_price.get("labor_cost_usd"):
+                        iscilik_usd = ai_price["labor_cost_usd"]
+                    
+                    # Birim fiyat hesaplama (hammadde + işçilik)
+                    birim_fiyat = maliyet_usd + iscilik_usd
+                    
+                    # İhale miktarını al (Toplam hesaplama için)
+                    ihale_miktari = 1  # Default
+                    ihale_cell = ws.cell(row=row, column=ihale_col_index).value
+                    if ihale_cell:
+                        try:
+                            # Virgülü noktaya çevir ve sayıya dönüştür
+                            ihale_str = str(ihale_cell).replace(',', '.')
+                            ihale_miktari = float(ihale_str)
+                        except:
+                            ihale_miktari = 1
+                    
+                    # Toplam hesaplama
+                    toplam_maliyet = birim_fiyat * ihale_miktari
+                    
+                    values_data = [
+                        None,  # Görsel (sonra eklenecek)
                         material_name,
-                        step_analysis.get("X+Pad (mm)"),
-                        step_analysis.get("Y+Pad (mm)"),
-                        step_analysis.get("Z+Pad (mm)"),
-                        step_analysis.get("Silindirik Çap (mm)"),
-                        matched_analysis.get("calculated_mass"),
-                        matched_analysis.get("material_cost"),
-                        None, None, None, None, None, None  # Boş sütunlar
+                        step_analysis.get("X+Pad (mm)", 0) or step_analysis.get("X (mm)", 0),
+                        step_analysis.get("Y+Pad (mm)", 0) or step_analysis.get("Y (mm)", 0),
+                        step_analysis.get("Z+Pad (mm)", 0) or step_analysis.get("Z (mm)", 0),
+                        step_analysis.get("Silindirik Çap (mm)", 0) or step_analysis.get("Çap (mm)", 0),
+                        kutle_kg if kutle_kg > 0 else None,
+                        maliyet_usd if maliyet_usd > 0 else None,
+                        "",  # Kaplama - boş bırak
+                        "",  # Helicoil - boş bırak
+                        "",  # Markalama - boş bırak
+                        iscilik_usd if iscilik_usd > 0 else "",  # İşçilik
+                        birim_fiyat if birim_fiyat > 0 else "",  # Birim Fiyat
+                        toplam_maliyet if toplam_maliyet > 0 else ""   # Toplam
                     ]
                     
-                    # Satır yüksekliğini ayarla (görsel için)
+                    print(f"[MERGE-API] 📊 Satır {row} değerler:")
+                    print(f"   - Kütle: {kutle_kg} kg")
+                    print(f"   - Hammadde Maliyeti: ${maliyet_usd}")
+                    print(f"   - İşçilik: ${iscilik_usd}")
+                    print(f"   - Birim Fiyat: ${birim_fiyat}")
+                    print(f"   - İhale Miktarı: {ihale_miktari}")
+                    print(f"   - Toplam: ${toplam_maliyet}")
+                    
+                    # ✅ SATIR YÜKSEKLİĞİNİ AYARLA
                     ws.row_dimensions[row].height = 120
                     
-                    # Değerleri yaz
-                    for i, val in enumerate(values, start=1):
-                        target_cell = ws.cell(row=row, column=max_col + i)
+                    # ✅ VERİLERİ HÜCRELERE YAZ
+                    for i, value in enumerate(values_data):
+                        target_col = start_col + i
+                        target_cell = ws.cell(row=row, column=target_col)
                         
-                        if i == 1:  # Görsel sütunu
-                            # Görsel dosyasını bul
+                        if i == 0:  # Görsel sütunu
+                            # ✅ GÖRSELİ BUL VE EKLE
                             image_path = None
                             enhanced_renders = matched_analysis.get('enhanced_renders', {})
                             
-                            if 'isometric' in enhanced_renders:
-                                image_path = enhanced_renders['isometric'].get('file_path')
+                            # Görsel kaynak önceliği
+                            if 'isometric' in enhanced_renders and enhanced_renders['isometric'].get('file_path'):
+                                image_path = enhanced_renders['isometric']['file_path']
                             elif matched_analysis.get('isometric_view_clean'):
                                 image_path = matched_analysis['isometric_view_clean']
                             elif matched_analysis.get('isometric_view'):
@@ -1870,52 +2008,103 @@ def merge_with_excel():
                                         img = XLImage(full_image_path)
                                         
                                         # Güvenli boyutlandırma
-                                        max_dim = 140
-                                        if img.height > 0:  # Division by zero kontrolü
-                                            aspect_ratio = img.width / img.height
-                                            if aspect_ratio > 1:
-                                                img.width = max_dim
-                                                img.height = int(max_dim / aspect_ratio)
-                                            else:
-                                                img.height = max_dim
-                                                img.width = int(max_dim * aspect_ratio)
+                                        max_width = 160
+                                        max_height = 100
                                         
-                                        # Resmi ekle
-                                        cell_coord = openpyxl.utils.get_column_letter(target_cell.column) + str(target_cell.row)
+                                        if img.width > 0 and img.height > 0:
+                                            # Aspect ratio koru
+                                            width_ratio = max_width / img.width
+                                            height_ratio = max_height / img.height
+                                            scale_ratio = min(width_ratio, height_ratio)
+                                            
+                                            img.width = int(img.width * scale_ratio)
+                                            img.height = int(img.height * scale_ratio)
+                                        
+                                        # Hücre koordinatını hesapla
+                                        cell_coord = f"{openpyxl.utils.get_column_letter(target_col)}{row}"
                                         ws.add_image(img, cell_coord)
-                                        print(f"[MERGE-API] 🖼️ Resim eklendi: {image_path}")
+                                        
+                                        print(f"[MERGE-API] 🖼️ Satır {row}: Resim eklendi ({img.width}x{img.height})")
                                         
                                     except Exception as img_error:
-                                        print(f"[MERGE-API] ❌ Resim ekleme hatası: {img_error}")
+                                        print(f"[MERGE-API] ❌ Satır {row} resim hatası: {img_error}")
                                         target_cell.value = "Resim Hatası"
                                 else:
+                                    print(f"[MERGE-API] ⚠️ Satır {row}: Resim dosyası bulunamadı: {full_image_path}")
                                     target_cell.value = "Resim Bulunamadı"
                             else:
                                 target_cell.value = "Resim Yok"
                         else:
-                            # Sayısal değerleri yuvarla
-                            if isinstance(val, (float, int)) and val is not None:
-                                val = math.ceil(val * 100) / 100.0
-                                val = round(val, 2)
-                            target_cell.value = val
+                            # Sayısal değerleri formatla ve yaz
+                            if isinstance(value, (float, int)) and value is not None:
+                                if value != 0:  # Sıfır değerleri yazma
+                                    if isinstance(value, float):
+                                        # Para birimi sütunları için 2 decimal
+                                        if i in [7, 11, 12, 13]:  # Maliyet, İşçilik, Birim Fiyat, Toplam
+                                            target_cell.value = round(value, 2)
+                                            target_cell.number_format = '#,##0.00'
+                                        # Kütle için 3 decimal
+                                        elif i == 6:  # Kütle
+                                            target_cell.value = round(value, 3)
+                                            target_cell.number_format = '#,##0.000'
+                                        # Boyutlar için 1 decimal
+                                        elif i in [2, 3, 4, 5]:  # Boyutlar
+                                            target_cell.value = round(value, 1)
+                                            target_cell.number_format = '#,##0.0'
+                                        else:
+                                            target_cell.value = round(value, 2)
+                                    else:
+                                        target_cell.value = value
+                                        if i in [7, 11, 12, 13]:  # Para sütunları
+                                            target_cell.number_format = '#,##0.00'
+                            elif value and str(value).strip():  # Boş olmayan string değerler
+                                target_cell.value = str(value).strip()
                         
                         # Hücre hizalaması
-                        from openpyxl.styles import Alignment
-                        target_cell.alignment = Alignment(vertical="bottom")
+                        target_cell.alignment = Alignment(
+                            horizontal='center',
+                            vertical='center',
+                            wrap_text=True
+                        )
+                
                 else:
-                    unmatched_count += 1
-                    print(f"[MERGE-API] ❌ Eşleşmeyen: {product_cell}")
+                    print(f"[MERGE-API] ❌ Satır {row}: '{excel_malzeme}' eşleşmedi")
             
-            print(f"[MERGE-API] 📊 Sonuç: {matched_count} eşleşme, {unmatched_count} eşleşmeme")
+            print(f"[MERGE-API] 📊 İşlem tamamlandı: {matched_count}/{total_rows} eşleşme")
             
-            # ✅ DOSYAYI KAYDET
+            # ✅ HEADER STİLLENDİRME
+            header_fill = PatternFill(start_color="D7E4BC", end_color="D7E4BC", fill_type="solid")
+            header_font = Font(bold=True)
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            for col in range(1, ws.max_column + 1):
+                header_cell = ws.cell(row=1, column=col)
+                header_cell.fill = header_fill
+                header_cell.font = header_font
+                header_cell.border = border
+                header_cell.alignment = Alignment(
+                    horizontal='center',
+                    vertical='center',
+                    wrap_text=True
+                )
+            
+            # ✅ DOSYAYI KAYDET VE DÖNDÜR
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             
             # Dosya adı oluştur
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"merged_excel_{timestamp}.xlsx"
+            original_name = excel_file.filename.rsplit('.', 1)[0]
+            filename = f"{original_name}_merged_{timestamp}.xlsx"
+            
+            print(f"[MERGE-API] ✅ Excel başarıyla birleştirildi: {filename}")
+            print(f"[MERGE-API] 📈 Sonuç: {matched_count}/{total_rows} satır eşleşti")
             
             return send_file(
                 output,
@@ -1925,9 +2114,10 @@ def merge_with_excel():
             )
             
         except ImportError as e:
+            missing_lib = str(e).split("'")[1] if "'" in str(e) else str(e)
             return jsonify({
                 "success": False,
-                "message": f"Gerekli kütüphane bulunamadı: {str(e)}"
+                "message": f"Gerekli kütüphane bulunamadı: {missing_lib}. pip install {missing_lib} çalıştırın."
             }), 500
         except Exception as excel_error:
             print(f"[MERGE-API] ❌ Excel işleme hatası: {excel_error}")
@@ -1936,86 +2126,20 @@ def merge_with_excel():
             
             return jsonify({
                 "success": False,
-                "message": f"Excel işleme hatası: {str(excel_error)}"
+                "message": f"Excel işleme hatası: {str(excel_error)}",
+                "details": traceback.format_exc()
             }), 500
     
     except Exception as e:
         print(f"[MERGE-API] ❌ Genel hata: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         return jsonify({
             "success": False,
             "message": f"Birleştirme hatası: {str(e)}"
         }), 500
 
-# ===== MERGE HELPER ENDPOINT =====
-
-@upload_bp.route('/merge-preview', methods=['POST'])
-@jwt_required()
-def merge_preview():
-    """Excel merge işlemi öncesi önizleme"""
-    try:
-        current_user = get_current_user()
-        
-        if 'excel_file' not in request.files:
-            return jsonify({
-                "success": False,
-                "message": "Excel dosyası bulunamadı"
-            }), 400
-        
-        excel_file = request.files['excel_file']
-        analysis_ids = request.form.getlist('analysis_ids')
-        
-        # Excel'i geçici olarak oku
-        import openpyxl
-        wb = openpyxl.load_workbook(excel_file, data_only=True)
-        ws = wb.active
-        
-        # Header analizi
-        header_row = [ws.cell(row=1, column=col).value for col in range(1, ws.max_column + 1)]
-        
-        # İlk birkaç satırın ürün kodlarını al
-        preview_rows = []
-        for row in range(2, min(12, ws.max_row + 1)):  # İlk 10 satır
-            product_code = ws.cell(row=row, column=1).value  # İlk sütun varsayımı
-            if product_code:
-                preview_rows.append({
-                    "row": row,
-                    "product_code": str(product_code),
-                    "will_match": False  # Bu sonradan güncellenecek
-                })
-        
-        # Analizleri yükle
-        analyses = []
-        for analysis_id in analysis_ids:
-            analysis = FileAnalysis.find_by_id(analysis_id)
-            if analysis and analysis['user_id'] == current_user['id']:
-                analyses.append({
-                    "id": analysis['id'],
-                    "filename": analysis.get('original_filename'),
-                    "product_code": analysis.get('product_code', ''),
-                    "has_step_analysis": bool(analysis.get('step_analysis')),
-                    "has_material": bool(analysis.get('material_matches'))
-                })
-        
-        return jsonify({
-            "success": True,
-            "preview": {
-                "excel_info": {
-                    "filename": excel_file.filename,
-                    "total_rows": ws.max_row - 1,  # Header hariç
-                    "total_columns": ws.max_column,
-                    "headers": header_row
-                },
-                "sample_rows": preview_rows,
-                "analyses": analyses,
-                "estimated_matches": 0  # Frontend'de hesaplanacak
-            }
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Önizleme hatası: {str(e)}"
-        }), 500
     
 # file_upload_controller.py içine eklenecek yeni endpoint
 

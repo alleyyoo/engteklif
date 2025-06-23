@@ -1,4 +1,4 @@
-// src/pages/dashboard/DashboardPage.tsx - Excel Merge entegrasyonu
+// src/pages/dashboard/DashboardPage.tsx - Multiple Excel Export entegrasyonu
 import React, { useState, useRef } from "react";
 import { DashboardPageStyles } from "./DashboardPage.styles";
 import { useFileUpload } from "../../hooks/useFileUpload";
@@ -16,6 +16,10 @@ export const DashboardPage = () => {
   const [isMerging, setIsMerging] = useState(false);
   const [mergeProgress, setMergeProgress] = useState(0);
   
+  // ✅ YENİ - Excel export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  
   const {
     files,
     isUploading,
@@ -25,7 +29,8 @@ export const DashboardPage = () => {
     clearFiles,
     uploadAndAnalyze,
     retryFile,
-    exportToExcel,
+    exportMultipleToExcel, // ✅ YENİ - Çoklu export fonksiyonu
+    exportAllCompletedToExcel, // ✅ YENİ - Otomatik tüm analizleri export
   } = useFileUpload();
 
   const handleFileSelect = () => {
@@ -144,6 +149,58 @@ export const DashboardPage = () => {
   // ✅ Excel dosyasını kaldır
   const removeExcelFile = () => {
     setSelectedExcelFile(null);
+  };
+
+  // ✅ YENİ - Multiple Excel Export işlemi
+  const handleMultipleExcelExport = async () => {
+    const completedFiles = files.filter(f => 
+      f.status === 'completed' && 
+      f.result?.analysis?.id
+    );
+
+    if (completedFiles.length === 0) {
+      alert('Export edilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.');
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(10);
+
+    try {
+      console.log('📊 Multiple Excel export başlıyor...', {
+        analysisCount: completedFiles.length,
+        fileNames: completedFiles.map(f => f.file.name)
+      });
+
+      setExportProgress(30);
+
+      // Export fonksiyonunu çağır
+      const result = await exportAllCompletedToExcel();
+
+      setExportProgress(80);
+
+      if (result.success) {
+        console.log('✅ Multiple Excel export başarılı:', result.filename);
+        
+        setExportProgress(100);
+        
+        // Başarı mesajı
+        setTimeout(() => {
+          alert(`✅ ${completedFiles.length} analiz başarıyla Excel'e aktarıldı ve indirildi!\n\nDosya: ${result.filename}`);
+          setExportProgress(0);
+          setIsExporting(false);
+        }, 500);
+
+      } else {
+        throw new Error(result.error || 'Excel export başarısız');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Multiple Excel export hatası:', error);
+      alert(`Excel export hatası: ${error.message || 'Bilinmeyen hata'}`);
+      setExportProgress(0);
+      setIsExporting(false);
+    }
   };
 
   const toggleExpanded = (index: number) => {
@@ -650,23 +707,73 @@ export const DashboardPage = () => {
                   )
                 ))}
 
-                <button 
-                  className={classes.analyseButton}
-                  onClick={() => {
-                    const completedFiles = files.filter(f => f.status === 'completed' && f.result?.analysis);
-                    if (completedFiles.length > 0) {
-                      exportToExcel(completedFiles[0].result!.analysis.id, completedFiles[0].file.name);
+                {/* ✅ YENİ - Multiple Excel Export Butonu */}
+                <div style={{ position: 'relative' }}>
+                  {/* Export progress */}
+                  {isExporting && (
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div 
+                          style={{ 
+                            width: `${exportProgress}%`, 
+                            height: '20px', 
+                            backgroundColor: '#28a745', 
+                            transition: 'width 0.3s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontSize: '12px'
+                          }}
+                        >
+                          {exportProgress}%
+                        </div>
+                      </div>
+                      <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                        Excel dosyası oluşturuluyor...
+                      </p>
+                    </div>
+                  )}
+
+                  <button 
+                    className={classes.analyseButton}
+                    onClick={handleMultipleExcelExport}
+                    disabled={!files.some(f => f.status === 'completed') || isExporting}
+                    style={{
+                      backgroundColor: isExporting ? '#cccccc' : '#10b86b',
+                      cursor: isExporting ? 'not-allowed' : 'pointer',
+                      opacity: isExporting ? 0.7 : 1
+                    }}
+                  >
+                    <img src="/download-icon.svg" alt="" />
+                    {isExporting 
+                      ? 'Excel Oluşturuluyor...' 
+                      : `Excel İndir (${files.filter(f => f.status === 'completed').length} Analiz)`
                     }
-                  }}
-                  disabled={!files.some(f => f.status === 'completed')}
-                >
-                  <img src="/download-icon.svg" alt="" />
-                  Excel İndir
-                </button>
+                  </button>
+
+                  {/* Bilgi mesajı */}
+                  {files.some(f => f.status === 'completed') && !isExporting && (
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: '#666', 
+                      marginTop: '10px',
+                      padding: '8px',
+                      backgroundColor: '#e8f5e8',
+                      borderRadius: '4px',
+                      border: '1px solid #c3e6c3'
+                    }}>
+                      📊 <strong>Çoklu Excel Export:</strong> Tüm tamamlanmış analizler tek Excel dosyasında birleştirilecek. 
+                      Her analiz için ayrı satır oluşturulacak ve 3D görseller dahil edilecek.
+                      <br />
+                      <strong>İndirilecek {files.filter(f => f.status === 'completed').length} analiz sonucu mevcut.</strong>
+                    </div>
+                  )}
+                </div>
 
                 <div className={classes.line}></div>
 
-                {/* ✅ Excel Merge Bölümü - Fonksiyonel */}
+                {/* Excel Merge Bölümü */}
                 <div className={classes.iconTextDiv}>
                   <span>📤</span>
                   <p className={classes.title}>Excel Yükle ve Analiz Sonuçlarıyla Birleştir</p>

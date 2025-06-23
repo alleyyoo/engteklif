@@ -1,4 +1,3 @@
-// src/hooks/useFileUpload.ts
 import { useState, useCallback } from 'react';
 import { apiService, FileUploadResponse, AnalysisResult } from '../services/api';
 
@@ -161,6 +160,7 @@ export const useFileUpload = () => {
     }
   }, [files, updateFileStatus]);
 
+  // ✅ ESKİ - Tek analiz Excel export (deprecated)
   const exportToExcel = useCallback(async (analysisId: string, fileName: string) => {
     try {
       const blob = await apiService.exportAnalysisExcel(analysisId);
@@ -179,6 +179,68 @@ export const useFileUpload = () => {
     }
   }, []);
 
+  // ✅ YENİ - Çoklu analiz Excel export
+  const exportMultipleToExcel = useCallback(async (analysisIds: string[], customFileName?: string) => {
+    try {
+      console.log('📊 Çoklu Excel export başlıyor...', {
+        analysisCount: analysisIds.length,
+        analysisIds: analysisIds
+      });
+
+      const result = await apiService.exportMultipleAnalysesExcel(analysisIds);
+      
+      if (result.success && result.blob) {
+        // Blob'u indir
+        const url = window.URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = customFileName || result.filename || `coklu_analiz_${analysisIds.length}_dosya.xlsx`;
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        console.log('✅ Çoklu Excel export başarılı:', {
+          filename: a.download,
+          blobSize: result.blob.size
+        });
+
+        return { success: true, filename: a.download };
+      } else {
+        throw new Error(result.message || 'Excel export başarısız');
+      }
+    } catch (error: any) {
+      console.error('❌ Çoklu Excel export hatası:', error);
+      return { success: false, error: error.message || 'Bilinmeyen hata' };
+    }
+  }, []);
+
+  // ✅ Completed analizleri otomatik Excel export
+  const exportAllCompletedToExcel = useCallback(async () => {
+    const completedFiles = files.filter(f => 
+      f.status === 'completed' && 
+      f.result?.analysis?.id
+    );
+
+    if (completedFiles.length === 0) {
+      console.warn('Export edilecek tamamlanmış analiz bulunamadı');
+      return { success: false, error: 'Export edilecek analiz bulunamadı' };
+    }
+
+    const analysisIds = completedFiles.map(f => f.result!.analysis.id);
+    
+    console.log('📊 Tüm tamamlanmış analizleri Excel\'e export ediliyor...', {
+      completedCount: completedFiles.length,
+      fileNames: completedFiles.map(f => f.file.name)
+    });
+
+    return await exportMultipleToExcel(analysisIds, `tum_analizler_${Date.now()}.xlsx`);
+  }, [files, exportMultipleToExcel]);
+
   return {
     files,
     isUploading,
@@ -188,6 +250,8 @@ export const useFileUpload = () => {
     clearFiles,
     uploadAndAnalyze,
     retryFile,
-    exportToExcel,
+    exportToExcel, // Deprecated - geriye uyumluluk için
+    exportMultipleToExcel, // ✅ YENİ - Ana export fonksiyonu
+    exportAllCompletedToExcel, // ✅ YENİ - Otomatik tüm analizleri export
   };
 };
