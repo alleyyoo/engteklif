@@ -1,5 +1,6 @@
 // src/services/authService.ts
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5050';
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL || "http://188.132.220.35:5051";
 
 export interface LoginRequest {
   username: string;
@@ -51,23 +52,23 @@ export interface User {
 
 class AuthService {
   private getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     return {
-      'Authorization': token ? `Bearer ${token}` : '',
-      'Content-Type': 'application/json',
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json",
     };
   }
 
   isAdmin(): boolean {
     const user = this.getCurrentUserFromStorage();
-    return user?.role === 'admin';
+    return user?.role === "admin";
   }
-  
+
   isUser(): boolean {
     const user = this.getCurrentUserFromStorage();
-    return user?.role === 'user';
+    return user?.role === "user";
   }
-  
+
   hasRole(role: string): boolean {
     const user = this.getCurrentUserFromStorage();
     return user?.role === role;
@@ -76,63 +77,66 @@ class AuthService {
   async login(credentials: LoginRequest): Promise<AuthResponse> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(credentials),
       });
-  
+
       const data: AuthResponse = await response.json();
-  
+
       if (data.success && data.tokens) {
         // Token'ları localStorage'a kaydet
-        localStorage.setItem('accessToken', data.tokens.access_token);
-        localStorage.setItem('refreshToken', data.tokens.refresh_token);
-        localStorage.setItem('tokenType', data.tokens.token_type);
-        localStorage.setItem('expiresIn', data.tokens.expires_in.toString());
-        
+        localStorage.setItem("accessToken", data.tokens.access_token);
+        localStorage.setItem("refreshToken", data.tokens.refresh_token);
+        localStorage.setItem("tokenType", data.tokens.token_type);
+        localStorage.setItem("expiresIn", data.tokens.expires_in.toString());
+
         // Kullanıcı bilgilerini kaydet
         if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          console.log('✅ User logged in:', {
+          localStorage.setItem("user", JSON.stringify(data.user));
+          console.log("✅ User logged in:", {
             username: data.user.username,
             role: data.user.role,
-            id: data.user.id
+            id: data.user.id,
           });
         }
       }
-  
+
       return data;
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Bağlantı hatası'
+        message: error instanceof Error ? error.message : "Bağlantı hatası",
       };
     }
   }
-  
+
   // Logout'ta user bilgilerini de temizle
   async logout(): Promise<{ success: boolean; message?: string }> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
-        method: 'POST',
+        method: "POST",
         headers: this.getAuthHeaders(),
       });
-  
+
       const data = await response.json();
-  
+
       // Her durumda localStorage'ı temizle
       this.clearLocalStorage();
-      console.log('👋 User logged out');
-  
-      return { success: true, message: 'Başarıyla çıkış yapıldı' };
+      console.log("👋 User logged out");
+
+      return { success: true, message: "Başarıyla çıkış yapıldı" };
     } catch (error) {
       // Hata durumunda da localStorage'ı temizle
       this.clearLocalStorage();
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Çıkış yapılırken hata oluştu'
+        message:
+          error instanceof Error
+            ? error.message
+            : "Çıkış yapılırken hata oluştu",
       };
     }
   }
@@ -140,9 +144,9 @@ class AuthService {
   async register(userData: RegisterRequest): Promise<AuthResponse> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(userData),
       });
@@ -151,14 +155,14 @@ class AuthService {
 
       if (data.success && data.tokens) {
         // Token'ları localStorage'a kaydet
-        localStorage.setItem('accessToken', data.tokens.access_token);
-        localStorage.setItem('refreshToken', data.tokens.refresh_token);
-        localStorage.setItem('tokenType', data.tokens.token_type);
-        localStorage.setItem('expiresIn', data.tokens.expires_in.toString());
-        
+        localStorage.setItem("accessToken", data.tokens.access_token);
+        localStorage.setItem("refreshToken", data.tokens.refresh_token);
+        localStorage.setItem("tokenType", data.tokens.token_type);
+        localStorage.setItem("expiresIn", data.tokens.expires_in.toString());
+
         // Kullanıcı bilgilerini kaydet
         if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
+          localStorage.setItem("user", JSON.stringify(data.user));
         }
       }
 
@@ -166,15 +170,19 @@ class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Bağlantı hatası'
+        message: error instanceof Error ? error.message : "Bağlantı hatası",
       };
     }
   }
 
-  async getCurrentUser(): Promise<{ success: boolean; user?: User; message?: string }> {
+  async getCurrentUser(): Promise<{
+    success: boolean;
+    user?: User;
+    message?: string;
+  }> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-        method: 'GET',
+        method: "GET",
         headers: this.getAuthHeaders(),
       });
 
@@ -182,7 +190,7 @@ class AuthService {
 
       if (data.success) {
         // Kullanıcı bilgilerini güncelle
-        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem("user", JSON.stringify(data.user));
         return { success: true, user: data.user };
       } else {
         return { success: false, message: data.message };
@@ -190,24 +198,31 @@ class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Kullanıcı bilgileri alınamadı'
+        message:
+          error instanceof Error
+            ? error.message
+            : "Kullanıcı bilgileri alınamadı",
       };
     }
   }
 
-  async refreshToken(): Promise<{ success: boolean; tokens?: any; message?: string }> {
+  async refreshToken(): Promise<{
+    success: boolean;
+    tokens?: any;
+    message?: string;
+  }> {
     try {
-      const refreshToken = localStorage.getItem('refreshToken');
-      
+      const refreshToken = localStorage.getItem("refreshToken");
+
       if (!refreshToken) {
-        return { success: false, message: 'Refresh token bulunamadı' };
+        return { success: false, message: "Refresh token bulunamadı" };
       }
 
       const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${refreshToken}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${refreshToken}`,
+          "Content-Type": "application/json",
         },
       });
 
@@ -215,11 +230,11 @@ class AuthService {
 
       if (data.success && data.tokens) {
         // Yeni token'ları kaydet
-        localStorage.setItem('accessToken', data.tokens.access_token);
-        localStorage.setItem('refreshToken', data.tokens.refresh_token);
-        localStorage.setItem('tokenType', data.tokens.token_type);
-        localStorage.setItem('expiresIn', data.tokens.expires_in.toString());
-        
+        localStorage.setItem("accessToken", data.tokens.access_token);
+        localStorage.setItem("refreshToken", data.tokens.refresh_token);
+        localStorage.setItem("tokenType", data.tokens.token_type);
+        localStorage.setItem("expiresIn", data.tokens.expires_in.toString());
+
         return { success: true, tokens: data.tokens };
       } else {
         return { success: false, message: data.message };
@@ -227,15 +242,18 @@ class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Token yenilenemedi'
+        message: error instanceof Error ? error.message : "Token yenilenemedi",
       };
     }
   }
 
-  async changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+  async changePassword(
+    oldPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
-        method: 'POST',
+        method: "POST",
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           old_password: oldPassword,
@@ -248,15 +266,18 @@ class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Şifre değiştirilemedi'
+        message:
+          error instanceof Error ? error.message : "Şifre değiştirilemedi",
       };
     }
   }
 
-  async updateProfile(profileData: Partial<User>): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateProfile(
+    profileData: Partial<User>
+  ): Promise<{ success: boolean; user?: User; message?: string }> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
-        method: 'PUT',
+        method: "PUT",
         headers: this.getAuthHeaders(),
         body: JSON.stringify(profileData),
       });
@@ -265,7 +286,7 @@ class AuthService {
 
       if (data.success && data.user) {
         // Kullanıcı bilgilerini güncelle
-        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem("user", JSON.stringify(data.user));
         return { success: true, user: data.user };
       } else {
         return { success: false, message: data.message };
@@ -273,23 +294,24 @@ class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Profil güncellenemedi'
+        message:
+          error instanceof Error ? error.message : "Profil güncellenemedi",
       };
     }
   }
 
   // Utility Methods
   isAuthenticated(): boolean {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return false;
 
     try {
       // Token'ın süresi dolmuş mu kontrol et
-      const expiresIn = localStorage.getItem('expiresIn');
+      const expiresIn = localStorage.getItem("expiresIn");
       if (expiresIn) {
         const expirationTime = parseInt(expiresIn) * 1000; // milliseconds
         const currentTime = Date.now();
-        
+
         // Token'ın ne zaman kaydedildiğini bilmiyoruz, bu yüzden basit kontrol
         // Gerçek uygulamada JWT decode edilmeli
         if (currentTime > expirationTime) {
@@ -307,50 +329,50 @@ class AuthService {
 
   getCurrentUserFromStorage(): User | null {
     try {
-      const userStr = localStorage.getItem('user');
+      const userStr = localStorage.getItem("user");
       if (userStr) {
         const user = JSON.parse(userStr);
-        console.log('👤 Current user from storage:', {
+        console.log("👤 Current user from storage:", {
           username: user.username,
           role: user.role,
-          id: user.id
+          id: user.id,
         });
         return user;
       }
-      console.log('👤 No user found in localStorage');
+      console.log("👤 No user found in localStorage");
       return null;
     } catch (error) {
-      console.error('👤 Error parsing user from localStorage:', error);
+      console.error("👤 Error parsing user from localStorage:", error);
       // Corrupted user data varsa temizle
-      localStorage.removeItem('user');
+      localStorage.removeItem("user");
       return null;
     }
   }
 
   getToken(): string | null {
-    return localStorage.getItem('accessToken');
+    return localStorage.getItem("accessToken");
   }
 
   getRefreshToken(): string | null {
-    return localStorage.getItem('refreshToken');
+    return localStorage.getItem("refreshToken");
   }
 
   clearLocalStorage(): void {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('tokenType');
-    localStorage.removeItem('expiresIn');
-    localStorage.removeItem('user');
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("tokenType");
+    localStorage.removeItem("expiresIn");
+    localStorage.removeItem("user");
   }
 
   // Token'ın süresinin dolup dolmadığını kontrol et
   isTokenExpired(): boolean {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (!token) return true;
 
     try {
       // Bu basit bir kontrol, gerçek uygulamada JWT decode edilmeli
-      const expiresIn = localStorage.getItem('expiresIn');
+      const expiresIn = localStorage.getItem("expiresIn");
       if (expiresIn) {
         const expirationTime = parseInt(expiresIn) * 1000;
         return Date.now() > expirationTime;
