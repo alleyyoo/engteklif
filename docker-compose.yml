@@ -6,43 +6,54 @@ services:
     image: engteklif-frontend
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - REACT_APP_API_URL=http://localhost:5050
+      - REACT_APP_API_URL=http://localhost:5051 # 5050 yerine 5051
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     depends_on:
       - backend
     stdin_open: true
     tty: true
+    networks:
+      - engteklif-network # Network ekle
 
   backend:
     container_name: engteklif-backend
     image: engteklif-backend
     build: ./backend
     ports:
-      - "5050:5050"
+      - "5051:5050"
     volumes:
       - ./backend:/app
     environment:
-      - MONGO_URL=mongodb://mongodb:27017/myapp
+      - MONGO_URL=mongodb://engteklif-mongodb:27017/myapp # Container ismini değiştir
       - FLASK_ENV=development
       - FLASK_DEBUG=1
       - PYTHONUNBUFFERED=1
     depends_on:
-      - mongodb
+      - engteklif-mongodb # Dependency ismini değiştir
+    networks:
+      - engteklif-network # Network ekle
 
-  mongodb:
+  engteklif-mongodb: # Container ismini değiştir
     image: mongo:5.0
+    container_name: engteklif-mongodb # Açık container ismi ekle
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
-      - mongodb_data:/data/db
+      - engteklif_mongodb_data:/data/db # Volume ismini değiştir
     environment:
       - MONGO_INITDB_DATABASE=myapp
+    networks:
+      - engteklif-network # Network ekle
+
+networks:
+  engteklif-network: # Yeni network tanımla
+    driver: bridge
 
 volumes:
-  mongodb_data:
+  engteklif_mongodb_data: # Volume ismini değiştir

@@ -2,7 +2,7 @@ import os
 from datetime import timedelta
 
 class Config:
-    MONGO_URL = os.getenv('MONGO_URL', 'mongodb://mongodb:27017/engteklif')
+    MONGO_URL = os.getenv('MONGO_URL', 'mongodb://mongodb:27018/engteklif')
     DATABASE_NAME = 'engteklif'
     
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'your-super-secret-jwt-key-change-in-production')

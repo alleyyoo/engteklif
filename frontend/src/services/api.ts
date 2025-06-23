@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5050';
+const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5051";
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -51,14 +51,14 @@ export interface AnalysisResult {
     analysis_status: string;
     material_matches: string[];
     step_analysis: {
-      'X (mm)': number;
-      'Y (mm)': number;
-      'Z (mm)': number;
-      'Prizma Hacmi (mm³)': number;
-      'Ürün Hacmi (mm³)': number;
-      'Talaş Hacmi (mm³)': number;
-      'Talaş Oranı (%)': number;
-      'Toplam Yüzey Alanı (mm²)': number;
+      "X (mm)": number;
+      "Y (mm)": number;
+      "Z (mm)": number;
+      "Prizma Hacmi (mm³)": number;
+      "Ürün Hacmi (mm³)": number;
+      "Talaş Hacmi (mm³)": number;
+      "Talaş Oranı (%)": number;
+      "Toplam Yüzey Alanı (mm²)": number;
       [key: string]: any;
     };
     all_material_calculations: Array<{
@@ -141,26 +141,26 @@ export interface MultipleExcelExportResponse {
 
 class ApiService {
   private getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     return {
-      'Authorization': token ? `Bearer ${token}` : '',
-      'Content-Type': 'application/json',
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json",
     };
   }
 
   private getMultipartHeaders(): HeadersInit {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     return {
-      'Authorization': token ? `Bearer ${token}` : '',
+      Authorization: token ? `Bearer ${token}` : "",
     };
   }
 
   async uploadSingleFile(file: File): Promise<FileUploadResponse> {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
 
     const response = await fetch(`${API_BASE_URL}/api/upload/single`, {
-      method: 'POST',
+      method: "POST",
       headers: this.getMultipartHeaders(),
       body: formData,
     });
@@ -170,12 +170,12 @@ class ApiService {
 
   async uploadMultipleFiles(files: File[]): Promise<ApiResponse> {
     const formData = new FormData();
-    files.forEach(file => {
-      formData.append('files', file);
+    files.forEach((file) => {
+      formData.append("files", file);
     });
 
     const response = await fetch(`${API_BASE_URL}/api/upload/multiple`, {
-      method: 'POST',
+      method: "POST",
       headers: this.getMultipartHeaders(),
       body: formData,
     });
@@ -184,233 +184,278 @@ class ApiService {
   }
 
   async analyzeFile(analysisId: string): Promise<AnalysisResult> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/analyze/${analysisId}`, {
-      method: 'POST',
-      headers: this.getAuthHeaders(),
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/analyze/${analysisId}`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+      }
+    );
 
     return response.json();
   }
 
   async getAnalysisStatus(analysisId: string): Promise<AnalysisStatus> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/status/${analysisId}`, {
-      method: 'GET',
-      headers: this.getAuthHeaders(),
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/status/${analysisId}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
+    );
 
     return response.json();
   }
 
   async getMyUploads(page = 1, limit = 20): Promise<ApiResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/my-uploads?page=${page}&limit=${limit}`, {
-      method: 'GET',
-      headers: this.getAuthHeaders(),
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/my-uploads?page=${page}&limit=${limit}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
+    );
 
     return response.json();
   }
 
   async deleteAnalysis(analysisId: string): Promise<ApiResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/delete/${analysisId}`, {
-      method: 'DELETE',
-      headers: this.getAuthHeaders(),
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/delete/${analysisId}`,
+      {
+        method: "DELETE",
+        headers: this.getAuthHeaders(),
+      }
+    );
 
     return response.json();
   }
 
   // ✅ ESKİ - Tek analiz Excel export (şimdi deprecated)
   async exportAnalysisExcel(analysisId: string): Promise<Blob> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/export-excel/${analysisId}`, {
-      method: 'GET',
-      headers: this.getMultipartHeaders(),
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/export-excel/${analysisId}`,
+      {
+        method: "GET",
+        headers: this.getMultipartHeaders(),
+      }
+    );
 
     return response.blob();
   }
 
   // ✅ YENİ - Birden fazla analizi Excel'e export
-  async exportMultipleAnalysesExcel(analysisIds: string[]): Promise<MultipleExcelExportResponse> {
+  async exportMultipleAnalysesExcel(
+    analysisIds: string[]
+  ): Promise<MultipleExcelExportResponse> {
     try {
-      console.log('📊 Multiple Excel export başlıyor...', {
+      console.log("📊 Multiple Excel export başlıyor...", {
         analysisCount: analysisIds.length,
-        analysisIds: analysisIds
+        analysisIds: analysisIds,
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/upload/export-excel-multiple`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({
-          analysis_ids: analysisIds
-        }),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/export-excel-multiple`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({
+            analysis_ids: analysisIds,
+          }),
+        }
+      );
 
       if (!response.ok) {
         // Hata durumunda JSON response'u oku
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        );
       }
 
       // Başarılı durumda blob'u al
       const blob = await response.blob();
-      
+
       // Response header'ından dosya adını al (eğer varsa)
-      const contentDisposition = response.headers.get('content-disposition');
-      let filename = `coklu_analiz_${analysisIds.length}_dosya_${Date.now()}.xlsx`;
-      
+      const contentDisposition = response.headers.get("content-disposition");
+      let filename = `coklu_analiz_${
+        analysisIds.length
+      }_dosya_${Date.now()}.xlsx`;
+
       if (contentDisposition) {
-        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        const matches = contentDisposition.match(
+          /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+        );
         if (matches != null && matches[1]) {
-          filename = matches[1].replace(/['"]/g, '');
+          filename = matches[1].replace(/['"]/g, "");
         }
       }
 
-      console.log('✅ Multiple Excel export başarılı:', {
+      console.log("✅ Multiple Excel export başarılı:", {
         blobSize: blob.size,
         filename: filename,
-        analysisCount: analysisIds.length
+        analysisCount: analysisIds.length,
       });
 
       return {
         success: true,
         blob: blob,
-        filename: filename
+        filename: filename,
       };
-
     } catch (error: any) {
-      console.error('❌ Multiple Excel export hatası:', error);
-      
+      console.error("❌ Multiple Excel export hatası:", error);
+
       return {
         success: false,
-        message: error.message || 'Çoklu Excel export başarısız',
-        blob: new Blob() // Boş blob
+        message: error.message || "Çoklu Excel export başarısız",
+        blob: new Blob(), // Boş blob
       };
     }
   }
 
-  async mergeWithExcel(excelFile: File, analysisIds: string[]): Promise<ExcelMergeResponse> {
+  async mergeWithExcel(
+    excelFile: File,
+    analysisIds: string[]
+  ): Promise<ExcelMergeResponse> {
     try {
-      console.log('📊 Excel merge API çağrısı başlıyor...', {
+      console.log("📊 Excel merge API çağrısı başlıyor...", {
         excelFile: excelFile.name,
-        analysisCount: analysisIds.length
+        analysisCount: analysisIds.length,
       });
 
       const formData = new FormData();
-      formData.append('excel_file', excelFile);
-      
+      formData.append("excel_file", excelFile);
+
       // Analysis ID'lerini array olarak ekle
-      analysisIds.forEach(id => {
-        formData.append('analysis_ids', id);
+      analysisIds.forEach((id) => {
+        formData.append("analysis_ids", id);
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/upload/merge-with-excel`, {
-        method: 'POST',
-        headers: this.getMultipartHeaders(),
-        body: formData,
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/merge-with-excel`,
+        {
+          method: "POST",
+          headers: this.getMultipartHeaders(),
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         // Hata durumunda JSON response'u oku
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        );
       }
 
       // Başarılı durumda blob'u al
       const blob = await response.blob();
-      
+
       // Response header'ından dosya adını al (eğer varsa)
-      const contentDisposition = response.headers.get('content-disposition');
+      const contentDisposition = response.headers.get("content-disposition");
       let filename = `merged_excel_${Date.now()}.xlsx`;
-      
+
       if (contentDisposition) {
-        const matches = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        const matches = contentDisposition.match(
+          /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+        );
         if (matches != null && matches[1]) {
-          filename = matches[1].replace(/['"]/g, '');
+          filename = matches[1].replace(/['"]/g, "");
         }
       }
 
-      console.log('✅ Excel merge başarılı:', {
+      console.log("✅ Excel merge başarılı:", {
         blobSize: blob.size,
-        filename: filename
+        filename: filename,
       });
 
       return {
         success: true,
         blob: blob,
-        filename: filename
+        filename: filename,
       };
-
     } catch (error: any) {
-      console.error('❌ Excel merge hatası:', error);
-      
+      console.error("❌ Excel merge hatası:", error);
+
       return {
         success: false,
-        message: error.message || 'Excel birleştirme başarısız',
-        blob: new Blob() // Boş blob
+        message: error.message || "Excel birleştirme başarısız",
+        blob: new Blob(), // Boş blob
       };
     }
   }
 
-  async previewExcelMerge(excelFile: File, analysisIds: string[]): Promise<ExcelMergePreviewResponse> {
+  async previewExcelMerge(
+    excelFile: File,
+    analysisIds: string[]
+  ): Promise<ExcelMergePreviewResponse> {
     try {
       const formData = new FormData();
-      formData.append('excel_file', excelFile);
-      
-      analysisIds.forEach(id => {
-        formData.append('analysis_ids', id);
+      formData.append("excel_file", excelFile);
+
+      analysisIds.forEach((id) => {
+        formData.append("analysis_ids", id);
       });
 
       const response = await fetch(`${API_BASE_URL}/api/upload/merge-preview`, {
-        method: 'POST',
+        method: "POST",
         headers: this.getMultipartHeaders(),
         body: formData,
       });
 
       return response.json();
-
     } catch (error: any) {
-      console.error('❌ Excel preview hatası:', error);
-      
+      console.error("❌ Excel preview hatası:", error);
+
       return {
         success: false,
         preview: {
           excel_info: {
-            filename: '',
+            filename: "",
             total_rows: 0,
             total_columns: 0,
-            headers: []
+            headers: [],
           },
           sample_rows: [],
           analyses: [],
-          estimated_matches: 0
-        }
+          estimated_matches: 0,
+        },
       };
     }
   }
 
   async getSupportedFormats(): Promise<ApiResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/supported-formats`, {
-      method: 'GET',
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/supported-formats`,
+      {
+        method: "GET",
+      }
+    );
 
     return response.json();
   }
 
-  async generateStepRender(analysisId: string, options = {}): Promise<ApiResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/upload/render/${analysisId}`, {
-      method: 'POST',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify(options),
-    });
+  async generateStepRender(
+    analysisId: string,
+    options = {}
+  ): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/render/${analysisId}`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(options),
+      }
+    );
 
     return response.json();
   }
 
   async login(username: string, password: string): Promise<ApiResponse> {
     const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ username, password }),
     });
@@ -420,7 +465,7 @@ class ApiService {
 
   async getCurrentUser(): Promise<ApiResponse> {
     const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      method: 'GET',
+      method: "GET",
       headers: this.getAuthHeaders(),
     });
 
