@@ -1609,7 +1609,7 @@ def create_stl_for_step_analysis(step_path, analysis_id):
 @upload_bp.route('/merge-with-excel', methods=['POST'])
 @jwt_required()
 def merge_with_excel():
-    """✅ GÜNCELLENMIŞ - Excel dosyasını analiz sonuçlarıyla birleştir"""
+    """✅ FIXED - Excel dosyasını analiz sonuçlarıyla birleştir - KÜTLE VE FİYAT HESAPLAMALARİ İLE"""
     try:
         current_user = get_current_user()
         
@@ -1621,7 +1621,7 @@ def merge_with_excel():
             }), 400
         
         excel_file = request.files['excel_file']
-        analysis_ids = request.form.getlist('analysis_ids')  # Çoklu analiz ID'si
+        analysis_ids = request.form.getlist('analysis_ids')
         
         if excel_file.filename == '':
             return jsonify({
@@ -1635,8 +1635,8 @@ def merge_with_excel():
                 "message": "Analiz ID'leri belirtilmedi"
             }), 400
         
-        print(f"[MERGE-API] 📊 Excel birleştirme başlıyor: {excel_file.filename}")
-        print(f"[MERGE-API] 🔢 Analiz ID'leri: {analysis_ids}")
+        print(f"[MERGE-FIXED] 📊 Excel birleştirme başlıyor: {excel_file.filename}")
+        print(f"[MERGE-FIXED] 🔢 Analiz ID'leri: {analysis_ids}")
         
         # Excel dosyası kontrolü
         if not excel_file.filename.lower().endswith(('.xlsx', '.xls')):
@@ -1663,7 +1663,7 @@ def merge_with_excel():
             
             analyses.append(analysis)
         
-        print(f"[MERGE-API] ✅ {len(analyses)} analiz yüklendi")
+        print(f"[MERGE-FIXED] ✅ {len(analyses)} analiz yüklendi")
         
         # Excel işleme
         try:
@@ -1678,7 +1678,7 @@ def merge_with_excel():
             # ✅ EXCEL DOSYASINI YÜKLEYİN
             wb = openpyxl.load_workbook(excel_file, data_only=True)
             ws = wb.active
-            print(f"[MERGE-API] ✅ Excel yüklendi. Satır: {ws.max_row}, Sütun: {ws.max_column}")
+            print(f"[MERGE-FIXED] ✅ Excel yüklendi. Satır: {ws.max_row}, Sütun: {ws.max_column}")
             
             # ✅ GELİŞTİRİLMİŞ NORMALIZE FONKSİYONU
             def normalize_robust(text):
@@ -1710,9 +1710,9 @@ def merge_with_excel():
             
             # ✅ HEADER ANALİZİ VE SÜTUN TESPİTİ
             header_row = [ws.cell(row=1, column=col).value for col in range(1, ws.max_column + 1)]
-            print(f"[MERGE-API] 📋 Header satırı: {header_row}")
+            print(f"[MERGE-FIXED] 📋 Header satırı: {header_row}")
             
-            # Malzeme No sütununu bul (daha kapsamlı arama)
+            # Malzeme No sütununu bul
             malzeme_no_patterns = [
                 "malzeme no", "malzemeno", "malzeme_no", "malzeme numarası", "malzeme numarasi",
                 "ürün kodu", "urun kodu", "ürün no", "urun no", "kod", "no", "part", "item"
@@ -1722,12 +1722,12 @@ def merge_with_excel():
             for i, header in enumerate(header_row):
                 if header:
                     normalized_header = normalize_robust(header)
-                    print(f"[MERGE-API] 🔍 Header {i+1}: '{header}' -> '{normalized_header}'")
+                    print(f"[MERGE-FIXED] 🔍 Header {i+1}: '{header}' -> '{normalized_header}'")
                     
                     for pattern in malzeme_no_patterns:
                         if normalize_robust(pattern) == normalized_header:
                             malzeme_col_index = i + 1  # 1-based
-                            print(f"[MERGE-API] ✅ Malzeme No sütunu: '{header}' (sütun {malzeme_col_index})")
+                            print(f"[MERGE-FIXED] ✅ Malzeme No sütunu: '{header}' (sütun {malzeme_col_index})")
                             break
                     if malzeme_col_index:
                         break
@@ -1735,7 +1735,7 @@ def merge_with_excel():
             if not malzeme_col_index:
                 # Fallback: üçüncü sütun genelde malzeme no'dur
                 malzeme_col_index = 3
-                print(f"[MERGE-API] ⚠️ Malzeme No sütunu bulunamadı, sütun {malzeme_col_index} kullanılıyor")
+                print(f"[MERGE-FIXED] ⚠️ Malzeme No sütunu bulunamadı, sütun {malzeme_col_index} kullanılıyor")
             
             # İhale miktarı sütununu bul
             ihale_col_index = None
@@ -1747,15 +1747,14 @@ def merge_with_excel():
                     for pattern in ihale_patterns:
                         if pattern in normalized_header:
                             ihale_col_index = i + 1
-                            print(f"[MERGE-API] ✅ İhale sütunu: '{header}' (sütun {ihale_col_index})")
+                            print(f"[MERGE-FIXED] ✅ İhale sütunu: '{header}' (sütun {ihale_col_index})")
                             break
                     if ihale_col_index:
                         break
             
             if not ihale_col_index:
-                # İhale sütununu malzeme no'dan sonraki ilk sütun olarak varsay
                 ihale_col_index = malzeme_col_index + 1
-                print(f"[MERGE-API] ⚠️ İhale sütunu bulunamadı, sütun {ihale_col_index} kullanılıyor")
+                print(f"[MERGE-FIXED] ⚠️ İhale sütunu bulunamadı, sütun {ihale_col_index} kullanılıyor")
             
             # ✅ İHALE SÜTUNUNDAN SONRAKİ SÜTUNLARI SİL
             columns_to_keep = ihale_col_index
@@ -1765,7 +1764,7 @@ def merge_with_excel():
                 if ws.max_column > columns_to_keep:
                     ws.delete_cols(columns_to_keep + 1)
             
-            print(f"[MERGE-API] 🗑️ {columns_to_delete} sütun silindi")
+            print(f"[MERGE-FIXED] 🗑️ {columns_to_delete} sütun silindi")
             
             # ✅ YENİ SÜTUN BAŞLIKLARI EKLE
             new_headers = [
@@ -1786,7 +1785,7 @@ def merge_with_excel():
                 else:
                     ws.column_dimensions[col_letter].width = 14
             
-            # ✅ ANALİZ VERİLERİNİ LOOKUP TABLOSU HAZİRLA
+            # ✅ ANALİZ VERİLERİNİ LOOKUP TABLOSU HAZİRLA - ENHANCED MATERIAL CALCULATIONS
             analysis_lookup = {}
             
             for analysis in analyses:
@@ -1812,15 +1811,22 @@ def merge_with_excel():
                 # 3. Analysis ID'yi de ekle
                 product_codes.append(str(analysis.get('id', '')))
                 
+                # ✅ KÜTLE VE FİYAT HESAPLAMALARI
+                analysis_calculated_data = calculate_mass_and_cost_for_analysis(analysis)
+                
                 # Benzersiz kodları normalize et ve ekle
                 for code in set(product_codes):
                     if code and len(code) >= 3:  # En az 3 karakter
                         normalized_code = normalize_robust(code)
                         if normalized_code:
-                            analysis_lookup[normalized_code] = analysis
-                            print(f"[MERGE-API] 📝 Lookup eklendi: '{code}' -> '{normalized_code}' -> {analysis['id']}")
+                            # Analysis'e hesaplanmış verileri ekle
+                            enhanced_analysis = analysis.copy()
+                            enhanced_analysis.update(analysis_calculated_data)
+                            
+                            analysis_lookup[normalized_code] = enhanced_analysis
+                            print(f"[MERGE-FIXED] 📝 Lookup eklendi: '{code}' -> '{normalized_code}' -> {analysis['id']} (kütle: {analysis_calculated_data.get('calculated_mass_kg', 'N/A')} kg)")
             
-            print(f"[MERGE-API] 📋 Toplam lookup entries: {len(analysis_lookup)}")
+            print(f"[MERGE-FIXED] 📋 Toplam lookup entries: {len(analysis_lookup)}")
             
             # ✅ SATIRLARI İŞLE VE EŞLEŞTİR
             matched_count = 0
@@ -1833,11 +1839,11 @@ def merge_with_excel():
                 malzeme_cell = ws.cell(row=row, column=malzeme_col_index).value
                 
                 if not malzeme_cell:
-                    print(f"[MERGE-API] ⚠️ Satır {row}: Malzeme numarası boş")
+                    print(f"[MERGE-FIXED] ⚠️ Satır {row}: Malzeme numarası boş")
                     continue
                 
                 excel_malzeme = str(malzeme_cell).strip()
-                print(f"[MERGE-API] 🔍 Satır {row}: Excel malzeme = '{excel_malzeme}'")
+                print(f"[MERGE-FIXED] 🔍 Satır {row}: Excel malzeme = '{excel_malzeme}'")
                 
                 # ✅ EŞLEŞMEYİ BUL
                 matched_analysis = None
@@ -1873,17 +1879,9 @@ def merge_with_excel():
                 # ✅ EŞLEŞME BULUNURSA VERİLERİ YAZ
                 if matched_analysis:
                     matched_count += 1
-                    print(f"[MERGE-API] ✅ Satır {row}: '{excel_malzeme}' eşleşti -> {matched_analysis['id']} ({match_method})")
+                    print(f"[MERGE-FIXED] ✅ Satır {row}: '{excel_malzeme}' eşleşti -> {matched_analysis['id']} ({match_method})")
                     
-                    # ✅ ANALİZ VERİLERİNİ DEBUG ET
-                    print(f"[MERGE-API] 🔍 Analiz debug {matched_analysis['id']}:")
-                    print(f"   - calculated_mass: {matched_analysis.get('calculated_mass')}")
-                    print(f"   - material_cost: {matched_analysis.get('material_cost')}")
-                    print(f"   - cost_estimation: {matched_analysis.get('cost_estimation')}")
-                    print(f"   - ai_price_prediction: {matched_analysis.get('ai_price_prediction')}")
-                    print(f"   - step_analysis keys: {list(matched_analysis.get('step_analysis', {}).keys())}")
-                    
-                    # ✅ ANALİZ VERİLERİNİ HAZIRLA
+                    # ✅ HESAPLANMIŞ VERİLERİ AL
                     step_analysis = matched_analysis.get('step_analysis', {})
                     
                     # Malzeme bilgisi
@@ -1898,38 +1896,18 @@ def merge_with_excel():
                             else:
                                 material_name = str(first_match)
                     
-                    # ✅ DEĞERLER - GELİŞTİRİLMİŞ VERİ ÇIKARTMA
+                    # ✅ HESAPLANMIŞ KÜTLE VE MALİYET - LOOKUP'TAN AL
+                    kutle_kg = matched_analysis.get('calculated_mass_kg', 0)
+                    maliyet_usd = matched_analysis.get('calculated_material_cost_usd', 0)
+                    density_used = matched_analysis.get('density_used', 2.7)
+                    price_per_kg_used = matched_analysis.get('price_per_kg_used', 4.5)
                     
-                    # Kütle hesaplama - çoklu kaynak
-                    kutle_kg = 0
-                    if matched_analysis.get("calculated_mass"):
-                        kutle_kg = matched_analysis["calculated_mass"]
-                    elif step_analysis.get("Kütle (kg)"):
-                        kutle_kg = step_analysis["Kütle (kg)"]
-                    elif step_analysis.get("Mass (kg)"):
-                        kutle_kg = step_analysis["Mass (kg)"]
-                    elif step_analysis.get("Ağırlık (kg)"):
-                        kutle_kg = step_analysis["Ağırlık (kg)"]
-                    
-                    # Maliye hesaplama - çoklu kaynak
-                    maliyet_usd = 0
-                    if matched_analysis.get("material_cost"):
-                        maliyet_usd = matched_analysis["material_cost"]
-                    elif matched_analysis.get("cost_estimation", {}).get("total_cost_usd"):
-                        maliyet_usd = matched_analysis["cost_estimation"]["total_cost_usd"]
-                    elif matched_analysis.get("ai_price_prediction", {}).get("predicted_price_usd"):
-                        maliyet_usd = matched_analysis["ai_price_prediction"]["predicted_price_usd"]
-                    
-                    # Cost estimation verilerinden ek maliyetler
-                    cost_est = matched_analysis.get("cost_estimation", {})
-                    ai_price = matched_analysis.get("ai_price_prediction", {})
-                    
-                    # İşçilik maliyeti hesaplama
+                    # İşçilik maliyeti hesaplama (basit tahmin)
                     iscilik_usd = 0
-                    if cost_est.get("labor_cost_usd"):
-                        iscilik_usd = cost_est["labor_cost_usd"]
-                    elif ai_price.get("labor_cost_usd"):
-                        iscilik_usd = ai_price["labor_cost_usd"]
+                    if kutle_kg > 0:
+                        # Kütle bazlı işçilik tahmini: büyük parça = daha fazla işçilik
+                        iscilik_base = min(kutle_kg * 15, 50)  # Max $50
+                        iscilik_usd = round(iscilik_base, 2)
                     
                     # Birim fiyat hesaplama (hammadde + işçilik)
                     birim_fiyat = maliyet_usd + iscilik_usd
@@ -1955,19 +1933,19 @@ def merge_with_excel():
                         step_analysis.get("Y+Pad (mm)", 0) or step_analysis.get("Y (mm)", 0),
                         step_analysis.get("Z+Pad (mm)", 0) or step_analysis.get("Z (mm)", 0),
                         step_analysis.get("Silindirik Çap (mm)", 0) or step_analysis.get("Çap (mm)", 0),
-                        kutle_kg if kutle_kg > 0 else None,
-                        maliyet_usd if maliyet_usd > 0 else None,
+                        kutle_kg if kutle_kg > 0 else None,           # ← HESAPLANMIŞ KÜTLE
+                        maliyet_usd if maliyet_usd > 0 else None,     # ← HESAPLANMIŞ MALİYET
                         "",  # Kaplama - boş bırak
                         "",  # Helicoil - boş bırak
                         "",  # Markalama - boş bırak
-                        iscilik_usd if iscilik_usd > 0 else "",  # İşçilik
-                        birim_fiyat if birim_fiyat > 0 else "",  # Birim Fiyat
-                        toplam_maliyet if toplam_maliyet > 0 else ""   # Toplam
+                        iscilik_usd if iscilik_usd > 0 else "",      # İşçilik
+                        birim_fiyat if birim_fiyat > 0 else "",      # Birim Fiyat
+                        toplam_maliyet if toplam_maliyet > 0 else "" # Toplam
                     ]
                     
-                    print(f"[MERGE-API] 📊 Satır {row} değerler:")
-                    print(f"   - Kütle: {kutle_kg} kg")
-                    print(f"   - Hammadde Maliyeti: ${maliyet_usd}")
+                    print(f"[MERGE-FIXED] 📊 Satır {row} değerler:")
+                    print(f"   - Kütle: {kutle_kg} kg (density: {density_used} g/cm³)")
+                    print(f"   - Hammadde Maliyeti: ${maliyet_usd} (${price_per_kg_used}/kg)")
                     print(f"   - İşçilik: ${iscilik_usd}")
                     print(f"   - Birim Fiyat: ${birim_fiyat}")
                     print(f"   - İhale Miktarı: {ihale_miktari}")
@@ -2024,13 +2002,13 @@ def merge_with_excel():
                                         cell_coord = f"{openpyxl.utils.get_column_letter(target_col)}{row}"
                                         ws.add_image(img, cell_coord)
                                         
-                                        print(f"[MERGE-API] 🖼️ Satır {row}: Resim eklendi ({img.width}x{img.height})")
+                                        print(f"[MERGE-FIXED] 🖼️ Satır {row}: Resim eklendi ({img.width}x{img.height})")
                                         
                                     except Exception as img_error:
-                                        print(f"[MERGE-API] ❌ Satır {row} resim hatası: {img_error}")
+                                        print(f"[MERGE-FIXED] ❌ Satır {row} resim hatası: {img_error}")
                                         target_cell.value = "Resim Hatası"
                                 else:
-                                    print(f"[MERGE-API] ⚠️ Satır {row}: Resim dosyası bulunamadı: {full_image_path}")
+                                    print(f"[MERGE-FIXED] ⚠️ Satır {row}: Resim dosyası bulunamadı: {full_image_path}")
                                     target_cell.value = "Resim Bulunamadı"
                             else:
                                 target_cell.value = "Resim Yok"
@@ -2068,9 +2046,9 @@ def merge_with_excel():
                         )
                 
                 else:
-                    print(f"[MERGE-API] ❌ Satır {row}: '{excel_malzeme}' eşleşmedi")
+                    print(f"[MERGE-FIXED] ❌ Satır {row}: '{excel_malzeme}' eşleşmedi")
             
-            print(f"[MERGE-API] 📊 İşlem tamamlandı: {matched_count}/{total_rows} eşleşme")
+            print(f"[MERGE-FIXED] 📊 İşlem tamamlandı: {matched_count}/{total_rows} eşleşme")
             
             # ✅ HEADER STİLLENDİRME
             header_fill = PatternFill(start_color="D7E4BC", end_color="D7E4BC", fill_type="solid")
@@ -2103,8 +2081,8 @@ def merge_with_excel():
             original_name = excel_file.filename.rsplit('.', 1)[0]
             filename = f"{original_name}_merged_{timestamp}.xlsx"
             
-            print(f"[MERGE-API] ✅ Excel başarıyla birleştirildi: {filename}")
-            print(f"[MERGE-API] 📈 Sonuç: {matched_count}/{total_rows} satır eşleşti")
+            print(f"[MERGE-FIXED] ✅ Excel başarıyla birleştirildi: {filename}")
+            print(f"[MERGE-FIXED] 📈 Sonuç: {matched_count}/{total_rows} satır eşleşti")
             
             return send_file(
                 output,
@@ -2120,9 +2098,9 @@ def merge_with_excel():
                 "message": f"Gerekli kütüphane bulunamadı: {missing_lib}. pip install {missing_lib} çalıştırın."
             }), 500
         except Exception as excel_error:
-            print(f"[MERGE-API] ❌ Excel işleme hatası: {excel_error}")
+            print(f"[MERGE-FIXED] ❌ Excel işleme hatası: {excel_error}")
             import traceback
-            print(f"[MERGE-API] 📋 Traceback: {traceback.format_exc()}")
+            print(f"[MERGE-FIXED] 📋 Traceback: {traceback.format_exc()}")
             
             return jsonify({
                 "success": False,
@@ -2131,7 +2109,7 @@ def merge_with_excel():
             }), 500
     
     except Exception as e:
-        print(f"[MERGE-API] ❌ Genel hata: {str(e)}")
+        print(f"[MERGE-FIXED] ❌ Genel hata: {str(e)}")
         import traceback
         traceback.print_exc()
         
@@ -2146,7 +2124,7 @@ def merge_with_excel():
 @upload_bp.route('/export-excel-multiple', methods=['POST'])
 @jwt_required()
 def export_multiple_analyses_excel():
-    """✅ YENİ - Birden fazla analizi Excel'e aktar (resimlerle birlikte)"""
+    """✅ FIXED - Birden fazla analizi Excel'e aktar - KÜTLE VE MALİYET HESAPLAMALARİ İLE"""
     try:
         current_user = get_current_user()
         
@@ -2171,7 +2149,7 @@ def export_multiple_analyses_excel():
                 "message": "Maksimum 50 analiz aynı anda export edilebilir"
             }), 400
         
-        print(f"[EXCEL-MULTI] 📊 Çoklu Excel export başlıyor: {len(analysis_ids)} analiz")
+        print(f"[EXCEL-MULTI-FIXED] 📊 Çoklu Excel export başlıyor: {len(analysis_ids)} analiz")
         
         # Analizleri yükle ve yetki kontrolü
         analyses = []
@@ -2215,54 +2193,96 @@ def export_multiple_analyses_excel():
             from datetime import datetime
             import os
             
-            print(f"[EXCEL-MULTI] ✅ {len(analyses)} analiz işlenecek")
+            print(f"[EXCEL-MULTI-FIXED] ✅ {len(analyses)} analiz işlenecek")
             
-            # ✅ TÜM ANALİZLER İÇİN VERİ HAZIRLA
+            # ✅ TÜM ANALİZLER İÇİN ENHANCED VERİ HAZIRLA
             excel_data = []
+            total_calculated_mass = 0
+            total_calculated_cost = 0
+            successful_calculations = 0
             
             for analysis in analyses:
+                print(f"[EXCEL-MULTI-FIXED] 🔄 İşleniyor: {analysis.get('original_filename', 'unknown')}")
+                
+                # ✅ HER ANALİZ İÇİN KÜTLE VE MALİYET HESAPLA
+                calculated_data = calculate_mass_and_cost_for_analysis(analysis)
+                
                 # ✅ STEP ANALİZİ VERİLERİNİ TOPLA
                 step_analysis = analysis.get('step_analysis', {})
                 
                 # ✅ MALZEME BİLGİSİNİ BELİRLE
-                material_matches = analysis.get('material_matches', [])
-                material_name = "Bilinmiyor"
+                material_name = calculated_data['material_used']
+                if material_name == 'Unknown':
+                    material_matches = analysis.get('material_matches', [])
+                    if material_matches:
+                        first_match = material_matches[0]
+                        if isinstance(first_match, str) and "(" in first_match:
+                            material_name = first_match.split("(")[0].strip()
+                        else:
+                            material_name = str(first_match)
                 
-                if material_matches:
-                    # İlk malzeme eşleşmesinden isim çıkar
-                    first_match = material_matches[0]
-                    if isinstance(first_match, str) and "(" in first_match:
-                        material_name = first_match.split("(")[0].strip()
-                    elif isinstance(first_match, str):
-                        material_name = first_match
+                # ✅ İŞÇİLİK VE TOPLAM MALİYET HESAPLAMA
+                calculated_mass_kg = calculated_data['calculated_mass_kg']
+                calculated_material_cost = calculated_data['calculated_material_cost_usd']
                 
-                # Alternatif: material_used alanından al
-                if analysis.get('material_used'):
-                    material_name = analysis['material_used']
+                # İşçilik tahmini (kütle bazlı)
+                estimated_labor_cost = 0
+                if calculated_mass_kg > 0:
+                    # Kütle bazlı işçilik: 0.5 kg altı = $10, üstü = kütle * $12
+                    if calculated_mass_kg <= 0.5:
+                        estimated_labor_cost = 10.0
+                    else:
+                        estimated_labor_cost = min(calculated_mass_kg * 12, 100.0)  # Max $100
                 
-                # ✅ EXCEL SATIRI OLUŞTUR
+                # Toplam birim maliyet
+                unit_total_cost = calculated_material_cost + estimated_labor_cost
+                
+                # İstatistik için topla
+                if calculated_mass_kg > 0:
+                    total_calculated_mass += calculated_mass_kg
+                    total_calculated_cost += unit_total_cost
+                    successful_calculations += 1
+                
+                # ✅ EXCEL SATIRI OLUŞTUR - ENHANCED
                 row_data = {
                     "Ürün Görseli": "",  # Resim için boş bırak - sonra eklenecek
                     "Analiz ID": analysis.get('id', 'N/A'),
                     "Dosya Adı": analysis.get('original_filename', 'N/A'),
                     "Dosya Türü": analysis.get('file_type', 'N/A'),
+                    "Analiz Durumu": analysis.get('analysis_status', 'N/A'),
+                    
+                    # ✅ MALZEME BİLGİLERİ - ENHANCED
                     "Hammadde": material_name,
-                    "X+Pad (mm)": step_analysis.get('X+Pad (mm)', 0),
-                    "Y+Pad (mm)": step_analysis.get('Y+Pad (mm)', 0),
-                    "Z+Pad (mm)": step_analysis.get('Z+Pad (mm)', 0),
+                    "Yoğunluk (g/cm³)": calculated_data['density_used'],
+                    "Malzeme Fiyatı (USD/kg)": calculated_data['price_per_kg_used'],
+                    
+                    # ✅ BOYUTLAR
+                    "X+Pad (mm)": step_analysis.get('X+Pad (mm)', step_analysis.get('X (mm)', 0)),
+                    "Y+Pad (mm)": step_analysis.get('Y+Pad (mm)', step_analysis.get('Y (mm)', 0)),
+                    "Z+Pad (mm)": step_analysis.get('Z+Pad (mm)', step_analysis.get('Z (mm)', 0)),
                     "Silindirik Çap (mm)": step_analysis.get('Silindirik Çap (mm)', 0),
+                    
+                    # ✅ HACİM VE KÜTLE - HESAPLANMIŞ
+                    "Hacim (mm³)": calculated_data['volume_used_mm3'],
                     "Ürün Hacmi (mm³)": step_analysis.get('Ürün Hacmi (mm³)', 0),
                     "Toplam Yüzey Alanı (mm²)": step_analysis.get('Toplam Yüzey Alanı (mm²)', 0),
-                    "Hammadde Maliyeti (USD)": analysis.get('material_cost', 0),
-                    "Kütle (kg)": analysis.get('calculated_mass', 0),
-                    "Analiz Durumu": analysis.get('analysis_status', 'N/A'),
+                    "Kütle (kg)": calculated_mass_kg,  # ← HESAPLANMIŞ KÜTLE
+                    
+                    # ✅ MALİYET BİLGİLERİ - HESAPLANMIŞ
+                    "Hammadde Maliyeti (USD)": calculated_material_cost,  # ← HESAPLANMIŞ MALİYET
+                    "Tahmini İşçilik (USD)": round(estimated_labor_cost, 2),
+                    "Birim Toplam Maliyet (USD)": round(unit_total_cost, 2),
+                    
+                    # ✅ META VERİLER
                     "İşleme Süresi (s)": analysis.get('processing_time', 0),
-                    "Oluşturma Tarihi": analysis.get('created_at', 'N/A')
+                    "Oluşturma Tarihi": analysis.get('created_at', 'N/A'),
+                    "Render Sayısı": len(analysis.get('enhanced_renders', {})),
+                    "PDF'den STEP": "Evet" if analysis.get('pdf_step_extracted', False) else "Hayır"
                 }
                 
                 # Malzeme detayını ekle (varsa)
-                if analysis.get('malzeme_detay'):
-                    row_data["Malzeme Eşleşmeleri"] = analysis['malzeme_detay']
+                if analysis.get('material_matches'):
+                    row_data["Malzeme Eşleşmeleri"] = "; ".join(analysis['material_matches'][:3])  # İlk 3'ü
                 
                 # ✅ RESİM YOLUNU BUL VE EKLE
                 image_path = None
@@ -2288,24 +2308,28 @@ def export_multiple_analyses_excel():
                     
                     # Dosya var mı kontrol et
                     if not os.path.exists(full_image_path):
-                        print(f"[EXCEL-MULTI] ⚠️ Görsel dosyası bulunamadı: {full_image_path}")
+                        print(f"[EXCEL-MULTI-FIXED] ⚠️ Görsel dosyası bulunamadı: {full_image_path}")
                         full_image_path = None
                     else:
-                        print(f"[EXCEL-MULTI] ✅ Görsel bulundu: {full_image_path}")
+                        print(f"[EXCEL-MULTI-FIXED] ✅ Görsel bulundu: {full_image_path}")
                 
                 # Row data'ya image path'i ekle (Excel'de kullanılacak)
                 row_data["_image_path"] = full_image_path
                 
                 excel_data.append(row_data)
+                
+                print(f"[EXCEL-MULTI-FIXED] ✅ {analysis.get('original_filename')}: {calculated_mass_kg:.3f} kg, ${calculated_material_cost:.2f}")
             
             # ✅ DATAFRAME OLUŞTUR
             df = pd.DataFrame(excel_data)
             
-            # _image_path sütununu DataFrame'den çıkar (sadne internal kullanım için)
+            # _image_path sütununu DataFrame'den çıkar (sadece internal kullanım için)
             image_paths = df["_image_path"].tolist()
             df = df.drop(columns=["_image_path"])
             
-            print(f"[EXCEL-MULTI] 📋 DataFrame oluşturuldu: {len(df)} satır")
+            print(f"[EXCEL-MULTI-FIXED] 📋 DataFrame oluşturuldu: {len(df)} satır")
+            print(f"[EXCEL-MULTI-FIXED] 📊 Toplam kütle: {total_calculated_mass:.3f} kg")
+            print(f"[EXCEL-MULTI-FIXED] 💰 Toplam maliyet: ${total_calculated_cost:.2f}")
             
             # ✅ EXCEL ÇIKTISI (xlsxwriter ile)
             output = io.BytesIO()
@@ -2317,12 +2341,39 @@ def export_multiple_analyses_excel():
                 worksheet = writer.sheets['Analiz Sonuçları']
                 
                 # ✅ SÜTUN GENİŞLİKLERİNİ AYARLA
-                worksheet.set_column("A:A", 30)  # Görsel sütunu geniş
-                worksheet.set_column("B:B", 15)  # Analiz ID
-                worksheet.set_column("C:C", 25)  # Dosya Adı
-                worksheet.set_column("D:D", 15)  # Dosya Türü
-                worksheet.set_column("E:E", 20)  # Hammadde
-                worksheet.set_column("F:Z", 18)  # Diğer sütunlar
+                column_widths = {
+                    0: 60,   # Görsel sütunu geniş
+                    1: 15,   # Analiz ID
+                    2: 25,   # Dosya Adı
+                    3: 12,   # Dosya Türü
+                    4: 15,   # Analiz Durumu
+                    5: 20,   # Hammadde
+                    6: 12,   # Yoğunluk
+                    7: 15,   # Malzeme Fiyatı
+                    8: 12,   # X+Pad
+                    9: 12,   # Y+Pad
+                    10: 12,  # Z+Pad
+                    11: 15,  # Silindirik Çap
+                    12: 15,  # Hacim
+                    13: 15,  # Ürün Hacmi
+                    14: 18,  # Yüzey Alanı
+                    15: 12,  # Kütle
+                    16: 18,  # Hammadde Maliyeti
+                    17: 15,  # İşçilik
+                    18: 18,  # Birim Toplam
+                    19: 15,  # İşleme Süresi
+                    20: 20,  # Tarih
+                    21: 12,  # Render Sayısı
+                    22: 12,  # PDF STEP
+                    23: 25   # Malzeme Eşleşmeleri
+                }
+                
+                for col_index, width in column_widths.items():
+                    if col_index < len(df.columns):
+                        col_letter = chr(65 + col_index)  # A, B, C, ...
+                        if col_index >= 26:  # AA, AB, AC, ...
+                            col_letter = chr(64 + col_index // 26) + chr(65 + col_index % 26)
+                        worksheet.set_column(f"{col_letter}:{col_letter}", width)
                 
                 # ✅ HEADER STİLİ
                 header_format = workbook.add_format({
@@ -2330,8 +2381,14 @@ def export_multiple_analyses_excel():
                     "text_wrap": True,
                     "valign": "top",
                     "fg_color": "#D7E4BC",
-                    "border": 1
+                    "border": 1,
+                    "font_size": 10
                 })
+                
+                # ✅ SAYISAL DEĞER FORMATLARİ
+                number_format = workbook.add_format({'num_format': '#,##0.000'})
+                currency_format = workbook.add_format({'num_format': '$#,##0.00'})
+                percent_format = workbook.add_format({'num_format': '0.0%'})
                 
                 # Header'ları yaz
                 for col_num, value in enumerate(df.columns.values):
@@ -2346,64 +2403,133 @@ def export_multiple_analyses_excel():
                     
                     if image_path and os.path.exists(image_path):
                         try:
-                            # Resmi ekle (app.py ile aynı ayarlar)
+                            # Resmi ekle (optimized boyutlarda)
                             worksheet.insert_image(f"A{excel_row + 1}", image_path, {
-                                "x_scale": 0.4,
-                                "y_scale": 0.4,
-                                "x_offset": 45,
-                                "y_offset": 35
+                                "x_scale": 0.35,
+                                "y_scale": 0.35,
+                                "x_offset": 5,
+                                "y_offset": 5
                             })
-                            print(f"[EXCEL-MULTI] 🖼️ Satır {excel_row + 1}: Resim eklendi")
+                            print(f"[EXCEL-MULTI-FIXED] 🖼️ Satır {excel_row + 1}: Resim eklendi")
                         except Exception as img_error:
-                            print(f"[EXCEL-MULTI] ❌ Satır {excel_row + 1} resim ekleme hatası: {img_error}")
+                            print(f"[EXCEL-MULTI-FIXED] ❌ Satır {excel_row + 1} resim ekleme hatası: {img_error}")
                             # Resim eklenemezse "Resim Hatası" yaz
                             worksheet.write(f"A{excel_row + 1}", "Resim Hatası")
                     else:
                         # Resim yoksa "Resim Yok" yaz
                         worksheet.write(f"A{excel_row + 1}", "Resim Yok")
                 
-                # ✅ EK SAYFALAR - Malzeme seçenekleri özeti
-                # Tüm analizlerin malzeme seçeneklerini birleştir
-                all_material_options = []
+                # ✅ SAYISAL SÜTUNLARA FORMAT UYGULA
+                # Kütle sütunu (kg)
+                mass_col = None
+                cost_cols = []
+                
+                for col_idx, col_name in enumerate(df.columns):
+                    if "Kütle" in col_name:
+                        mass_col = col_idx
+                    elif any(keyword in col_name for keyword in ["Maliyet", "İşçilik", "Toplam", "Fiyat"]):
+                        cost_cols.append(col_idx)
+                
+                # Kütle formatı
+                if mass_col is not None:
+                    col_letter = chr(65 + mass_col)
+                    worksheet.set_column(f"{col_letter}:{col_letter}", 12, number_format)
+                
+                # Para formatı
+                for col_idx in cost_cols:
+                    col_letter = chr(65 + col_idx)
+                    worksheet.set_column(f"{col_letter}:{col_letter}", 15, currency_format)
+                
+                # ✅ EK SAYFALAR
+                
+                # 1. Malzeme özeti sayfası
+                material_summary = {}
                 for analysis in analyses:
-                    material_options = analysis.get('material_options', [])
-                    for mat_option in material_options:
-                        mat_option['source_analysis'] = analysis.get('id', 'Unknown')
-                        mat_option['source_filename'] = analysis.get('original_filename', 'Unknown')
-                        all_material_options.append(mat_option)
+                    calculated_data = calculate_mass_and_cost_for_analysis(analysis)
+                    material = calculated_data['material_used']
+                    
+                    if material not in material_summary:
+                        material_summary[material] = {
+                            'count': 0,
+                            'total_mass': 0,
+                            'total_cost': 0,
+                            'density': calculated_data['density_used'],
+                            'price_per_kg': calculated_data['price_per_kg_used']
+                        }
+                    
+                    material_summary[material]['count'] += 1
+                    material_summary[material]['total_mass'] += calculated_data['calculated_mass_kg']
+                    material_summary[material]['total_cost'] += calculated_data['calculated_material_cost_usd']
                 
-                if all_material_options:
-                    materials_df = pd.DataFrame(all_material_options)
-                    materials_df.to_excel(writer, sheet_name='Tüm Malzeme Seçenekleri', index=False)
-                    print(f"[EXCEL-MULTI] 📄 Malzeme seçenekleri sayfası: {len(all_material_options)} seçenek")
+                if material_summary:
+                    summary_data = []
+                    for material, data in material_summary.items():
+                        summary_data.append({
+                            'Malzeme': material,
+                            'Parça Sayısı': data['count'],
+                            'Toplam Kütle (kg)': round(data['total_mass'], 3),
+                            'Toplam Maliyet (USD)': round(data['total_cost'], 2),
+                            'Ortalama Kütle (kg)': round(data['total_mass'] / data['count'], 3),
+                            'Yoğunluk (g/cm³)': data['density'],
+                            'Fiyat (USD/kg)': data['price_per_kg']
+                        })
+                    
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='Malzeme Özeti', index=False)
+                    print(f"[EXCEL-MULTI-FIXED] 📄 Malzeme özeti sayfası: {len(summary_data)} malzeme")
                 
-                # ✅ ÖZET SAYFA
-                summary_data = {
+                # 2. Genel istatistikler sayfası
+                stats_data = {
                     "Metrik": [
                         "Toplam Analiz Sayısı",
-                        "Başarılı Analizler", 
+                        "Başarılı Kütle Hesaplaması", 
                         "Başarısız Analizler",
                         "STEP Dosyaları",
                         "PDF Dosyaları",
+                        "PDF'den STEP Çıkarılan",
                         "Ortalama İşleme Süresi (s)",
-                        "Toplam Hacim (mm³)",
-                        "Ortalama Malzeme Maliyeti (USD)"
+                        "Toplam Kütle (kg)",
+                        "Toplam Hammadde Maliyeti (USD)",
+                        "Ortalama Birim Maliyet (USD)"
                     ],
                     "Değer": [
                         len(analyses),
-                        len([a for a in analyses if a.get('analysis_status') == 'completed']),
+                        successful_calculations,
                         len([a for a in analyses if a.get('analysis_status') == 'failed']),
                         len([a for a in analyses if a.get('file_type') in ['step', 'stp']]),
                         len([a for a in analyses if a.get('file_type') == 'pdf']),
+                        len([a for a in analyses if a.get('pdf_step_extracted', False)]),
                         round(sum([a.get('processing_time', 0) for a in analyses]) / len(analyses), 2),
-                        sum([a.get('step_analysis', {}).get('Ürün Hacmi (mm³)', 0) for a in analyses]),
-                        round(sum([a.get('material_cost', 0) for a in analyses]) / len(analyses), 2)
+                        round(total_calculated_mass, 3),
+                        round(sum([calculate_mass_and_cost_for_analysis(a)['calculated_material_cost_usd'] for a in analyses]), 2),
+                        round(total_calculated_cost / len(analyses), 2) if analyses else 0
                     ]
                 }
                 
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Özet', index=False)
-                print(f"[EXCEL-MULTI] 📊 Özet sayfası oluşturuldu")
+                stats_df = pd.DataFrame(stats_data)
+                stats_df.to_excel(writer, sheet_name='İstatistikler', index=False)
+                print(f"[EXCEL-MULTI-FIXED] 📊 İstatistik sayfası oluşturuldu")
+                
+                # 3. Detaylı malzeme hesaplamaları sayfası
+                detailed_calcs = []
+                for analysis in analyses:
+                    calc_data = calculate_mass_and_cost_for_analysis(analysis)
+                    detailed_calcs.append({
+                        'Analiz ID': analysis.get('id'),
+                        'Dosya Adı': analysis.get('original_filename'),
+                        'Malzeme': calc_data['material_used'],
+                        'Hacim (mm³)': calc_data['volume_used_mm3'],
+                        'Yoğunluk (g/cm³)': calc_data['density_used'],
+                        'Kütle (kg)': calc_data['calculated_mass_kg'],
+                        'Fiyat (USD/kg)': calc_data['price_per_kg_used'],
+                        'Maliyet (USD)': calc_data['calculated_material_cost_usd'],
+                        'Hesaplama Formülü': f"{calc_data['volume_used_mm3']} mm³ × {calc_data['density_used']} g/cm³ ÷ 1,000,000 = {calc_data['calculated_mass_kg']} kg"
+                    })
+                
+                if detailed_calcs:
+                    detailed_df = pd.DataFrame(detailed_calcs)
+                    detailed_df.to_excel(writer, sheet_name='Hesaplama Detayları', index=False)
+                    print(f"[EXCEL-MULTI-FIXED] 🧮 Hesaplama detayları sayfası: {len(detailed_calcs)} hesaplama")
             
             output.seek(0)
             
@@ -2411,7 +2537,8 @@ def export_multiple_analyses_excel():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"coklu_analiz_{len(analyses)}_dosya_{timestamp}.xlsx"
             
-            print(f"[EXCEL-MULTI] ✅ Excel dosyası hazır: {filename}")
+            print(f"[EXCEL-MULTI-FIXED] ✅ Excel dosyası hazır: {filename}")
+            print(f"[EXCEL-MULTI-FIXED] 📈 Başarılı hesaplamalar: {successful_calculations}/{len(analyses)}")
             
             return send_file(
                 output,
@@ -2426,9 +2553,9 @@ def export_multiple_analyses_excel():
                 "message": "Excel export için pandas ve xlsxwriter gerekli"
             }), 500
         except Exception as excel_error:
-            print(f"[EXCEL-MULTI] ❌ Excel oluşturma hatası: {excel_error}")
+            print(f"[EXCEL-MULTI-FIXED] ❌ Excel oluşturma hatası: {excel_error}")
             import traceback
-            print(f"[EXCEL-MULTI] 📋 Traceback: {traceback.format_exc()}")
+            print(f"[EXCEL-MULTI-FIXED] 📋 Traceback: {traceback.format_exc()}")
             
             return jsonify({
                 "success": False,
@@ -2436,8 +2563,120 @@ def export_multiple_analyses_excel():
             }), 500
             
     except Exception as e:
-        print(f"[EXCEL-MULTI] ❌ Genel hata: {str(e)}")
+        print(f"[EXCEL-MULTI-FIXED] ❌ Genel hata: {str(e)}")
         return jsonify({
             "success": False,
             "message": f"Çoklu Excel export hatası: {str(e)}"
         }), 500
+
+def calculate_mass_and_cost_for_analysis(analysis):
+    """✅ ANALİZ İÇİN KÜTLE VE MALİYET HESAPLAMA FONKSİYONU"""
+    try:
+        # Default değerler
+        result = {
+            'calculated_mass_kg': 0.0,
+            'calculated_material_cost_usd': 0.0,
+            'density_used': 2.7,
+            'price_per_kg_used': 4.5,
+            'volume_used_mm3': 0.0,
+            'material_used': 'Unknown'
+        }
+        
+        # ✅ STEP ANALİZİNDEN HACİM AL
+        step_analysis = analysis.get('step_analysis', {})
+        volume_mm3 = 0
+        
+        # Hacim kaynaklarını dene
+        if step_analysis.get('Prizma Hacmi (mm³)'):
+            volume_mm3 = step_analysis['Prizma Hacmi (mm³)']
+        elif step_analysis.get('Ürün Hacmi (mm³)'):
+            volume_mm3 = step_analysis['Ürün Hacmi (mm³)']
+        elif step_analysis.get('volume_mm3'):
+            volume_mm3 = step_analysis['volume_mm3']
+        
+        if volume_mm3 <= 0:
+            print(f"[CALC-MASS] ⚠️ Analiz {analysis.get('id', 'unknown')}: Geçerli hacim bulunamadı")
+            return result
+        
+        result['volume_used_mm3'] = volume_mm3
+        
+        # ✅ MALZEME BİLGİSİNİ BELİRLE
+        material_matches = analysis.get('material_matches', [])
+        material_name = 'Unknown'
+        
+        if material_matches:
+            first_match = material_matches[0]
+            if isinstance(first_match, str) and "(" in first_match:
+                material_name = first_match.split("(")[0].strip()
+            else:
+                material_name = str(first_match)
+        
+        result['material_used'] = material_name
+        
+        # ✅ MONGODB'DEN MALZEME VERİLERİNİ AL
+        try:
+            from utils.database import db
+            database = db.get_db()
+            
+            # Malzeme ara
+            material = database.materials.find_one({
+                "$or": [
+                    {"name": {"$regex": f"^{material_name}$", "$options": "i"}},
+                    {"name": {"$regex": material_name, "$options": "i"}},
+                    {"aliases": {"$in": [material_name]}},
+                    {"aliases": {"$elemMatch": {"$regex": material_name, "$options": "i"}}}
+                ]
+            })
+            
+            if material:
+                density = material.get("density", 2.7)
+                price_per_kg = material.get("price_per_kg", 4.5)
+                print(f"[CALC-MASS] ✅ MongoDB'de bulundu: {material.get('name')} (density: {density}, price: ${price_per_kg})")
+            else:
+                print(f"[CALC-MASS] ⚠️ MongoDB'de bulunamadı: {material_name}, varsayılan kullanılıyor")
+                # Varsayılan değerler - yaygın malzemeler için
+                if "6061" in material_name.upper():
+                    density, price_per_kg = 2.7, 4.5
+                elif "7075" in material_name.upper():
+                    density, price_per_kg = 2.81, 6.2
+                elif "304" in material_name.upper():
+                    density, price_per_kg = 7.93, 8.5
+                elif "316" in material_name.upper():
+                    density, price_per_kg = 7.98, 12.0
+                elif "ST37" in material_name.upper() or "S235" in material_name.upper():
+                    density, price_per_kg = 7.85, 2.2
+                else:
+                    density, price_per_kg = 2.7, 4.5
+            
+        except Exception as db_error:
+            print(f"[CALC-MASS] ❌ MongoDB hatası: {db_error}")
+            density, price_per_kg = 2.7, 4.5
+        
+        result['density_used'] = density
+        result['price_per_kg_used'] = price_per_kg
+        
+        # ✅ KÜTLE HESAPLAMA
+        # Hacim (mm³) * yoğunluk (g/cm³) / 1,000,000 = kütle (kg)
+        mass_kg = (volume_mm3 * density) / 1_000_000
+        result['calculated_mass_kg'] = round(mass_kg, 3)
+        
+        # ✅ MALİYET HESAPLAMA
+        material_cost_usd = mass_kg * price_per_kg
+        result['calculated_material_cost_usd'] = round(material_cost_usd, 2)
+        
+        print(f"[CALC-MASS] ✅ Hesaplama tamamlandı: {volume_mm3} mm³ x {density} g/cm³ = {mass_kg:.3f} kg x ${price_per_kg} = ${material_cost_usd:.2f}")
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        print(f"[CALC-MASS] ❌ Kütle/maliyet hesaplama hatası: {e}")
+        print(f"[CALC-MASS] 📋 Traceback: {traceback.format_exc()}")
+        return {
+            'calculated_mass_kg': 0.0,
+            'calculated_material_cost_usd': 0.0,
+            'density_used': 2.7,
+            'price_per_kg_used': 4.5,
+            'volume_used_mm3': 0.0,
+            'material_used': 'Unknown'
+        }
