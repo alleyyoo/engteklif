@@ -23,7 +23,7 @@ def create_app():
     app.config.from_object(Config)
     
     # CORS setup
-    CORS(app, origins=["http://188.132.220.35:3001", "http://188.132.220.35:5050"])
+    CORS(app, origins=["http://188.132.220.35:3001", "http://188.132.220.35:5051"])
     
     # JWT setup
     jwt = JWTManager(app)
@@ -619,7 +619,7 @@ if __name__ == '__main__':
     
     print("🚀 EngTeklif API başlatılıyor...")
     print(f"📊 Debug mode: {debug_mode}")
-    print(f"🌐 CORS origins: http://188.132.220.35:3001, http://188.132.220.35:5050")
+    print(f"🌐 CORS origins: http://188.132.220.35:3001, http://188.132.220.35:5051")
     print(f"🗄️  Database: {Config.DATABASE_NAME}")
     print("📐 Enhanced STEP Viewer: ACTIVE")
     print("🔧 STEP Analysis: ACTIVE")
@@ -629,10 +629,10 @@ if __name__ == '__main__':
     print("🔐 Access Token Authentication: ACTIVE")  # ✅ YENİ
     print("=" * 60)
     print("🔗 STEP Viewer URLs:")
-    print("   Main Viewer: http://localhost:5050/step-viewer")
-    print("   With Analysis: http://localhost:5050/step-viewer/{analysis_id}")
-    print("   With Token: http://localhost:5050/step-viewer/{analysis_id}/{access_token}")  # ✅ YENİ
-    print("   API Status: http://localhost:5050/api/step-viewer/status")
+    print("   Main Viewer: http://localhost:5051/step-viewer")
+    print("   With Analysis: http://localhost:5051/step-viewer/{analysis_id}")
+    print("   With Token: http://localhost:5051/step-viewer/{analysis_id}/{access_token}")  # ✅ YENİ
+    print("   API Status: http://localhost:5051/api/step-viewer/status")
     print("=" * 60)
     print("🔐 Authentication:")
     print("   Config API: /api/step-viewer/config/{analysis_id}")
