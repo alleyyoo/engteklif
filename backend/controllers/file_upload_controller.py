@@ -2016,3 +2016,304 @@ def merge_preview():
             "success": False,
             "message": f"Önizleme hatası: {str(e)}"
         }), 500
+    
+# file_upload_controller.py içine eklenecek yeni endpoint
+
+@upload_bp.route('/export-excel-multiple', methods=['POST'])
+@jwt_required()
+def export_multiple_analyses_excel():
+    """✅ YENİ - Birden fazla analizi Excel'e aktar (resimlerle birlikte)"""
+    try:
+        current_user = get_current_user()
+        
+        # Request body'den analysis_ids array'ini al
+        data = request.get_json()
+        if not data or 'analysis_ids' not in data:
+            return jsonify({
+                "success": False,
+                "message": "analysis_ids array gerekli"
+            }), 400
+        
+        analysis_ids = data['analysis_ids']
+        if not isinstance(analysis_ids, list) or len(analysis_ids) == 0:
+            return jsonify({
+                "success": False,
+                "message": "Geçerli analysis_ids array gerekli"
+            }), 400
+        
+        if len(analysis_ids) > 50:  # Güvenlik limiti
+            return jsonify({
+                "success": False,
+                "message": "Maksimum 50 analiz aynı anda export edilebilir"
+            }), 400
+        
+        print(f"[EXCEL-MULTI] 📊 Çoklu Excel export başlıyor: {len(analysis_ids)} analiz")
+        
+        # Analizleri yükle ve yetki kontrolü
+        analyses = []
+        not_found = []
+        unauthorized = []
+        
+        for analysis_id in analysis_ids:
+            analysis = FileAnalysis.find_by_id(analysis_id)
+            if not analysis:
+                not_found.append(analysis_id)
+                continue
+            
+            if analysis['user_id'] != current_user['id']:
+                unauthorized.append(analysis_id)
+                continue
+            
+            analyses.append(analysis)
+        
+        # Hata kontrolü
+        if not_found:
+            return jsonify({
+                "success": False,
+                "message": f"Bulunamayan analizler: {', '.join(not_found)}"
+            }), 404
+        
+        if unauthorized:
+            return jsonify({
+                "success": False,
+                "message": f"Yetkisiz erişim: {', '.join(unauthorized)}"
+            }), 403
+        
+        if not analyses:
+            return jsonify({
+                "success": False,
+                "message": "Export edilecek geçerli analiz bulunamadı"
+            }), 400
+        
+        try:
+            import pandas as pd
+            import io
+            from datetime import datetime
+            import os
+            
+            print(f"[EXCEL-MULTI] ✅ {len(analyses)} analiz işlenecek")
+            
+            # ✅ TÜM ANALİZLER İÇİN VERİ HAZIRLA
+            excel_data = []
+            
+            for analysis in analyses:
+                # ✅ STEP ANALİZİ VERİLERİNİ TOPLA
+                step_analysis = analysis.get('step_analysis', {})
+                
+                # ✅ MALZEME BİLGİSİNİ BELİRLE
+                material_matches = analysis.get('material_matches', [])
+                material_name = "Bilinmiyor"
+                
+                if material_matches:
+                    # İlk malzeme eşleşmesinden isim çıkar
+                    first_match = material_matches[0]
+                    if isinstance(first_match, str) and "(" in first_match:
+                        material_name = first_match.split("(")[0].strip()
+                    elif isinstance(first_match, str):
+                        material_name = first_match
+                
+                # Alternatif: material_used alanından al
+                if analysis.get('material_used'):
+                    material_name = analysis['material_used']
+                
+                # ✅ EXCEL SATIRI OLUŞTUR
+                row_data = {
+                    "Ürün Görseli": "",  # Resim için boş bırak - sonra eklenecek
+                    "Analiz ID": analysis.get('id', 'N/A'),
+                    "Dosya Adı": analysis.get('original_filename', 'N/A'),
+                    "Dosya Türü": analysis.get('file_type', 'N/A'),
+                    "Hammadde": material_name,
+                    "X+Pad (mm)": step_analysis.get('X+Pad (mm)', 0),
+                    "Y+Pad (mm)": step_analysis.get('Y+Pad (mm)', 0),
+                    "Z+Pad (mm)": step_analysis.get('Z+Pad (mm)', 0),
+                    "Silindirik Çap (mm)": step_analysis.get('Silindirik Çap (mm)', 0),
+                    "Ürün Hacmi (mm³)": step_analysis.get('Ürün Hacmi (mm³)', 0),
+                    "Toplam Yüzey Alanı (mm²)": step_analysis.get('Toplam Yüzey Alanı (mm²)', 0),
+                    "Hammadde Maliyeti (USD)": analysis.get('material_cost', 0),
+                    "Kütle (kg)": analysis.get('calculated_mass', 0),
+                    "Analiz Durumu": analysis.get('analysis_status', 'N/A'),
+                    "İşleme Süresi (s)": analysis.get('processing_time', 0),
+                    "Oluşturma Tarihi": analysis.get('created_at', 'N/A')
+                }
+                
+                # Malzeme detayını ekle (varsa)
+                if analysis.get('malzeme_detay'):
+                    row_data["Malzeme Eşleşmeleri"] = analysis['malzeme_detay']
+                
+                # ✅ RESİM YOLUNU BUL VE EKLE
+                image_path = None
+                enhanced_renders = analysis.get('enhanced_renders', {})
+                
+                # İzometrik görünüm varsa kullan
+                if 'isometric' in enhanced_renders and enhanced_renders['isometric'].get('file_path'):
+                    image_path = enhanced_renders['isometric']['file_path']
+                elif analysis.get('isometric_view_clean'):
+                    image_path = analysis['isometric_view_clean']
+                elif analysis.get('isometric_view'):
+                    image_path = analysis['isometric_view']
+                
+                # Görsel yolunu tam path'e çevir
+                full_image_path = None
+                if image_path:
+                    if image_path.startswith('/'):
+                        image_path = image_path[1:]  # Baştaki / işaretini kaldır
+                    if not image_path.startswith('static'):
+                        image_path = os.path.join('static', image_path)
+                    
+                    full_image_path = os.path.join(os.getcwd(), image_path)
+                    
+                    # Dosya var mı kontrol et
+                    if not os.path.exists(full_image_path):
+                        print(f"[EXCEL-MULTI] ⚠️ Görsel dosyası bulunamadı: {full_image_path}")
+                        full_image_path = None
+                    else:
+                        print(f"[EXCEL-MULTI] ✅ Görsel bulundu: {full_image_path}")
+                
+                # Row data'ya image path'i ekle (Excel'de kullanılacak)
+                row_data["_image_path"] = full_image_path
+                
+                excel_data.append(row_data)
+            
+            # ✅ DATAFRAME OLUŞTUR
+            df = pd.DataFrame(excel_data)
+            
+            # _image_path sütununu DataFrame'den çıkar (sadne internal kullanım için)
+            image_paths = df["_image_path"].tolist()
+            df = df.drop(columns=["_image_path"])
+            
+            print(f"[EXCEL-MULTI] 📋 DataFrame oluşturuldu: {len(df)} satır")
+            
+            # ✅ EXCEL ÇIKTISI (xlsxwriter ile)
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Ana sayfayı yaz (header'ı manuel olarak yazacağız)
+                df.to_excel(writer, sheet_name='Analiz Sonuçları', index=False, header=False, startrow=1)
+                
+                workbook = writer.book
+                worksheet = writer.sheets['Analiz Sonuçları']
+                
+                # ✅ SÜTUN GENİŞLİKLERİNİ AYARLA
+                worksheet.set_column("A:A", 30)  # Görsel sütunu geniş
+                worksheet.set_column("B:B", 15)  # Analiz ID
+                worksheet.set_column("C:C", 25)  # Dosya Adı
+                worksheet.set_column("D:D", 15)  # Dosya Türü
+                worksheet.set_column("E:E", 20)  # Hammadde
+                worksheet.set_column("F:Z", 18)  # Diğer sütunlar
+                
+                # ✅ HEADER STİLİ
+                header_format = workbook.add_format({
+                    "bold": True,
+                    "text_wrap": True,
+                    "valign": "top",
+                    "fg_color": "#D7E4BC",
+                    "border": 1
+                })
+                
+                # Header'ları yaz
+                for col_num, value in enumerate(df.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+                
+                # ✅ RESİMLERİ SATIRLARA EKLE
+                for row_idx, image_path in enumerate(image_paths):
+                    excel_row = row_idx + 1  # +1 çünkü header var
+                    
+                    # Satır yüksekliğini artır (resim için)
+                    worksheet.set_row(excel_row, 120)
+                    
+                    if image_path and os.path.exists(image_path):
+                        try:
+                            # Resmi ekle (app.py ile aynı ayarlar)
+                            worksheet.insert_image(f"A{excel_row + 1}", image_path, {
+                                "x_scale": 0.4,
+                                "y_scale": 0.4,
+                                "x_offset": 45,
+                                "y_offset": 35
+                            })
+                            print(f"[EXCEL-MULTI] 🖼️ Satır {excel_row + 1}: Resim eklendi")
+                        except Exception as img_error:
+                            print(f"[EXCEL-MULTI] ❌ Satır {excel_row + 1} resim ekleme hatası: {img_error}")
+                            # Resim eklenemezse "Resim Hatası" yaz
+                            worksheet.write(f"A{excel_row + 1}", "Resim Hatası")
+                    else:
+                        # Resim yoksa "Resim Yok" yaz
+                        worksheet.write(f"A{excel_row + 1}", "Resim Yok")
+                
+                # ✅ EK SAYFALAR - Malzeme seçenekleri özeti
+                # Tüm analizlerin malzeme seçeneklerini birleştir
+                all_material_options = []
+                for analysis in analyses:
+                    material_options = analysis.get('material_options', [])
+                    for mat_option in material_options:
+                        mat_option['source_analysis'] = analysis.get('id', 'Unknown')
+                        mat_option['source_filename'] = analysis.get('original_filename', 'Unknown')
+                        all_material_options.append(mat_option)
+                
+                if all_material_options:
+                    materials_df = pd.DataFrame(all_material_options)
+                    materials_df.to_excel(writer, sheet_name='Tüm Malzeme Seçenekleri', index=False)
+                    print(f"[EXCEL-MULTI] 📄 Malzeme seçenekleri sayfası: {len(all_material_options)} seçenek")
+                
+                # ✅ ÖZET SAYFA
+                summary_data = {
+                    "Metrik": [
+                        "Toplam Analiz Sayısı",
+                        "Başarılı Analizler", 
+                        "Başarısız Analizler",
+                        "STEP Dosyaları",
+                        "PDF Dosyaları",
+                        "Ortalama İşleme Süresi (s)",
+                        "Toplam Hacim (mm³)",
+                        "Ortalama Malzeme Maliyeti (USD)"
+                    ],
+                    "Değer": [
+                        len(analyses),
+                        len([a for a in analyses if a.get('analysis_status') == 'completed']),
+                        len([a for a in analyses if a.get('analysis_status') == 'failed']),
+                        len([a for a in analyses if a.get('file_type') in ['step', 'stp']]),
+                        len([a for a in analyses if a.get('file_type') == 'pdf']),
+                        round(sum([a.get('processing_time', 0) for a in analyses]) / len(analyses), 2),
+                        sum([a.get('step_analysis', {}).get('Ürün Hacmi (mm³)', 0) for a in analyses]),
+                        round(sum([a.get('material_cost', 0) for a in analyses]) / len(analyses), 2)
+                    ]
+                }
+                
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Özet', index=False)
+                print(f"[EXCEL-MULTI] 📊 Özet sayfası oluşturuldu")
+            
+            output.seek(0)
+            
+            # ✅ DOSYA ADI OLUŞTUR
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"coklu_analiz_{len(analyses)}_dosya_{timestamp}.xlsx"
+            
+            print(f"[EXCEL-MULTI] ✅ Excel dosyası hazır: {filename}")
+            
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+            
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "message": "Excel export için pandas ve xlsxwriter gerekli"
+            }), 500
+        except Exception as excel_error:
+            print(f"[EXCEL-MULTI] ❌ Excel oluşturma hatası: {excel_error}")
+            import traceback
+            print(f"[EXCEL-MULTI] 📋 Traceback: {traceback.format_exc()}")
+            
+            return jsonify({
+                "success": False,
+                "message": f"Excel oluşturma hatası: {str(excel_error)}"
+            }), 500
+            
+    except Exception as e:
+        print(f"[EXCEL-MULTI] ❌ Genel hata: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Çoklu Excel export hatası: {str(e)}"
+        }), 500
