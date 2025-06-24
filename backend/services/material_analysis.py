@@ -460,26 +460,71 @@ class MaterialAnalysisService:
             return {"error": f"STEP analiz hatası: {str(e)}"}
     
     def _calculate_found_materials(self, prizma_hacim_mm3, found_materials):
-        """✅ BULUNAN MALZEMELER İÇİN DETAYLI HESAPLAMA - MongoDB'den veri alarak"""
+        """✅ BULUNAN MALZEMELER İÇİN DETAYLI HESAPLAMA - DUPLICATE PREVENTION İLE"""
         try:
             calculations = []
+            material_map = {}  # ✅ Malzeme adına göre en iyi confidence'ı takip et
+            
             print(f"[DEBUG] Bulunan malzemeler hesaplanıyor: {found_materials}")
             print(f"[DEBUG] MongoDB'deki malzeme sayısı: {self.database.materials.count_documents({})}")
             
+            # ✅ İlk geçiş: Tüm malzemeleri işle ve en yüksek confidence'ı bul
             for material_text in found_materials:
                 # Malzeme adını temizle
                 material_name = material_text.split("(")[0].strip()
-                confidence = "100%" if "%100" in material_text else "estimated"
                 
-                print(f"[DEBUG] Aranan malzeme: '{material_name}'")
+                # Confidence çıkar
+                confidence_match = re.search(r'%(\d+)', material_text)
+                if confidence_match:
+                    confidence_value = int(confidence_match.group(1))
+                    if confidence_value == 100:
+                        confidence = "100%"
+                    else:
+                        confidence = f"{confidence_value}%"
+                else:
+                    confidence = "estimated"
+                
+                print(f"[DEBUG] İşlenen malzeme: '{material_name}' - Confidence: {confidence}")
+                
+                # ✅ Aynı malzemeden daha yüksek confidence varsa güncelle
+                if material_name in material_map:
+                    existing_confidence = material_map[material_name]['confidence_value']
+                    current_confidence = confidence_value if confidence_match else 0
+                    
+                    if current_confidence > existing_confidence:
+                        print(f"[UPDATE] {material_name}: %{existing_confidence} -> %{current_confidence}")
+                        material_map[material_name] = {
+                            'material_text': material_text,
+                            'confidence': confidence,
+                            'confidence_value': current_confidence
+                        }
+                    else:
+                        print(f"[SKIP] {material_name}: Mevcut %{existing_confidence} daha yüksek")
+                    continue
+                else:
+                    # İlk kez görülen malzeme
+                    material_map[material_name] = {
+                        'material_text': material_text,
+                        'confidence': confidence,
+                        'confidence_value': confidence_value if confidence_match else 0
+                    }
+            
+            print(f"[DEBUG] Deduplication sonrası: {len(material_map)} benzersiz malzeme")
+            
+            # ✅ İkinci geçiş: En iyi confidence'a sahip malzemeleri hesapla
+            for material_name, material_data in material_map.items():
+                material_text = material_data['material_text']
+                confidence = material_data['confidence']
+                
+                print(f"[DEBUG] Hesaplanan malzeme: '{material_name}' - Final confidence: {confidence}")
                 
                 # MongoDB'den malzeme bilgisi al - daha geniş arama
                 material = self.database.materials.find_one({
                     "$or": [
-                        {"name": {"$regex": f"^{material_name}$", "$options": "i"}},  # Exact match (case insensitive)
+                        {"name": {"$regex": f"^{material_name}$", "$options": "i"}},  # Exact match
                         {"name": {"$regex": material_name, "$options": "i"}},        # Partial match
                         {"aliases": {"$in": [material_name]}},                      # Alias match
-                        {"aliases": {"$elemMatch": {"$regex": material_name, "$options": "i"}}}  # Alias partial match
+                        {"aliases": {"$elemMatch": {"$regex": material_name, "$options": "i"}}}  # Alias partial
                     ]
                 })
                 
@@ -492,7 +537,6 @@ class MaterialAnalysisService:
                     aliases = material.get("aliases", [])
                 else:
                     print(f"[WARNING] MongoDB'de bulunamadı: {material_name}, varsayılan kullanılıyor")
-                    # Varsayılan değerler - yaygın malzemeler için
                     if "6061" in material_name.upper():
                         density, price_per_kg = 2.7, 4.5
                         category = "Alüminyum"
@@ -516,7 +560,6 @@ class MaterialAnalysisService:
                     aliases = []
                 
                 # Kütle hesaplama (mm³ -> cm³ -> kg)
-                # Prizma hacmi (mm³) * yoğunluk (g/cm³) / 1,000,000 = kütle (kg)
                 mass_kg = round((prizma_hacim_mm3 * density) / 1_000_000, 3)
                 material_cost = round(mass_kg * price_per_kg, 2)
                 
@@ -524,20 +567,25 @@ class MaterialAnalysisService:
                     "material": actual_name,
                     "original_text": material_text,
                     "confidence": confidence,
+                    "confidence_value": material_data['confidence_value'],  # ✅ Sayısal değer de eklendi
                     "category": category,
                     "aliases": aliases,
-                    "density": density,          # ← ÖZKÜTLE (g/cm³)
-                    "mass_kg": mass_kg,          # ← KÜTLE (kg)
-                    "price_per_kg": price_per_kg, # ← KG FİYATI (USD)
-                    "material_cost": material_cost, # ← TOPLAM MALİYET (USD)
+                    "density": density,
+                    "mass_kg": mass_kg,
+                    "price_per_kg": price_per_kg,
+                    "material_cost": material_cost,
                     "volume_mm3": prizma_hacim_mm3,
-                    "found_in_db": material is not None
+                    "found_in_db": material is not None,
+                    "is_best_match": True  # ✅ Bu malzeme için en iyi eşleşme
                 }
                 
                 calculations.append(calculation)
-                print(f"[CALC-FOUND] {actual_name}: {density}g/cm³ x {mass_kg}kg x ${price_per_kg} = ${material_cost}")
+                print(f"[CALC-FOUND] {actual_name}: {density}g/cm³ x {mass_kg}kg x ${price_per_kg} = ${material_cost} (Confidence: {confidence})")
             
-            print(f"[SUCCESS] {len(calculations)} bulunan malzeme hesaplandı")
+            # ✅ Confidence'a göre sırala (en yüksek confidence ilk sırada)
+            calculations.sort(key=lambda x: x['confidence_value'], reverse=True)
+            
+            print(f"[SUCCESS] {len(calculations)} benzersiz malzeme hesaplandı (duplicate'lar kaldırıldı)")
             return calculations
             
         except Exception as e:
@@ -731,16 +779,17 @@ class MaterialAnalysisService:
                 print(f"[ERROR] Fallback malzeme ekleme de başarısız: {fallback_error}")
     
     def _find_materials_in_text(self, text):
-        """Metinde malzeme arama"""
+        """✅ Metinde malzeme arama - ENHANCED DUPLICATE PREVENTION"""
         if not text or len(text.strip()) < 10:
             return []
         
         materials = []
+        material_confidence_map = {}  # ✅ Malzeme adı -> en yüksek confidence
         text_upper = text.upper()
         
         print(f"[DEBUG] Metin analizi - uzunluk: {len(text)} karakter")
         
-        # Alaşım kodları
+        # Alaşım kodları - confidence %100
         alloy_patterns = {
             "6061": "6061-T6",
             "7075": "7075-T6", 
@@ -755,10 +804,29 @@ class MaterialAnalysisService:
         
         for pattern, name in alloy_patterns.items():
             if pattern in text_upper:
-                materials.append(f"{name} (%100)")
-                print(f"[FOUND] Alaşım: {pattern} -> {name}")
+                material_key = name
+                confidence = 100
+                
+                # ✅ Aynı malzemeden daha yüksek confidence varsa güncelle
+                if material_key in material_confidence_map:
+                    if confidence > material_confidence_map[material_key]['confidence']:
+                        material_confidence_map[material_key] = {
+                            'name': name,
+                            'confidence': confidence,
+                            'source': 'alloy_code',
+                            'pattern': pattern
+                        }
+                else:
+                    material_confidence_map[material_key] = {
+                        'name': name,
+                        'confidence': confidence,
+                        'source': 'alloy_code',
+                        'pattern': pattern
+                    }
+                
+                print(f"[FOUND] Alaşım: {pattern} -> {name} (%{confidence})")
         
-        # Genel malzeme isimleri
+        # Genel malzeme isimleri - confidence %estimated (70)
         general_materials = {
             "ALÜMINYUM": "6061-T6",
             "ALUMINUM": "6061-T6", 
@@ -773,12 +841,48 @@ class MaterialAnalysisService:
         
         for keyword, name in general_materials.items():
             if keyword in text_upper:
-                material_text = f"{name} (%estimated)"
-                if material_text not in materials:
-                    materials.append(material_text)
-                    print(f"[FOUND] Genel: {keyword} -> {name}")
+                material_key = name
+                confidence = 70  # estimated confidence
+                
+                # ✅ Aynı malzemeden daha yüksek confidence varsa güncelleme
+                if material_key in material_confidence_map:
+                    if confidence > material_confidence_map[material_key]['confidence']:
+                        material_confidence_map[material_key] = {
+                            'name': name,
+                            'confidence': confidence,
+                            'source': 'general_keyword',
+                            'pattern': keyword
+                        }
+                    # Daha düşük confidence ise güncelleme yapma
+                else:
+                    material_confidence_map[material_key] = {
+                        'name': name,
+                        'confidence': confidence,
+                        'source': 'general_keyword',
+                        'pattern': keyword
+                    }
+                
+                print(f"[FOUND] Genel: {keyword} -> {name} (%{confidence})")
         
-        return list(set(materials))[:5]
+        # ✅ En yüksek confidence'a sahip malzemeleri listeye çevir
+        for material_key, material_info in material_confidence_map.items():
+            confidence_str = f"%{material_info['confidence']}" if material_info['confidence'] == 100 else "estimated"
+            material_text = f"{material_info['name']} ({confidence_str})"
+            materials.append(material_text)
+            
+            print(f"[FINAL] {material_info['name']}: %{material_info['confidence']} ({material_info['source']})")
+        
+        # ✅ Confidence'a göre sırala ve en fazla 5 tane döndür
+        material_list = []
+        confidence_sorted = sorted(material_confidence_map.values(), key=lambda x: x['confidence'], reverse=True)
+        
+        for material_info in confidence_sorted[:5]:  # En iyi 5 malzeme
+            confidence_str = f"%{material_info['confidence']}" if material_info['confidence'] == 100 else "estimated"
+            material_text = f"{material_info['name']} ({confidence_str})"
+            material_list.append(material_text)
+        
+        print(f"[RESULT] {len(material_list)} benzersiz malzeme bulundu (duplicates kaldırıldı)")
+        return material_list
     
     def _extract_text_from_pdf(self, pdf_path):
         """PDF'den metin çıkarma"""

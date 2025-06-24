@@ -306,33 +306,6 @@ export const DashboardPage = () => {
               >
                 🎯 3D Model Viewer
               </button>
-              
-              {analysis.enhanced_renders && (
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
-                    Mevcut Görünümler:
-                  </div>
-                  {Object.entries(analysis.enhanced_renders).map(([viewName, viewData]: [string, any]) => (
-                    viewData.success && (
-                      <a
-                        key={viewName}
-                        href={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${viewData.file_path}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'block',
-                          fontSize: '11px',
-                          color: '#195cd7',
-                          textDecoration: 'none',
-                          padding: '2px 0',
-                        }}
-                      >
-                        📷 {viewName.charAt(0).toUpperCase() + viewName.slice(1)} View
-                      </a>
-                    )
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -450,7 +423,11 @@ export const DashboardPage = () => {
             </div>
             
             {materialCalculations.map((calc: any, idx: any) => (
+              
               <React.Fragment key={idx}>
+                <div className={classes.analyseInsideItem} style={{backgroundColor: '#f8f9fa', paddingTop: '20px', paddingBottom: '20px'}}>
+                  <p>{calc.category ? `Malzeme: ${calc.original_text}` : 'Malzeme bilgisi mevcut değil.'}</p>
+                </div>
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Prizma Hacmi(mm³)</p>
                   <p className={classes.analyseItemExp}>{calc.volume_mm3}</p>
@@ -708,7 +685,7 @@ export const DashboardPage = () => {
                 ))}
 
                 {/* ✅ YENİ - Multiple Excel Export Butonu */}
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', width: '100%' }}>
                   {/* Export progress */}
                   {isExporting && (
                     <div style={{ marginBottom: '10px' }}>

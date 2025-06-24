@@ -2570,7 +2570,7 @@ def export_multiple_analyses_excel():
         }), 500
 
 def calculate_mass_and_cost_for_analysis(analysis):
-    """✅ ANALİZ İÇİN KÜTLE VE MALİYET HESAPLAMA FONKSİYONU"""
+    """✅ ANALİZ İÇİN KÜTLE VE MALİYET HESAPLAMA - ENHANCED WITH DEDUPLICATION"""
     try:
         # Default değerler
         result = {
@@ -2600,16 +2600,46 @@ def calculate_mass_and_cost_for_analysis(analysis):
         
         result['volume_used_mm3'] = volume_mm3
         
-        # ✅ MALZEME BİLGİSİNİ BELİRLE
+        # ✅ MALZEME BİLGİSİNİ BELİRLE - ENHANCED DEDUPLICATION
         material_matches = analysis.get('material_matches', [])
         material_name = 'Unknown'
+        best_confidence = 0
         
+        # ✅ En yüksek confidence'a sahip malzemeyi bul
         if material_matches:
-            first_match = material_matches[0]
-            if isinstance(first_match, str) and "(" in first_match:
-                material_name = first_match.split("(")[0].strip()
+            best_material = None
+            
+            for match in material_matches:
+                if isinstance(match, str):
+                    # Confidence değerini çıkar
+                    confidence_match = re.search(r'%(\d+)', match)
+                    if confidence_match:
+                        confidence_value = int(confidence_match.group(1))
+                    elif "estimated" in match.lower():
+                        confidence_value = 70  # estimated için varsayılan
+                    else:
+                        confidence_value = 50  # fallback
+                    
+                    # En yüksek confidence'ı bul
+                    if confidence_value > best_confidence:
+                        best_confidence = confidence_value
+                        best_material = match
+            
+            # En iyi malzemeyi seç
+            if best_material:
+                if "(" in best_material:
+                    material_name = best_material.split("(")[0].strip()
+                else:
+                    material_name = best_material.strip()
+                
+                print(f"[CALC-MASS] 🏆 En iyi malzeme seçildi: {material_name} (%{best_confidence})")
             else:
-                material_name = str(first_match)
+                # Fallback: ilk malzemeyi kullan
+                first_match = material_matches[0]
+                if isinstance(first_match, str) and "(" in first_match:
+                    material_name = first_match.split("(")[0].strip()
+                else:
+                    material_name = str(first_match) if first_match else 'Unknown'
         
         result['material_used'] = material_name
         
@@ -2656,7 +2686,6 @@ def calculate_mass_and_cost_for_analysis(analysis):
         result['price_per_kg_used'] = price_per_kg
         
         # ✅ KÜTLE HESAPLAMA
-        # Hacim (mm³) * yoğunluk (g/cm³) / 1,000,000 = kütle (kg)
         mass_kg = (volume_mm3 * density) / 1_000_000
         result['calculated_mass_kg'] = round(mass_kg, 3)
         
@@ -2665,6 +2694,7 @@ def calculate_mass_and_cost_for_analysis(analysis):
         result['calculated_material_cost_usd'] = round(material_cost_usd, 2)
         
         print(f"[CALC-MASS] ✅ Hesaplama tamamlandı: {volume_mm3} mm³ x {density} g/cm³ = {mass_kg:.3f} kg x ${price_per_kg} = ${material_cost_usd:.2f}")
+        print(f"[CALC-MASS] 🎯 Seçilen malzeme: {material_name} (confidence: %{best_confidence})")
         
         return result
         
