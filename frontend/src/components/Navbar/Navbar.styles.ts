@@ -61,7 +61,7 @@ export const NavbarStyles = createUseStyles({
   
   // Menu container
   navbarMenu: {
-    display: "flex",
+    display: "none",
     alignItems: "center",
     gap: px2rem(16),
     
@@ -154,7 +154,7 @@ export const NavbarStyles = createUseStyles({
     display: "flex",
     alignItems: "center",
     gap: px2rem(16),
-    
+
     // Tablet responsive
     "@media (max-width: 1024px)": {
       gap: px2rem(12),
