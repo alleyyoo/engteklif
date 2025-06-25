@@ -288,11 +288,18 @@ export const DashboardPage = () => {
     const isRenderCompleted = file.renderStatus === 'completed' || analysis.render_status === 'completed';
     const hasEnhancedRenders = analysis.enhanced_renders && Object.keys(analysis.enhanced_renders).length > 0;
 
+    console.log(analysis.material_matches)
+
     return (
       <div className={classes.analyseItemInsideDiv}>
         <div className={classes.analyseFirstDiv}>
           <p className={classes.analyseAlias}>
-            {analysis.material_matches?.[0] || '6061(alias:6061, %100)'}
+            {(() => {
+              const match = analysis.material_matches?.[0];
+              return (match && !match.includes('default')) 
+                ? match 
+                : 'Malzeme Eşleşmesi Yok';
+            })()}
           </p>
           <div className={classes.modelDiv}>
             <div className={classes.modelSection}>
@@ -358,9 +365,9 @@ export const DashboardPage = () => {
               <button 
                 className={classes.modelShowButton}
                 onClick={() => open3DViewer(analysis.id, file.file.name)}
-                title="Gelişmiş 3D Viewer'da aç"
+                title="Gelişmiş 3D Görüntüleyici'de aç"
               >
-                🎯 3D Model Viewer
+                🎯 3D Modeli Görüntüle
               </button>
             </div>
           </div>
@@ -372,28 +379,49 @@ export const DashboardPage = () => {
 
         {/* Boyutlar */}
         <div className={classes.analyseItemInsideDiv}>
-          <div className={classes.analyseSubtitleDiv}>
-            <span>📐</span>
-            <p className={classes.titleSmall}>Boyutlar</p>
-          </div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>X(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['X (mm)'] || '0.0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Y(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Y (mm)'] || '0.0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Z(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Z (mm)'] || '0.0'}</p>
-          </div>
-        </div>
+  <div className={classes.analyseSubtitleDiv}>
+    <span>📐</span>
+    <p className={classes.titleSmall}>Boyutlar</p>
+  </div>
+  
+  <div className={classes.dimensionTable}>
+    <div className={classes.tableHeader}>
+      <div className={classes.tableCell}>Eksen</div>
+      <div className={classes.tableCell}>Boyut (mm)</div>
+      <div className={classes.tableCell}>Paylı Boyut (mm)</div>
+    </div>
+    
+    <div className={classes.tableRow}>
+      <div className={classes.tableCell}>X</div>
+      <div className={classes.tableCell}>
+        {Math.ceil(parseFloat(stepAnalysis?.['X (mm)']) || 0)}
+      </div>
+      <div className={classes.tableCell}>
+        {Math.ceil((parseFloat(stepAnalysis?.['X (mm)']) || 0) + 10)}
+      </div>
+    </div>
+    
+    <div className={classes.tableRow}>
+      <div className={classes.tableCell}>Y</div>
+      <div className={classes.tableCell}>
+        {Math.ceil(parseFloat(stepAnalysis?.['Y (mm)']) || 0)}
+      </div>
+      <div className={classes.tableCell}>
+        {Math.ceil((parseFloat(stepAnalysis?.['Y (mm)']) || 0) + 10)}
+      </div>
+    </div>
+    
+    <div className={classes.tableRow}>
+      <div className={classes.tableCell}>Z</div>
+      <div className={classes.tableCell}>
+        {Math.ceil(parseFloat(stepAnalysis?.['Z (mm)']) || 0)}
+      </div>
+      <div className={classes.tableCell}>
+        {Math.ceil((parseFloat(stepAnalysis?.['Z (mm)']) || 0) + 10)}
+      </div>
+    </div>
+  </div>
+</div>
 
         {/* Silindirik Özellikler */}
         <div className={classes.analyseItemInsideDiv}>
@@ -445,37 +473,12 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        {/* Step Dosyası Metadata */}
-        <div className={classes.analyseItemInsideDiv}>
-          <div className={classes.analyseSubtitleDiv}>
-            <span>📋</span>
-            <p className={classes.titleSmall}>Step Dosyası Metadata</p>
-          </div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Malzeme Bilgisi</p>
-            <p className={classes.analyseItemExp}>
-              {analysis.material_matches?.length > 0 
-                ? analysis.material_matches[0] 
-                : 'Malzeme bilgisi step dosyasında bulunmuyor.'}
-            </p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Not</p>
-            <p className={classes.analyseItemExp}>
-              Not bilgisi step dosyasında bulunmuyor.
-            </p>
-          </div>
-        </div>
-
         {/* Hesaplaşmaya Esas Değerler */}
         {materialCalculations.length > 0 && (
           <div className={classes.analyseItemInsideDiv}>
             <div className={classes.analyseSubtitleDiv}>
               <span>⚙️</span>
-              <p className={classes.titleSmall}>Hesaplaşmaya Esas Değerler</p>
+              <p className={classes.titleSmall}>Esas Değerler</p>
             </div>
             
             {materialCalculations.map((calc: any, idx: any) => (

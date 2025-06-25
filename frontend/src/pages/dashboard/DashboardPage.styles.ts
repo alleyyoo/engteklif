@@ -580,4 +580,33 @@ export const DashboardPageStyles = createUseStyles({
     '0%': { transform: 'rotate(0deg)' },
     '100%': { transform: 'rotate(360deg)' },
   },
+  dimensionTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  
+  tableHeader: {
+    display: 'flex',
+    backgroundColor: '#f5f5f5',
+    fontWeight: 'bold',
+    borderBottom: '2px solid #ddd',
+  },
+  
+  tableRow: {
+    display: 'flex',
+    borderBottom: '1px solid #eee',
+    '&:hover': {
+      backgroundColor: '#f9f9f9',
+    },
+  },
+  
+  tableCell: {
+    flex: 1,
+    padding: '8px 12px',
+    textAlign: 'center',
+    borderRight: '1px solid #eee',
+    '&:last-child': {
+      borderRight: 'none',
+    },
+  },
 });
