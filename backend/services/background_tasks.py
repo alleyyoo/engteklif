@@ -22,14 +22,14 @@ class BackgroundTaskManager:
             return
             
         self._initialized = True
-        self.task_queue = queue.Queue()
+        self.task_queue = queue.Queue(maxsize=100)  # Queue limiti ekle
         self.active_tasks = {}
         self.completed_tasks = {}
         self.failed_tasks = {}
-        self.max_workers = 3
+        self.max_workers = 5  # Worker sayısını artır
         self.workers = []
         self._start_workers()
-        
+            
         print("[TASK-MANAGER] ✅ Background Task Manager başlatıldı")
     
     def _start_workers(self):

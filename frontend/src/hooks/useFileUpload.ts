@@ -250,7 +250,7 @@ export const useFileUpload = () => {
               });
               
               // Render işlemi devam ediyorsa, periyodik kontrol başlat
-              if (analysisResponse.render_status !== 'completed' && analysisResponse.render_status !== 'failed') {
+              if (analysisResponse.render_status === 'processing') {
                 startRenderStatusCheck(analysisId, index);
               }
             } else {
