@@ -42,6 +42,7 @@ export interface AnalysisStatus {
 export interface AnalysisResult {
   success: boolean;
   message: string;
+  render_status?: 'none' | 'pending' | 'processing' | 'completed' | 'failed'; // ✅ YENİ
   analysis: {
     id: string;
     user_id: string;
@@ -86,6 +87,11 @@ export interface AnalysisResult {
         svg_path?: string;
       };
     };
+    stl_generated?: boolean;  // ✅ YENİ
+    stl_path?: string;        // ✅ YENİ
+    stl_file_size?: number;   // ✅ YENİ
+    render_status?: 'none' | 'pending' | 'processing' | 'completed' | 'failed'; // ✅ YENİ
+    render_task_id?: string;  // ✅ YENİ
     processing_time: number;
     created_at: string;
   };
@@ -94,8 +100,33 @@ export interface AnalysisResult {
     material_matches_count: number;
     step_analysis_available: boolean;
     cost_estimation_available: boolean;
-    enhanced_renders_count: number;
-    render_types: string[];
+    enhanced_renders_count?: number;  // ✅ optional yap
+    render_types?: string[];          // ✅ optional yap
+    processing_steps?: number;        // ✅ YENİ
+    all_material_calculations_count?: number; // ✅ YENİ
+    material_options_count?: number;  // ✅ YENİ
+    "3d_render_available"?: boolean;  // ✅ YENİ
+    render_in_progress?: boolean;     // ✅ YENİ
+  };
+}
+
+// ✅ Render Status Response type'ı da ekleyelim
+export interface RenderStatusResponse {
+  success: boolean;
+  render_status: 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+  has_renders: boolean;
+  render_count: number;
+  stl_generated?: boolean;
+  stl_path?: string;
+  task_status?: {
+    status: string;
+    [key: string]: any;
+  };
+  renders?: {
+    [key: string]: {
+      file_path: string;
+      excel_path?: string;
+    };
   };
 }
 
@@ -471,6 +502,19 @@ class ApiService {
 
     return response.json();
   }
+
+  async getRenderStatus(analysisId: string): Promise<RenderStatusResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/render-status/${analysisId}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
+    );
+
+    return response.json();
+  }
 }
+
 
 export const apiService = new ApiService();

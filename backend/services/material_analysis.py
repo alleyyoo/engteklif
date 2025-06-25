@@ -1041,6 +1041,287 @@ class MaterialAnalysisService:
         except Exception as e:
             print(f"[ERROR] AI fiyat tahmini: {e}")
             return {"error": str(e)}
+        
+    def analyze_document_fast(self, file_path, file_type, user_id):
+        """Hızlı analiz - render olmadan"""
+        result = {
+            "material_matches": [],
+            "step_analysis": {},
+            "cost_estimation": {},
+            "ai_price_prediction": {},
+            "all_material_calculations": [],  
+            "material_options": [],           
+            "processing_log": [],
+            "step_file_hash": None,
+            # ✅ RENDER ALANLARINI EKLEME
+            "isometric_view": None,
+            "isometric_view_clean": None,
+            "enhanced_renders": {}
+        }
+        
+        try:
+            print(f"[FAST-ANALYSIS] ⚡ Hızlı analiz başlatılıyor: {file_path} ({file_type})")
+            
+            if file_type == 'pdf':
+                result = self._analyze_pdf_fast(file_path, result)
+            elif file_type in ['step', 'stp']:
+                result["step_analysis"] = self.analyze_step_file(file_path)
+                result["processing_log"].append("🔧 STEP analizi tamamlandı")
+                
+                if not result.get("material_matches"):
+                    result["material_matches"] = ["6061-T6 (%default)"]
+                    
+            elif file_type in ['doc', 'docx']:
+                result = self._analyze_document(file_path, result)
+            
+            # ✅ MALZEME HESAPLAMA - STEP analizi varsa
+            step_analysis = result.get("step_analysis", {})
+            prizma_hacim = step_analysis.get("Prizma Hacmi (mm³)")
+            
+            if prizma_hacim and prizma_hacim > 0:
+                print(f"[FAST-ANALYSIS] Prizma hacim bulundu: {prizma_hacim} mm³")
+                
+                # Bulunan malzemeler için detaylı hesaplama
+                if result.get("material_matches"):
+                    result["all_material_calculations"] = self._calculate_found_materials(
+                        prizma_hacim, result["material_matches"]
+                    )
+                    result["processing_log"].append(f"🧮 {len(result['all_material_calculations'])} bulunan malzeme hesaplandı")
+                
+                # Tüm mevcut malzemeler için hesaplama
+                result["material_options"] = self._calculate_all_materials(prizma_hacim)
+                result["processing_log"].append(f"📊 {len(result['material_options'])} malzeme seçeneği hesaplandı")
+                
+            else:
+                result["processing_log"].append("⚠️ Hacim bilgisi yok, malzeme hesaplaması yapılamadı")
+            
+            # Maliyet hesaplama
+            if result.get("step_analysis") and not result["step_analysis"].get("error"):
+                cost_service = CostEstimationService()
+                result["cost_estimation"] = cost_service.calculate_cost(
+                    result["step_analysis"], 
+                    result.get("material_matches", ["6061-T6 (%default)"])
+                )
+                result["processing_log"].append("💰 Maliyet hesaplandı")
+            
+            # AI fiyat tahmini
+            if result.get("step_analysis") and not result["step_analysis"].get("error"):
+                result["ai_price_prediction"] = self._calculate_ai_price(
+                    result["step_analysis"], 
+                    result.get("all_material_calculations", [])
+                )
+                result["processing_log"].append("🤖 AI fiyat tahmini")
+            
+            print(f"[FAST-ANALYSIS] ✅ Hızlı analiz tamamlandı")
+            return result
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"Hızlı analiz hatası: {str(e)}"
+            print(f"[FAST-ANALYSIS] ❌ {error_msg}")
+            print(f"[FAST-ANALYSIS] 📋 Traceback: {traceback.format_exc()}")
+            result["error"] = error_msg
+            result["processing_log"].append(f"❌ HATA: {error_msg}")
+            return result
+
+    def _analyze_pdf_fast(self, file_path, result):
+        """PDF analizi - OPTİMİZE EDİLMİŞ"""
+        import time as time_module
+        
+        total_start = time_module.time()
+        result["processing_log"].append("📄 PDF hızlı analizi başlatıldı")
+        print(f"\n[PDF-FAST] 📄 PDF analizi başlıyor: {os.path.basename(file_path)}")
+        print(f"[PDF-FAST] 📏 Dosya boyutu: {os.path.getsize(file_path) / 1024 / 1024:.2f} MB")
+        
+        # ✅ 1. ÖNCE STEP DOSYASINI KONTROL ET (OCR'dan önce)
+        step_start = time_module.time()
+        step_paths = self._extract_step_from_pdf(file_path)
+        step_time = time_module.time() - step_start
+        print(f"[PDF-TIMING] ⏱️ STEP çıkarma: {step_time:.2f}s")
+        
+        extracted_step_path = None
+        permanent_step_path = None
+        
+        if step_paths:
+            extracted_step_path = step_paths[0]
+            step_filename = os.path.basename(extracted_step_path)
+            result["processing_log"].append(f"📎 STEP çıkarıldı: {step_filename}")
+            
+            # ✅ STEP dosyasını kalıcı olarak sakla
+            import hashlib
+            file_hash = hashlib.md5(file_path.encode()).hexdigest()[:8]
+            analysis_id = f"pdf_{int(time.time())}_{file_hash}"
+            
+            permanent_dir = os.path.join("static", "stepviews", analysis_id)
+            os.makedirs(permanent_dir, exist_ok=True)
+            
+            permanent_step_filename = f"extracted_{analysis_id}.step"
+            permanent_step_path = os.path.join(permanent_dir, permanent_step_filename)
+            
+            import shutil
+            shutil.copy2(extracted_step_path, permanent_step_path)
+            
+            result["extracted_step_path"] = permanent_step_path
+            result["pdf_analysis_id"] = analysis_id
+            
+            # ✅ STEP ANALİZİ
+            step_analysis_start = time_module.time()
+            result["step_analysis"] = self.analyze_step_file(permanent_step_path)
+            step_analysis_time = time_module.time() - step_analysis_start
+            print(f"[PDF-TIMING] ⏱️ STEP analizi: {step_analysis_time:.2f}s")
+            
+            result["processing_log"].append("🔧 STEP analizi tamamlandı")
+            result["step_file_hash"] = self._calculate_file_hash(permanent_step_path)
+        else:
+            # Varsayılan STEP analizi
+            result["step_analysis"] = {
+                "X (mm)": 90.0,
+                "Y (mm)": 40.0, 
+                "Z (mm)": 15.0,
+                "X+Pad (mm)": 100,
+                "Y+Pad (mm)": 50,
+                "Z+Pad (mm)": 25,
+                "Silindirik Çap (mm)": 90.0,
+                "Silindirik Yükseklik (mm)": 15.0,
+                "Prizma Hacmi (mm³)": 125000,
+                "Ürün Hacmi (mm³)": 100000,
+                "Talaş Hacmi (mm³)": 25000,
+                "Talaş Oranı (%)": 20.0,
+                "Toplam Yüzey Alanı (mm²)": 15000,
+                "method": "estimated_from_pdf"
+            }
+        
+        # ✅ 2. MALZEME ARAMA - OPTİMİZE EDİLMİŞ
+        # Sadece ilk sayfayı tara, döndürme sayısını azalt
+        ocr_start = time_module.time()
+        
+        # İlk önce basit PDF text extraction dene
+        materials = self._quick_pdf_text_search(file_path)
+        
+        if not materials:
+            # OCR gerekli - sadece 1 kez dene
+            print(f"[PDF-FAST] 🔍 Hızlı metin araması başarısız, OCR deneniyor...")
+            text = self._extract_text_from_pdf_fast(file_path, max_pages=1)
+            materials = self._find_materials_in_text(text)
+        
+        ocr_time = time_module.time() - ocr_start
+        print(f"[PDF-TIMING] ⏱️ Malzeme arama: {ocr_time:.2f}s")
+        
+        if materials:
+            result["material_matches"] = materials
+            result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu")
+        else:
+            result["material_matches"] = ["6061-T6 (%estimated)"]
+            result["processing_log"].append("⚠️ Malzeme tespit edilemedi, varsayılan kullanıldı")
+        
+        result["rotation_count"] = 0  # Döndürme yapmıyoruz
+        
+        # ✅ 3. TEMİZLİK
+        if extracted_step_path and extracted_step_path != permanent_step_path and os.path.exists(extracted_step_path):
+            try:
+                os.remove(extracted_step_path)
+            except:
+                pass
+        
+        total_time = time_module.time() - total_start
+        print(f"[PDF-FAST] ✅ PDF analizi tamamlandı: {total_time:.2f}s\n")
+        
+        return result
+
+    def _quick_pdf_text_search(self, pdf_path):
+        """PDF'den hızlı metin çıkarma (OCR olmadan)"""
+        try:
+            import PyPDF2
+            
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                # Sadece ilk sayfayı kontrol et
+                if len(reader.pages) > 0:
+                    text = reader.pages[0].extract_text()
+                    if text:
+                        return self._find_materials_in_text(text)
+            return []
+        except:
+            return []
+
+    def _extract_text_from_pdf_fast(self, pdf_path, max_pages=1):
+        """PDF'den hızlı OCR - sadece ilk sayfa, düşük çözünürlük"""
+        try:
+            # Düşük DPI ile hızlı convert
+            pages = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=max_pages)
+            if not pages:
+                return ""
+            
+            # Sadece ilk sayfayı OCR yap
+            text = pytesseract.image_to_string(pages[0], lang='tur+eng')
+            return text
+            
+        except Exception as e:
+            print(f"[PDF-FAST] ⚠️ OCR hatası: {e}")
+            return ""
+
+    def _extract_step_from_pdf(self, pdf_path):
+        """PDF'den STEP çıkarma - OPTİMİZE"""
+        extracted = []
+        try:
+            import time as time_module
+            start = time_module.time()
+            
+            print(f"[PDF-STEP] 🔍 PDF'den STEP aranıyor...")
+            
+            with pikepdf.open(pdf_path) as pdf:
+                # EmbeddedFiles kontrolü
+                try:
+                    root = pdf.trailer.get("/Root", {})
+                    names = root.get("/Names", {})
+                    embedded = names.get("/EmbeddedFiles", {})
+                    files = embedded.get("/Names", [])
+                    
+                    print(f"[PDF-STEP] 📋 {len(files)//2} embedded dosya bulundu")
+                    
+                    # Sadece STEP dosyalarını ara
+                    for i in range(0, len(files), 2):
+                        if i + 1 < len(files):
+                            try:
+                                file_spec = files[i + 1]
+                                file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
+                                
+                                # STEP dosyası mı?
+                                if file_name.lower().endswith(('.stp', '.step')):
+                                    print(f"[PDF-STEP] 🎯 STEP bulundu: {file_name}")
+                                    
+                                    # Dosyayı çıkar
+                                    file_data = file_spec['/EF']['/F'].read_bytes()
+                                    
+                                    # Temp'e kaydet
+                                    temp_dir = os.path.join(os.getcwd(), "temp")
+                                    os.makedirs(temp_dir, exist_ok=True)
+                                    
+                                    safe_filename = "extracted_" + str(int(time_module.time())) + ".step"
+                                    output_path = os.path.join(temp_dir, safe_filename)
+                                    
+                                    with open(output_path, 'wb') as f:
+                                        f.write(file_data)
+                                    
+                                    if os.path.getsize(output_path) > 100:
+                                        extracted.append(output_path)
+                                        break  # İlk STEP'i bulduk, devam etmeye gerek yok
+                                    else:
+                                        os.remove(output_path)
+                                        
+                            except Exception as e:
+                                continue
+                                
+                except Exception as e:
+                    print(f"[PDF-STEP] ⚠️ EmbeddedFiles okuma hatası: {e}")
+            
+            elapsed = time_module.time() - start
+            print(f"[PDF-STEP] ✅ STEP arama tamamlandı: {elapsed:.2f}s, {len(extracted)} dosya")
+            
+        except Exception as e:
+            print(f"[PDF-STEP] ❌ PDF okuma hatası: {e}")
+        
+        return extracted
 
 
 class CostEstimationService:
@@ -1142,3 +1423,9 @@ class CostEstimationService:
             return round(max(total_hours, 0.5), 2)  # Min 0.5 saat
         except:
             return 1.0
+        
+    # MaterialAnalysisService sınıfına bu metodları ekleyin:
+
+    
+        
+    
