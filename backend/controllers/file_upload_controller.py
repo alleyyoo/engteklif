@@ -387,7 +387,7 @@ def analyze_uploaded_file(analysis_id):
             # ✅ HIZLI ANALİZ - analyze_document_fast kullan!
             if analysis['file_type'] in ['pdf', 'document', 'step', 'stp', 'doc', 'docx']:
                 # ✅ DÜZELTİLDİ - analyze_document_fast metodunu çağır
-                result = material_service.analyze_document_fast(
+                result = material_service.analyze_document_comprehensive(
                     analysis['file_path'], 
                     analysis['file_type'],
                     current_user['id']
@@ -568,9 +568,6 @@ def analyze_uploaded_file(analysis_id):
         }), 500
 
 # ===== ENHANCED STATUS AND MANAGEMENT ENDPOINTS =====
-
-
-# ===== RENDER ENDPOINTS =====
 
 @upload_bp.route('/render/<analysis_id>', methods=['POST'])
 @jwt_required()
