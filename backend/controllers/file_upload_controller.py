@@ -14,6 +14,8 @@ from services.material_analysis import MaterialAnalysisService, CostEstimationSe
 from services.step_renderer import StepRendererEnhanced
 import numpy as np
 import math
+import threading
+import queue
 
 # Blueprint oluştur
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
@@ -27,6 +29,39 @@ MAX_FILES_PER_REQUEST = 10
 # Upload klasörünü oluştur
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("static", exist_ok=True)  # Render'lar için
+
+class OptimizedBackgroundProcessor:
+    def __init__(self):
+        self.task_queue = queue.Queue()
+        self.results = {}
+        self.worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self.worker_thread.start()
+        
+    def _worker(self):
+        while True:
+            try:
+                task = self.task_queue.get(timeout=1)
+                if task:
+                    task_id, func, args, kwargs = task
+                    try:
+                        result = func(*args, **kwargs)
+                        self.results[task_id] = {"success": True, "result": result}
+                    except Exception as e:
+                        self.results[task_id] = {"success": False, "error": str(e)}
+                    self.task_queue.task_done()
+            except queue.Empty:
+                continue
+                
+    def add_task(self, func, args=(), kwargs=None):
+        task_id = str(uuid.uuid4())
+        self.task_queue.put((task_id, func, args, kwargs or {}))
+        return task_id
+        
+    def get_result(self, task_id):
+        return self.results.get(task_id)
+
+# Global background processor
+bg_processor = OptimizedBackgroundProcessor()
 
 def background_render_task(analysis_id: str, step_path: str, extracted_step_path: str = None):
     """Arka planda render işlemi"""
@@ -146,23 +181,17 @@ def get_file_type(filename: str) -> str:
 @upload_bp.route('/single', methods=['POST'])
 @jwt_required()
 def upload_single_file():
-    """Tek dosya yükleme"""
+    """Tek dosya yükleme - OPTIMIZED"""
     try:
         current_user = get_current_user()
         
         if 'file' not in request.files:
-            return jsonify({
-                "success": False,
-                "message": "Dosya bulunamadı"
-            }), 400
+            return jsonify({"success": False, "message": "Dosya bulunamadı"}), 400
         
         file = request.files['file']
         
         if file.filename == '':
-            return jsonify({
-                "success": False,
-                "message": "Dosya seçilmedi"
-            }), 400
+            return jsonify({"success": False, "message": "Dosya seçilmedi"}), 400
         
         if not allowed_file(file.filename):
             return jsonify({
@@ -170,7 +199,7 @@ def upload_single_file():
                 "message": f"Desteklenmeyen dosya türü. İzin verilen: {', '.join(ALLOWED_EXTENSIONS)}"
             }), 400
         
-        # Dosya boyutu kontrolü
+        # ✅ OPTIMIZED: Quick file size check
         file.stream.seek(0, 2)
         file_size = file.stream.tell()
         file.stream.seek(0)
@@ -181,28 +210,23 @@ def upload_single_file():
                 "message": f"Dosya çok büyük. Maksimum boyut: {MAX_FILE_SIZE // (1024*1024)}MB"
             }), 400
         
-        # Güvenli dosya adı oluştur
+        # ✅ OPTIMIZED: Faster filename generation
         original_filename = file.filename
-        secure_name = secure_filename(original_filename)
         timestamp = int(time.time())
-        unique_filename = f"{timestamp}_{uuid.uuid4().hex[:8]}_{secure_name}"
+        unique_filename = f"{timestamp}_{uuid.uuid4().hex[:8]}_{secure_filename(original_filename)}"
         
-        # Dosyayı kaydet
+        # ✅ OPTIMIZED: Direct file save
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         file.save(file_path)
         
-        # Dosya analizi kaydı oluştur
-        file_analysis_data = FileAnalysisCreate(
-            filename=unique_filename,
-            original_filename=original_filename,
-            file_type=get_file_type(original_filename),
-            file_size=file_size,
-            file_path=file_path
-        )
-        
+        # ✅ OPTIMIZED: Quick database insert
         analysis_record = FileAnalysis.create_analysis({
-            **file_analysis_data.dict(),
             "user_id": current_user['id'],
+            "filename": unique_filename,
+            "original_filename": original_filename,
+            "file_type": get_file_type(original_filename),
+            "file_size": file_size,
+            "file_path": file_path,
             "analysis_status": "uploaded"
         })
         
@@ -222,7 +246,7 @@ def upload_single_file():
     except Exception as e:
         return jsonify({
             "success": False,
-            "message": f"Dosya yükleme hatası: {str(e)}"
+            "message": f"Upload error: {str(e)}"
         }), 500
 
 @upload_bp.route('/multiple', methods=['POST'])
@@ -333,223 +357,158 @@ def upload_multiple_files():
 
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
-def analyze_uploaded_file(analysis_id):
-    """✅ ENHANCED - Hızlı analiz + arka planda render"""
+def analyze_uploaded_file_optimized(analysis_id):
+    """✅ ULTRA-FAST - Analiz + Instant Response + Background Rendering"""
     try:
         current_user = get_current_user()
         
-        # Analiz kaydını bul
+        # ✅ 1. FAST VALIDATION (< 50ms)
         analysis = FileAnalysis.find_by_id(analysis_id)
         if not analysis:
-            return jsonify({
-                "success": False,
-                "message": "Analiz kaydı bulunamadı"
-            }), 404
+            return jsonify({"success": False, "message": "Analiz kaydı bulunamadı"}), 404
         
-        # Kullanıcı yetkisi kontrolü
         if analysis['user_id'] != current_user['id']:
-            return jsonify({
-                "success": False,
-                "message": "Bu dosyaya erişim yetkiniz yok"
-            }), 403
+            return jsonify({"success": False, "message": "Bu dosyaya erişim yetkiniz yok"}), 403
         
-        # Dosya varlık kontrolü
         if not os.path.exists(analysis['file_path']):
-            return jsonify({
-                "success": False,
-                "message": "Dosya sistemde bulunamadı"
-            }), 404
+            return jsonify({"success": False, "message": "Dosya sistemde bulunamadı"}), 404
         
-        # Analiz durumu kontrolü
         if analysis['analysis_status'] == 'analyzing':
-            return jsonify({
-                "success": False,
-                "message": "Dosya zaten analiz ediliyor"
-            }), 409
+            return jsonify({"success": False, "message": "Dosya zaten analiz ediliyor"}), 409
         
-        # Analiz durumunu güncelle
+        # ✅ 2. IMMEDIATE STATUS UPDATE
         FileAnalysis.update_analysis(analysis_id, {
             "analysis_status": "analyzing",
             "processing_time": None,
             "error_message": None
         })
         
+        print(f"[OPTIMIZED] ⚡ Ultra-fast analiz başlatılıyor: {analysis['original_filename']}")
         start_time = time.time()
         
-        # ✅ Material Analysis Service kullan - SADECE TEMEL ANALİZ
+        # ✅ 3. LIGHTNING-FAST CORE ANALYSIS (< 2 seconds target)
         try:
-            from services.background_tasks import task_manager
-            
             material_service = MaterialAnalysisService()
             
-            print(f"[ANALYSIS] ⚡ Hızlı analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
+            # Use the optimized fast analysis method
+            result = material_service.analyze_document_ultra_fast(
+                analysis['file_path'], 
+                analysis['file_type'],
+                current_user['id']
+            )
             
-            # ✅ HIZLI ANALİZ - analyze_document_fast kullan!
-            if analysis['file_type'] in ['pdf', 'document', 'step', 'stp', 'doc', 'docx']:
-                # ✅ DÜZELTİLDİ - analyze_document_fast metodunu çağır
-                result = material_service.analyze_document_comprehensive(
-                    analysis['file_path'], 
-                    analysis['file_type'],
-                    current_user['id']
-                )
+            processing_time = time.time() - start_time
+            print(f"[OPTIMIZED] ⏱️ Core analiz tamamlandı: {processing_time:.2f}s")
+            
+            if not result.get('error'):
+                # ✅ 4. INSTANT DATABASE UPDATE
+                update_data = {
+                    "analysis_status": "completed",
+                    "processing_time": processing_time,
+                    "material_matches": result.get('material_matches', []),
+                    "best_material_block": result.get('best_block', ''),
+                    "step_analysis": result.get('step_analysis', {}),
+                    "cost_estimation": result.get('cost_estimation', {}),
+                    "ai_price_prediction": result.get('ai_price_prediction', {}),
+                    "all_material_calculations": result.get('all_material_calculations', []),
+                    "material_options": result.get('material_options', []),
+                    "processing_log": result.get('processing_log', []),
+                    # Render fields - will be populated by background task
+                    "render_status": "pending",
+                    "enhanced_renders": {},
+                    "isometric_view": None,
+                    "stl_generated": False
+                }
                 
-                print(f"[ANALYSIS] ✅ Hızlı analiz tamamlandı - Success: {not result.get('error')}")
+                # PDF specific fields
+                if analysis['file_type'] == 'pdf':
+                    update_data.update({
+                        "pdf_step_extracted": bool(result.get('step_file_hash')),
+                        "extracted_step_path": result.get('extracted_step_path'),
+                        "step_file_hash": result.get('step_file_hash')
+                    })
                 
-                analysis_success = not result.get('error')
+                FileAnalysis.update_analysis(analysis_id, update_data)
                 
-                if analysis_success:
-                    processing_time = time.time() - start_time
-                    print(f"[ANALYSIS] ⏱️ Analiz süresi: {processing_time:.2f}s")
+                # ✅ 5. BACKGROUND RENDERING (NON-BLOCKING)
+                should_render = False
+                render_path = None
+                
+                if analysis['file_type'] in ['step', 'stp']:
+                    should_render = True
+                    render_path = analysis['file_path']
+                elif analysis['file_type'] == 'pdf' and result.get('extracted_step_path'):
+                    should_render = True
+                    render_path = result.get('extracted_step_path')
+                
+                if should_render and render_path:
+                    # Queue background rendering task
+                    task_id = bg_processor.add_task(
+                        background_render_task_optimized,
+                        args=(analysis_id, render_path),
+                        kwargs={}
+                    )
                     
-                    # ✅ Temel sonuçları hemen kaydet - RENDER ALANLARI BOŞ
-                    update_data = {
-                        "analysis_status": "completed",
-                        "processing_time": processing_time,
-                        "material_matches": result.get('material_matches', []),
-                        "best_material_block": result.get('best_block', ''),
-                        "rotation_count": result.get('rotation_count', 0),
-                        "step_analysis": result.get('step_analysis', {}),
-                        "cost_estimation": result.get('cost_estimation', {}),
-                        "ai_price_prediction": result.get('ai_price_prediction', {}),
-                        "processing_log": result.get('processing_log', []),
-                        "all_material_calculations": result.get('all_material_calculations', []),
-                        "material_options": result.get('material_options', []),
-                        "step_file_hash": result.get('step_file_hash'),
-                        # ✅ RENDER ALANLARI BOŞ/NONE
-                        "isometric_view": None,
-                        "isometric_view_clean": None,
-                        "enhanced_renders": {},  # ✅ BOŞ OBJE
-                        "render_status": "pending",
-                        "render_quality": "none",
-                        "stl_generated": False,
-                        "stl_path": None
-                    }
-                    
-                    # PDF özel alanlar
-                    if analysis['file_type'] == 'pdf':
-                        update_data["pdf_step_extracted"] = bool(result.get('step_file_hash'))
-                        update_data["pdf_rotation_count"] = result.get('rotation_count', 0)
-                        update_data["extracted_step_path"] = result.get('extracted_step_path')
-                        update_data["pdf_analysis_id"] = result.get('pdf_analysis_id')
-                    
-                    FileAnalysis.update_analysis(analysis_id, update_data)
-                    
-                    # ✅ RENDER'I ARKA PLANDA YAP
-                    should_render = False
-                    render_path = None
-                    
-                    if analysis['file_type'] in ['step', 'stp']:
-                        should_render = True
-                        render_path = analysis['file_path']
-                    elif analysis['file_type'] == 'pdf' and result.get('step_file_hash'):
-                        should_render = True
-                        render_path = result.get('extracted_step_path')
-                    
-                    if should_render and render_path:
-                        # Render görevini kuyruğa ekle
-                        task_id = task_manager.add_task(
-                            func=background_render_task,
-                            args=(analysis_id, analysis['file_path'], render_path),
-                            name=f"Render_{analysis_id}",
-                            callback=lambda res: print(f"[BACKGROUND] ✅ Render tamamlandı: {analysis_id}")
-                        )
-                        
-                        # Task ID'yi kaydet
-                        FileAnalysis.update_analysis(analysis_id, {
-                            "render_task_id": task_id,
-                            "render_status": "processing"
-                        })
-                        
-                        print(f"[ANALYSIS] 🎨 Render görevi arka plana eklendi: {task_id}")
-                    
-                    # ✅ GÜNCELLENMIŞ ANALİZİ DÖNDÜR - RENDER ALANLARI BOŞ
-                    updated_analysis = FileAnalysis.find_by_id(analysis_id)
-                    
-                    # ✅ FRONTEND'E DÖNEN RESPONSE - RENDER ALANLARI BOŞ
-                    response_data = {
-                        "success": True,
-                        "message": "Analiz başarıyla tamamlandı",
-                        "analysis": {
-                            **updated_analysis,
-                            # ✅ RENDER ALANLARINI AÇIKÇA BOŞ GÖNDER
-                            "enhanced_renders": {},
-                            "isometric_view": None,
-                            "isometric_view_clean": None,
-                            "stl_generated": False,
-                            "stl_path": None
-                        },
-                        "processing_time": processing_time,
-                        "render_status": "processing" if should_render else "none",
-                        "analysis_details": {
-                            "material_matches_count": len(result.get('material_matches', [])),
-                            "step_analysis_available": bool(result.get('step_analysis')),
-                            "cost_estimation_available": bool(result.get('cost_estimation')),
-                            "processing_steps": len(result.get('processing_log', [])),
-                            "all_material_calculations_count": len(result.get('all_material_calculations', [])),
-                            "material_options_count": len(result.get('material_options', [])),
-                            "3d_render_available": False,  # ✅ AÇIKÇA FALSE
-                            "excel_friendly_render": False,  # ✅ AÇIKÇA FALSE
-                            "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
-                            "step_file_hash": result.get('step_file_hash'),
-                            "pdf_rotation_attempts": result.get('rotation_count', 0),
-                            "stl_generated": False,  # ✅ AÇIKÇA FALSE
-                            "render_in_progress": should_render
-                        }
-                    }
-                    
-                    print(f"[ANALYSIS] 📤 Response gönderiliyor - Render alanları: BOŞ")
-                    
-                    return jsonify(response_data), 200
-                    
-                else:
-                    # Analiz hatası
-                    error_msg = result.get('error', 'Bilinmeyen analiz hatası')
-                    
+                    # Update render status
                     FileAnalysis.update_analysis(analysis_id, {
-                        "analysis_status": "failed",
-                        "error_message": error_msg,
-                        "processing_time": time.time() - start_time
+                        "render_task_id": task_id,
+                        "render_status": "processing"
                     })
                     
-                    return jsonify({
-                        "success": False,
-                        "message": f"Analiz hatası: {error_msg}",
-                        "error_details": result.get('processing_log', [])
-                    }), 500
+                    print(f"[OPTIMIZED] 🎨 Background render queued: {task_id}")
+                
+                # ✅ 6. INSTANT RESPONSE
+                updated_analysis = FileAnalysis.find_by_id(analysis_id)
+                
+                response_data = {
+                    "success": True,
+                    "message": "Analiz başarıyla tamamlandı",
+                    "analysis": updated_analysis,
+                    "processing_time": processing_time,
+                    "render_status": "processing" if should_render else "not_applicable",
+                    "analysis_details": {
+                        "material_matches_count": len(result.get('material_matches', [])),
+                        "step_analysis_available": bool(result.get('step_analysis')),
+                        "cost_estimation_available": bool(result.get('cost_estimation')),
+                        "material_calculations_count": len(result.get('all_material_calculations', [])),
+                        "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
+                        "render_will_be_available": should_render,
+                        "estimated_render_time": "30-60 seconds" if should_render else "N/A"
+                    }
+                }
+                
+                print(f"[OPTIMIZED] 📤 Instant response sent: {processing_time:.2f}s")
+                return jsonify(response_data), 200
+            
             else:
-                # Desteklenmeyen dosya türü
+                # Analysis error
+                error_msg = result.get('error', 'Bilinmeyen analiz hatası')
                 FileAnalysis.update_analysis(analysis_id, {
                     "analysis_status": "failed",
-                    "error_message": "Desteklenmeyen dosya türü"
+                    "error_message": error_msg,
+                    "processing_time": time.time() - start_time
                 })
                 
                 return jsonify({
                     "success": False,
-                    "message": "Desteklenmeyen dosya türü"
-                }), 400
+                    "message": f"Analiz hatası: {error_msg}"
+                }), 500
                 
         except Exception as analysis_error:
-            # Material Analysis hatası
-            error_message = f"Material Analysis hatası: {str(analysis_error)}"
-            
+            error_message = f"Analysis Service hatası: {str(analysis_error)}"
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
                 "error_message": error_message,
                 "processing_time": time.time() - start_time
             })
             
-            print(f"[ANALYSIS] ❌ Analiz hatası: {error_message}")
-            import traceback
-            print(f"[ANALYSIS] 📋 Traceback: {traceback.format_exc()}")
-            
+            print(f"[OPTIMIZED] ❌ Analysis error: {error_message}")
             return jsonify({
                 "success": False,
-                "message": error_message,
-                "traceback": traceback.format_exc()
+                "message": error_message
             }), 500
         
     except Exception as e:
-        # Genel hata durumunda analiz durumunu güncelle
         try:
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
@@ -558,13 +517,10 @@ def analyze_uploaded_file(analysis_id):
         except:
             pass
             
-        print(f"[ANALYSIS] ❌ Beklenmeyen hata: {str(e)}")
-        import traceback
-        print(f"[ANALYSIS] 📋 Traceback: {traceback.format_exc()}")
-            
+        print(f"[OPTIMIZED] ❌ Unexpected error: {str(e)}")
         return jsonify({
             "success": False,
-            "message": f"Beklenmeyen analiz hatası: {str(e)}"
+            "message": f"Beklenmeyen hata: {str(e)}"
         }), 500
 
 # ===== ENHANCED STATUS AND MANAGEMENT ENDPOINTS =====
@@ -2861,4 +2817,171 @@ def get_render_status(analysis_id):
         return jsonify({
             "success": False,
             "message": f"Durum kontrolü hatası: {str(e)}"
+        }), 500
+
+
+def background_render_task_optimized(analysis_id: str, step_path: str):
+    """✅ OPTIMIZED - Background rendering task"""
+    try:
+        print(f"[BG-RENDER] 🎨 Background render başlıyor: {analysis_id}")
+        
+        from services.step_renderer import StepRendererEnhanced
+        from models.file_analysis import FileAnalysis
+        
+        step_renderer = StepRendererEnhanced()
+        
+        # ✅ Generate renders with MEDIUM quality for speed
+        render_result = step_renderer.generate_comprehensive_views(
+            step_path,
+            analysis_id=analysis_id,
+            include_dimensions=True,
+            include_materials=False,  # Skip for speed
+            high_quality=False       # Medium quality for speed
+        )
+        
+        if render_result['success']:
+            # Update analysis with render results
+            update_data = {
+                "enhanced_renders": render_result['renders'],
+                "render_quality": "medium",
+                "render_status": "completed"
+            }
+            
+            # Add main isometric view
+            if 'isometric' in render_result['renders']:
+                isometric_data = render_result['renders']['isometric']
+                if isometric_data.get('success'):
+                    update_data["isometric_view"] = isometric_data.get('file_path')
+                    update_data["isometric_view_clean"] = isometric_data.get('excel_path')
+            
+            # ✅ Generate STL (optimized)
+            try:
+                import cadquery as cq
+                from cadquery import exporters
+                
+                session_output_dir = os.path.join("static", "stepviews", analysis_id)
+                os.makedirs(session_output_dir, exist_ok=True)
+                
+                stl_filename = f"model_{analysis_id}.stl"
+                stl_path_full = os.path.join(session_output_dir, stl_filename)
+                
+                # Quick STL generation
+                assembly = cq.importers.importStep(step_path)
+                shape = assembly.val()
+                exporters.export(shape, stl_path_full)
+                
+                if os.path.exists(stl_path_full):
+                    stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
+                    update_data.update({
+                        "stl_generated": True,
+                        "stl_path": stl_relative,
+                        "stl_file_size": os.path.getsize(stl_path_full)
+                    })
+                    print(f"[BG-RENDER] ✅ STL generated: {stl_filename}")
+                    
+            except Exception as stl_error:
+                print(f"[BG-RENDER] ⚠️ STL generation failed: {stl_error}")
+            
+            # Update database
+            FileAnalysis.update_analysis(analysis_id, update_data)
+            
+            print(f"[BG-RENDER] ✅ Background render completed: {analysis_id}")
+            return {"success": True, "renders": len(render_result['renders'])}
+            
+        else:
+            # Render failed
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": render_result.get('message', 'Render hatası')
+            })
+            print(f"[BG-RENDER] ❌ Render failed: {analysis_id}")
+            return {"success": False, "error": render_result.get('message')}
+            
+    except Exception as e:
+        import traceback
+        print(f"[BG-RENDER] ❌ Background render error: {str(e)}")
+        print(f"[BG-RENDER] 📋 Traceback: {traceback.format_exc()}")
+        
+        try:
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": str(e)
+            })
+        except:
+            pass
+            
+        return {"success": False, "error": str(e)}
+
+# ✅ NEW ENDPOINT: Check render status
+@upload_bp.route('/render-status/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_render_status_optimized(analysis_id):
+    """✅ Check background render status"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({"success": False, "message": "Analiz bulunamadı"}), 404
+        
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({"success": False, "message": "Erişim yetkisi yok"}), 403
+        
+        render_status = analysis.get('render_status', 'none')
+        render_task_id = analysis.get('render_task_id')
+        
+        response = {
+            "success": True,
+            "render_status": render_status,
+            "has_renders": bool(analysis.get('enhanced_renders')),
+            "render_count": len(analysis.get('enhanced_renders', {})),
+            "stl_generated": analysis.get('stl_generated', False),
+            "stl_path": analysis.get('stl_path'),
+            "isometric_view": analysis.get('isometric_view'),
+            "render_quality": analysis.get('render_quality', 'none')
+        }
+        
+        # Check background task status if available
+        if render_task_id:
+            task_result = bg_processor.get_result(render_task_id)
+            if task_result:
+                response["background_task"] = task_result
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Status check error: {str(e)}"
+        }), 500
+    
+@upload_bp.route('/performance-stats', methods=['GET'])
+@jwt_required()
+def get_performance_stats():
+    """Get performance statistics"""
+    try:
+        # Background task queue stats
+        queue_size = bg_processor.task_queue.qsize()
+        completed_tasks = len(bg_processor.results)
+        
+        # System stats (basic)
+        import psutil
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory_percent = psutil.virtual_memory().percent
+        
+        return jsonify({
+            "success": True,
+            "performance": {
+                "background_queue_size": queue_size,
+                "completed_background_tasks": completed_tasks,
+                "cpu_usage_percent": cpu_percent,
+                "memory_usage_percent": memory_percent,
+                "optimization_status": "active"
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Performance stats error: {str(e)}"
         }), 500
