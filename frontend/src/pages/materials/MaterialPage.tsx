@@ -9,8 +9,9 @@ import { Dialog } from 'primereact/dialog';
 import { Card } from 'primereact/card';
 import { Badge } from 'primereact/badge';
 import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
+import { MaterialPageStyles } from './MaterialPage.styles'; // Import styles
 
-// Types
+// Types (same as before)
 interface Material {
   id: string;
   name: string;
@@ -37,6 +38,9 @@ interface DropdownOption {
 }
 
 export const MaterialPage = () => {
+  const classes = MaterialPageStyles(); // Use styles
+  
+  // State variables (same as before)
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialPrices, setMaterialPrices] = useState<MaterialPrice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,7 +68,7 @@ export const MaterialPage = () => {
 
   const toast = React.useRef<Toast>(null);
 
-  // API Helper function
+  // API Helper function (same as before)
   const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     const defaultOptions: RequestInit = {
       headers: {
@@ -86,6 +90,7 @@ export const MaterialPage = () => {
     return { response, data };
   };
 
+  // All the existing functions remain the same, just updating the render part
   useEffect(() => {
     loadMaterials();
     loadMaterialPrices();
@@ -112,11 +117,9 @@ export const MaterialPage = () => {
 
   const loadMaterialPrices = async () => {
     try {
-      // Fiyat bilgilerini materials koleksiyonundan al (price_per_kg field'ı olan)
       const { data } = await apiRequest('/api/materials?limit=1000');
       
       if (data.success) {
-        // Sadece fiyat bilgisi olan malzemeleri filtrele
         const pricesData = data.materials
           ?.filter((material: Material) => material.price_per_kg != null)
           ?.map((material: Material) => ({
@@ -143,7 +146,7 @@ export const MaterialPage = () => {
     toast.current?.show({ severity: 'error', summary: 'Hata', detail: message, life: 3000 });
   };
 
-  // Alias ekleme
+  // All existing handler functions remain the same...
   const handleAddAlias = async () => {
     if (!selectedMaterial || !newAliases.trim()) {
       showError('Malzeme seçin ve alias girin');
@@ -171,7 +174,6 @@ export const MaterialPage = () => {
     }
   };
 
-  // Yeni malzeme ekleme
   const handleAddNewMaterial = async () => {
     if (!newMaterialName.trim()) {
       showError('Malzeme adı gerekli');
@@ -204,7 +206,6 @@ export const MaterialPage = () => {
     }
   };
 
-  // Malzeme fiyatı ekleme/güncelleme - Materials koleksiyonundaki price_per_kg field'ını güncelle
   const handleAddMaterialPrice = async () => {
     if (!selectedPriceMaterial || !materialPrice) {
       showError('Malzeme seçin ve fiyat girin');
@@ -212,14 +213,12 @@ export const MaterialPage = () => {
     }
 
     try {
-      // İlk olarak malzeme adına göre ID'yi bul
       const selectedMaterial = materials.find(m => m.name === selectedPriceMaterial);
       if (!selectedMaterial) {
         showError('Seçilen malzeme bulunamadı');
         return;
       }
 
-      // Material'ın price_per_kg field'ını güncelle
       const { data } = await apiRequest(`/api/materials/${selectedMaterial.id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -231,7 +230,6 @@ export const MaterialPage = () => {
         showSuccess('Fiyat başarıyla eklendi/güncellendi');
         setSelectedPriceMaterial('');
         setMaterialPrice('');
-        // Her iki listeyi de yenile
         loadMaterials();
         loadMaterialPrices();
       } else {
@@ -242,7 +240,75 @@ export const MaterialPage = () => {
     }
   };
 
-  // Alias silme
+  // Render functions with responsive updates
+  const renderAliases = (rowData: Material) => {
+    const aliases = rowData.aliases || [];
+    return (
+      <div className={classes.badgeContainer}>
+        {aliases.map((alias, index) => (
+          <Badge
+            key={index}
+            value={alias}
+            severity="secondary"
+            onClick={() => handleDeleteAlias(rowData.id, alias)}
+            title="Silmek için tıklayın"
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderActions = (rowData: Material) => {
+    return (
+      <div className={classes.actionButtons}>
+        <Button
+          icon="pi pi-pencil"
+          size="small"
+          severity="info"
+          outlined
+          onClick={() => openEditMaterial(rowData)}
+          tooltip="Düzenle"
+          className={classes.responsiveButton}
+        />
+        <Button
+          icon="pi pi-trash"
+          size="small"
+          severity="danger"
+          outlined
+          onClick={() => handleDeleteMaterial(rowData)}
+          tooltip="Sil"
+          className={classes.responsiveButton}
+        />
+      </div>
+    );
+  };
+
+  const renderPriceActions = (rowData: MaterialPrice) => {
+    return (
+      <div className={classes.actionButtons}>
+        <Button
+          icon="pi pi-pencil"
+          size="small"
+          severity="info"
+          outlined
+          onClick={() => openEditPrice(rowData)}
+          tooltip="Düzenle"
+          className={classes.responsiveButton}
+        />
+        <Button
+          icon="pi pi-trash"
+          size="small"
+          severity="danger"
+          outlined
+          onClick={() => handleDeletePrice(rowData)}
+          tooltip="Sil"
+          className={classes.responsiveButton}
+        />
+      </div>
+    );
+  };
+
+  // More functions... (keeping them the same but adding to the component)
   const handleDeleteAlias = async (materialId: string, alias: string) => {
     try {
       const { data } = await apiRequest(`/api/materials/${materialId}/aliases/${encodeURIComponent(alias)}`, {
@@ -260,7 +326,6 @@ export const MaterialPage = () => {
     }
   };
 
-  // Malzeme silme
   const handleDeleteMaterial = (material: Material) => {
     confirmDialog({
       message: `"${material.name}" malzemesini silmek istediğinize emin misiniz?`,
@@ -285,7 +350,6 @@ export const MaterialPage = () => {
     });
   };
 
-  // Malzeme düzenleme
   const openEditMaterial = (material: Material) => {
     setEditingMaterial(material);
     setEditName(material.name);
@@ -324,7 +388,6 @@ export const MaterialPage = () => {
     }
   };
 
-  // Fiyat düzenleme - Materials koleksiyonundaki price_per_kg field'ını güncelle
   const openEditPrice = (priceItem: MaterialPrice) => {
     setEditingPrice(priceItem);
     setEditPriceValue(priceItem.price.toString());
@@ -338,7 +401,6 @@ export const MaterialPage = () => {
     }
 
     try {
-      // Material ID'si priceItem.id'de
       const { data } = await apiRequest(`/api/materials/${editingPrice.id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -349,7 +411,6 @@ export const MaterialPage = () => {
       if (data.success) {
         showSuccess('Fiyat güncellendi');
         setEditPriceDialog(false);
-        // Her iki listeyi de yenile
         loadMaterials();
         loadMaterialPrices();
       } else {
@@ -360,7 +421,6 @@ export const MaterialPage = () => {
     }
   };
 
-  // Fiyat silme - Materials koleksiyonundaki price_per_kg field'ını null yap
   const handleDeletePrice = (priceItem: MaterialPrice) => {
     confirmDialog({
       message: `"${priceItem.material_name}" fiyatını silmek istediğinize emin misiniz?`,
@@ -368,7 +428,6 @@ export const MaterialPage = () => {
       icon: 'pi pi-exclamation-triangle',
       accept: async () => {
         try {
-          // Material'ın price_per_kg field'ını null yap
           const { data } = await apiRequest(`/api/materials/${priceItem.id}`, {
             method: 'PUT',
             body: JSON.stringify({
@@ -378,7 +437,6 @@ export const MaterialPage = () => {
 
           if (data.success) {
             showSuccess('Fiyat silindi');
-            // Her iki listeyi de yenile
             loadMaterials();
             loadMaterialPrices();
           } else {
@@ -389,70 +447,6 @@ export const MaterialPage = () => {
         }
       }
     });
-  };
-
-  // Render functions
-  const renderAliases = (rowData: Material) => {
-    const aliases = rowData.aliases || [];
-    return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-        {aliases.map((alias, index) => (
-          <Badge
-            key={index}
-            value={alias}
-            severity="secondary"
-            style={{ cursor: 'pointer' }}
-            onClick={() => handleDeleteAlias(rowData.id, alias)}
-          />
-        ))}
-      </div>
-    );
-  };
-
-  const renderActions = (rowData: Material) => {
-    return (
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <Button
-          icon="pi pi-pencil"
-          size="small"
-          severity="info"
-          outlined
-          onClick={() => openEditMaterial(rowData)}
-          tooltip="Düzenle"
-        />
-        <Button
-          icon="pi pi-trash"
-          size="small"
-          severity="danger"
-          outlined
-          onClick={() => handleDeleteMaterial(rowData)}
-          tooltip="Sil"
-        />
-      </div>
-    );
-  };
-
-  const renderPriceActions = (rowData: MaterialPrice) => {
-    return (
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <Button
-          icon="pi pi-pencil"
-          size="small"
-          severity="info"
-          outlined
-          onClick={() => openEditPrice(rowData)}
-          tooltip="Düzenle"
-        />
-        <Button
-          icon="pi pi-trash"
-          size="small"
-          severity="danger"
-          outlined
-          onClick={() => handleDeletePrice(rowData)}
-          tooltip="Sil"
-        />
-      </div>
-    );
   };
 
   const materialOptions: DropdownOption[] = materials.map(material => ({
@@ -466,209 +460,232 @@ export const MaterialPage = () => {
   }));
 
   return (
-    <div style={{ padding: '2rem' }}>
+    <div className={classes.container}>
       <Toast ref={toast} />
       <ConfirmDialog />
       
-      <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
-        <h1>⚙️ Parametre Düzenleme</h1>
-      </div>
+      <h1 className={classes.pageTitle}>⚙️ Parametre Düzenleme</h1>
 
       {/* Alias Ekleme Kartı */}
-      <Card title="Mevcut Malzemeye Alias Ekle" style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
-          <div>
-            <label htmlFor="material-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Malzeme Seçin
-            </label>
-            <Dropdown
-              id="material-select"
-              value={selectedMaterial}
-              onChange={(e) => setSelectedMaterial(e.value)}
-              options={materialOptions}
-              placeholder="Malzeme Seçin"
-              style={{ width: '100%' }}
+      <div className={classes.cardContainer}>
+        <Card title="Mevcut Malzemeye Alias Ekle">
+          <div className={`${classes.formGrid} grid-3`}>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="material-select">
+                Malzeme Seçin <span className="required">*</span>
+              </label>
+              <Dropdown
+                id="material-select"
+                value={selectedMaterial}
+                onChange={(e) => setSelectedMaterial(e.value)}
+                options={materialOptions}
+                placeholder="Malzeme Seçin"
+                className="w-full"
+              />
+            </div>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="aliases-input">
+                Alias (virgülle ayır) <span className="required">*</span>
+              </label>
+              <InputText
+                id="aliases-input"
+                value={newAliases}
+                onChange={(e) => setNewAliases(e.target.value)}
+                placeholder="Alias (virgülle ayır)"
+                className="w-full"
+              />
+            </div>
+            <Button
+              label="Alias Ekle"
+              onClick={handleAddAlias}
+              disabled={!selectedMaterial || !newAliases.trim()}
+              className={classes.responsiveButton}
             />
           </div>
-          <div>
-            <label htmlFor="aliases-input" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Alias (virgülle ayır)
-            </label>
-            <InputText
-              id="aliases-input"
-              value={newAliases}
-              onChange={(e) => setNewAliases(e.target.value)}
-              placeholder="Alias (virgülle ayır)"
-              style={{ width: '100%' }}
-            />
-          </div>
-          <Button
-            label="Alias Ekle"
-            onClick={handleAddAlias}
-            disabled={!selectedMaterial || !newAliases.trim()}
-          />
-        </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Yeni Malzeme Ekleme Kartı */}
-      <Card title="🆕 Yeni Malzeme Ekle" style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
-          <div>
-            <label htmlFor="new-material-name" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Yeni Malzeme Adı *
-            </label>
-            <InputText
-              id="new-material-name"
-              value={newMaterialName}
-              onChange={(e) => setNewMaterialName(e.target.value)}
-              placeholder="Yeni Malzeme Adı"
-              style={{ width: '100%' }}
+      <div className={classes.cardContainer}>
+        <Card title="🆕 Yeni Malzeme Ekle">
+          <div className={`${classes.formGrid} grid-4`}>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="new-material-name">
+                Yeni Malzeme Adı <span className="required">*</span>
+              </label>
+              <InputText
+                id="new-material-name"
+                value={newMaterialName}
+                onChange={(e) => setNewMaterialName(e.target.value)}
+                placeholder="Yeni Malzeme Adı"
+                className="w-full"
+              />
+            </div>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="new-material-aliases">
+                Alias (virgülle ayır)
+              </label>
+              <InputText
+                id="new-material-aliases"
+                value={newMaterialAliases}
+                onChange={(e) => setNewMaterialAliases(e.target.value)}
+                placeholder="Alias (virgülle ayır)"
+                className="w-full"
+              />
+            </div>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="new-material-density">
+                Özkütle (g/cm³)
+              </label>
+              <InputText
+                id="new-material-density"
+                value={newMaterialDensity}
+                onChange={(e) => setNewMaterialDensity(e.target.value)}
+                placeholder="Özkütle"
+                type="number"
+                step="0.01"
+                className="w-full"
+              />
+            </div>
+            <Button
+              label="Ekle"
+              severity="success"
+              onClick={handleAddNewMaterial}
+              disabled={!newMaterialName.trim()}
+              className={classes.responsiveButton}
             />
           </div>
-          <div>
-            <label htmlFor="new-material-aliases" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Alias (virgülle ayır)
-            </label>
-            <InputText
-              id="new-material-aliases"
-              value={newMaterialAliases}
-              onChange={(e) => setNewMaterialAliases(e.target.value)}
-              placeholder="Alias (virgülle ayır)"
-              style={{ width: '100%' }}
-            />
-          </div>
-          <div>
-            <label htmlFor="new-material-density" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Özkütle (g/cm³)
-            </label>
-            <InputText
-              id="new-material-density"
-              value={newMaterialDensity}
-              onChange={(e) => setNewMaterialDensity(e.target.value)}
-              placeholder="Özkütle"
-              type="number"
-              step="0.01"
-              style={{ width: '100%' }}
-            />
-          </div>
-          <Button
-            label="Ekle"
-            severity="success"
-            onClick={handleAddNewMaterial}
-            disabled={!newMaterialName.trim()}
-          />
-        </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Mevcut Malzemeler Tablosu */}
-      <Card title="📋 Mevcut Malzemeler" style={{ marginBottom: '2rem' }}>
-        <DataTable
-          value={materials}
-          loading={loading}
-          paginator
-          rows={10}
-          emptyMessage="Henüz malzeme eklenmedi."
-          style={{ marginTop: '1rem' }}
-        >
-          <Column field="id" header="ID" style={{ width: '100px' }} />
-          <Column field="name" header="Malzeme Adı" />
-          <Column body={renderAliases} header="Alias'lar" style={{ maxWidth: '300px' }} />
-          <Column 
-            field="density" 
-            header="Özkütle (g/cm³)" 
-            style={{ width: '120px' }}
-            body={(rowData: Material) => rowData.density?.toFixed(2) || '-'}
-          />
-          <Column 
-            field="price_per_kg" 
-            header="Fiyat (USD/kg)" 
-            style={{ width: '120px' }}
-            body={(rowData: Material) => rowData.price_per_kg ? `${rowData.price_per_kg.toFixed(2)}` : '-'}
-          />
-          <Column body={renderActions} header="İşlemler" style={{ width: '120px' }} />
-        </DataTable>
-      </Card>
+      <div className={classes.cardContainer}>
+        <Card title="📋 Mevcut Malzemeler">
+          <div className={classes.tableWrapper}>
+            <DataTable
+              value={materials}
+              loading={loading}
+              paginator
+              rows={10}
+              emptyMessage="Henüz malzeme eklenmedi."
+              responsiveLayout="scroll"
+            >
+              <Column field="id" header="ID" style={{ width: '80px' }} className={classes.hideOnMobile} />
+              <Column field="name" header="Malzeme Adı" />
+              <Column body={renderAliases} header="Alias'lar" />
+              <Column 
+                field="density" 
+                header="Özkütle"
+                style={{ width: '100px' }}
+                body={(rowData: Material) => rowData.density?.toFixed(2) || '-'}
+                className={classes.hideOnMobile}
+              />
+              <Column 
+                field="price_per_kg" 
+                header="Fiyat (USD/kg)" 
+                style={{ width: '120px' }}
+                body={(rowData: Material) => rowData.price_per_kg ? `${rowData.price_per_kg.toFixed(2)}` : '-'}
+                className={classes.hideOnMobile}
+              />
+              <Column body={renderActions} header="İşlemler" style={{ width: '120px' }} />
+            </DataTable>
+            <div className={classes.scrollHint}>
+              💡 Tabloda kaydırarak tüm sütunları görebilirsiniz
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {/* Malzeme Fiyatları Kartı */}
-      <Card title="💰 Malzeme KG Ücretleri (USD)">
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '1rem', alignItems: 'end', marginBottom: '1rem' }}>
-          <div>
-            <label htmlFor="price-material-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Malzeme Seçin
-            </label>
-            <Dropdown
-              id="price-material-select"
-              value={selectedPriceMaterial}
-              onChange={(e) => setSelectedPriceMaterial(e.value)}
-              options={materialNameOptions}
-              placeholder="Malzeme Seçin"
-              style={{ width: '100%' }}
+      <div className={classes.cardContainer}>
+        <Card title="💰 Malzeme KG Ücretleri (USD)">
+          <div className={`${classes.formGrid} grid-3 ${classes.spacingMedium}`}>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="price-material-select">
+                Malzeme Seçin <span className="required">*</span>
+              </label>
+              <Dropdown
+                id="price-material-select"
+                value={selectedPriceMaterial}
+                onChange={(e) => setSelectedPriceMaterial(e.value)}
+                options={materialNameOptions}
+                placeholder="Malzeme Seçin"
+                className="w-full"
+              />
+            </div>
+            <div className={classes.fieldWrapper}>
+              <label htmlFor="material-price">
+                USD/kg <span className="required">*</span>
+              </label>
+              <InputText
+                id="material-price"
+                value={materialPrice}
+                onChange={(e) => setMaterialPrice(e.target.value)}
+                placeholder="USD/kg"
+                type="number"
+                step="0.01"
+                className="w-full"
+              />
+            </div>
+            <Button
+              label="Ekle / Güncelle"
+              severity="success"
+              onClick={handleAddMaterialPrice}
+              disabled={!selectedPriceMaterial || !materialPrice}
+              className={classes.responsiveButton}
             />
           </div>
-          <div>
-            <label htmlFor="material-price" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              USD/kg
-            </label>
-            <InputText
-              id="material-price"
-              value={materialPrice}
-              onChange={(e) => setMaterialPrice(e.target.value)}
-              placeholder="USD/kg"
-              type="number"
-              step="0.01"
-              style={{ width: '100%' }}
-            />
-          </div>
-          <Button
-            label="Ekle / Güncelle"
-            severity="success"
-            onClick={handleAddMaterialPrice}
-            disabled={!selectedPriceMaterial || !materialPrice}
-          />
-        </div>
 
-        <DataTable
-          value={materialPrices}
-          emptyMessage="Henüz ücret bilgisi girilmedi."
-          paginator
-          rows={5}
-        >
-          <Column field="material_name" header="Malzeme" />
-          <Column 
-            field="price" 
-            header="Ücret (USD/kg)" 
-            body={(rowData: MaterialPrice) => `${rowData.price?.toFixed(2) || '0.00'}`}
-          />
-          <Column 
-            field="density" 
-            header="Özkütle (g/cm³)" 
-            body={(rowData: MaterialPrice) => rowData.density?.toFixed(2) || '-'}
-          />
-          <Column body={renderPriceActions} header="İşlemler" style={{ width: '120px' }} />
-        </DataTable>
-      </Card>
+          <div className={classes.tableWrapper}>
+            <DataTable
+              value={materialPrices}
+              emptyMessage="Henüz ücret bilgisi girilmedi."
+              paginator
+              rows={5}
+              responsiveLayout="scroll"
+            >
+              <Column field="material_name" header="Malzeme" />
+              <Column 
+                field="price" 
+                header="Ücret (USD/kg)" 
+                body={(rowData: MaterialPrice) => `${rowData.price?.toFixed(2) || '0.00'}`}
+              />
+              <Column 
+                field="density" 
+                header="Özkütle (g/cm³)" 
+                body={(rowData: MaterialPrice) => rowData.density?.toFixed(2) || '-'}
+                className={classes.hideOnMobile}
+              />
+              <Column body={renderPriceActions} header="İşlemler" style={{ width: '120px' }} />
+            </DataTable>
+            <div className={classes.scrollHint}>
+              💡 Tabloda kaydırarak tüm sütunları görebilirsiniz
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {/* Malzeme Düzenleme Dialog */}
       <Dialog
         header="Malzeme Düzenle"
         visible={editMaterialDialog}
-        style={{ width: '400px' }}
+        className={classes.responsiveDialog}
         onHide={() => setEditMaterialDialog(false)}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <label htmlFor="edit-name" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Malzeme Adı *
+        <div className={classes.dialogForm}>
+          <div className={classes.fieldWrapper}>
+            <label htmlFor="edit-name">
+              Malzeme Adı <span className="required">*</span>
             </label>
             <InputText
               id="edit-name"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              style={{ width: '100%' }}
+              className="w-full"
             />
           </div>
-          <div>
-            <label htmlFor="edit-density" style={{ display: 'block', marginBottom: '0.5rem' }}>
+          <div className={classes.fieldWrapper}>
+            <label htmlFor="edit-density">
               Özkütle (g/cm³)
             </label>
             <InputText
@@ -677,19 +694,21 @@ export const MaterialPage = () => {
               onChange={(e) => setEditDensity(e.target.value)}
               type="number"
               step="0.01"
-              style={{ width: '100%' }}
+              className="w-full"
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <div className={classes.dialogButtons}>
             <Button
               label="İptal"
               severity="secondary"
               outlined
               onClick={() => setEditMaterialDialog(false)}
+              className={classes.responsiveButton}
             />
             <Button
               label="Güncelle"
               onClick={handleUpdateMaterial}
+              className={classes.responsiveButton}
             />
           </div>
         </div>
@@ -699,13 +718,13 @@ export const MaterialPage = () => {
       <Dialog
         header="Fiyat Düzenle"
         visible={editPriceDialog}
-        style={{ width: '300px' }}
+        className={classes.responsiveDialog}
         onHide={() => setEditPriceDialog(false)}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <label htmlFor="edit-price" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Fiyat (USD/kg) *
+        <div className={classes.dialogForm}>
+          <div className={classes.fieldWrapper}>
+            <label htmlFor="edit-price">
+              Fiyat (USD/kg) <span className="required">*</span>
             </label>
             <InputText
               id="edit-price"
@@ -713,19 +732,21 @@ export const MaterialPage = () => {
               onChange={(e) => setEditPriceValue(e.target.value)}
               type="number"
               step="0.01"
-              style={{ width: '100%' }}
+              className="w-full"
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <div className={classes.dialogButtons}>
             <Button
               label="İptal"
               severity="secondary"
               outlined
               onClick={() => setEditPriceDialog(false)}
+              className={classes.responsiveButton}
             />
             <Button
               label="Güncelle"
               onClick={handleUpdatePrice}
+              className={classes.responsiveButton}
             />
           </div>
         </div>

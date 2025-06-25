@@ -23,7 +23,7 @@ def create_app():
     app.config.from_object(Config)
     
     # CORS setup
-    CORS(app, origins=["http://localhost:3001", "http://localhost:5051"])
+    CORS(app, origins=["http://188.132.220.35:3001", "http://188.132.220.35:5051"])
     
     # JWT setup
     jwt = JWTManager(app)
@@ -619,7 +619,7 @@ if __name__ == '__main__':
     
     print("🚀 EngTeklif API başlatılıyor...")
     print(f"📊 Debug mode: {debug_mode}")
-    print(f"🌐 CORS origins: http://localhost:3001, http://localhost:5051")
+    print(f"🌐 CORS origins: http://188.132.220.35:3001, http://188.132.220.35:5051")
     print(f"🗄️  Database: {Config.DATABASE_NAME}")
     print("📐 Enhanced STEP Viewer: ACTIVE")
     print("🔧 STEP Analysis: ACTIVE")
