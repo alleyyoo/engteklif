@@ -814,7 +814,7 @@
           <span>Wireframe:</span>
           <div id="wireframe-toggle" class="toggle-switch"></div>
         </div>
-        <div class="feature-toggle">
+        <div class="feature-toggle" style="display: none">
           <span>Gölgeler:</span>
           <div id="shadows-toggle" class="toggle-switch active"></div>
         </div>
@@ -1977,10 +1977,6 @@
               <span class="info-value">${
                 analysis.original_filename || "Bilinmeyen"
               }</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Tip:</span>
-              <span class="info-value">${analysis.file_type || "STL"}</span>
             </div>
           `;
 

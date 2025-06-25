@@ -828,7 +828,7 @@ class StepRendererEnhanced:
             
             # Volume calculation
             volume = dimensions['width'] * dimensions['height'] * dimensions['depth']
-            volume_text = f"Volume: {volume:.0f} mm³"
+            volume_text = f"Volume: {volume:.0f} mm"
             draw.text((margin, y_offset), volume_text, fill="blue", font=font)
             
             # Save annotated image

@@ -1,8 +1,8 @@
-import { NavbarStyles } from "./Navbar.styles";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "primereact/button";
 import { authService } from "../../services/authService";
 import { verifyToken } from "../../utils/jwt";
+import { NavbarStyles } from "./Navbar.styles";
 
 export const Navbar = () => {
   const classes = NavbarStyles();
@@ -51,30 +51,32 @@ export const Navbar = () => {
     <div className={classes.navbarContainer}>
       <img src="/logo.svg" alt="" width="300" />
       
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <Button
-          label="Ana Sayfa"
-          icon="pi pi-home"
-          text={!isActive('/')}
-          onClick={() => navigate('/')}
-          style={{ 
-            backgroundColor: isActive('/') ? '#195cd7' : 'transparent',
-            color: isActive('/') ? 'white' : '#195cd7'
+      <div className={classes.navbarMenu}>
+        <a 
+          href="#"
+          className={`${classes.navbarItem} ${isActive('/') ? classes.navbarItemActive : ''}`}
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/');
           }}
-        />
+        >
+          <i className="pi pi-home"></i>
+          Ana Sayfa
+        </a>
         
-        {/* Sadece admin'lere Material Management butonu göster */}
+        {/* Sadece admin'lere Material Management menüsü göster */}
         {isAdmin && (
-          <Button
-            label="Malzeme Yönetimi"
-            icon="pi pi-cog"
-            text={!isActive('/materials')}
-            onClick={() => navigate('/materials')}
-            style={{ 
-              backgroundColor: isActive('/materials') ? '#195cd7' : 'transparent',
-              color: isActive('/materials') ? 'white' : '#195cd7'
+          <a 
+            href="#"
+            className={`${classes.navbarItem} ${isActive('/materials') ? classes.navbarItemActive : ''}`}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/materials');
             }}
-          />
+          >
+            <i className="pi pi-cog"></i>
+            Malzeme Yönetimi
+          </a>
         )}
         
         <Button
@@ -83,6 +85,7 @@ export const Navbar = () => {
           severity="danger"
           outlined
           onClick={handleLogout}
+          className={classes.logoutButton}
         />
       </div>
     </div>
