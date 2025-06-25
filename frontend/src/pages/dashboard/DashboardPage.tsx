@@ -262,6 +262,19 @@ export const DashboardPage = () => {
     window.open(stlViewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
   };
 
+  // Path düzeltme fonksiyonu
+  const fixImagePath = (path: string) => {
+    // ../static/ ile başlıyorsa /static/ olarak değiştir
+    if (path.startsWith('../static/')) {
+      return path.replace('../static/', '/static/');
+    }
+    // /static/ ile başlamıyorsa başına ekle
+    if (!path.startsWith('/static/') && !path.startsWith('http')) {
+      return `/static/${path}`;
+    }
+    return path;
+  };
+
   const renderAnalysisResults = (file: any, index: number) => {
     if (!file.result?.analysis) return null;
 
@@ -269,6 +282,11 @@ export const DashboardPage = () => {
     const stepAnalysis = analysis.step_analysis;
     const materialOptions = analysis.material_options || [];
     const materialCalculations = analysis.all_material_calculations || [];
+
+    // Render durumunu kontrol et
+    const isRenderProcessing = file.renderStatus === 'processing' || file.renderStatus === 'pending';
+    const isRenderCompleted = file.renderStatus === 'completed' || analysis.render_status === 'completed';
+    const hasEnhancedRenders = analysis.enhanced_renders && Object.keys(analysis.enhanced_renders).length > 0;
 
     return (
       <div className={classes.analyseItemInsideDiv}>
@@ -278,16 +296,54 @@ export const DashboardPage = () => {
           </p>
           <div className={classes.modelDiv}>
             <div className={classes.modelSection}>
-              {analysis.enhanced_renders?.isometric ? (
+              {/* Render işleniyor durumu */}
+              {isRenderProcessing ? (
+                <div style={{ 
+                  color: '#007bff', 
+                  textAlign: 'center',
+                  padding: '20px',
+                  backgroundColor: '#f0f8ff',
+                  borderRadius: '8px'
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⏳
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model İşleniyor
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    Lütfen bekleyin...
+                  </div>
+                </div>
+              ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
                 <Image
-                  src={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
-                  zoomSrc={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
+                  src={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}${fixImagePath(analysis.enhanced_renders.isometric.file_path)}`}
+                  zoomSrc={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}${fixImagePath(analysis.enhanced_renders.isometric.file_path)}`}
                   className={classes.modelImage}
                   alt="3D Model"
                   width="200"
                   height="200"
                   preview 
                 />
+              ) : isRenderCompleted && !hasEnhancedRenders ? (
+                <div style={{ 
+                  color: '#dc3545', 
+                  textAlign: 'center',
+                  padding: '20px',
+                  backgroundColor: '#fff5f5',
+                  borderRadius: '8px'
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⚠️
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model Güncel Değil
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    Render tamamlandı ancak<br />
+                    görüntü yüklenemedi
+                  </div>
+                </div>
               ) : (
                 <div style={{ color: '#999', textAlign: 'center' }}>
                   3D Model
@@ -586,6 +642,13 @@ export const DashboardPage = () => {
                   <span className={classes.progressText}>{file.progress}%</span>
                 </div>
               </div>
+
+              {/* Render durumu gösterimi */}
+              {file.status === 'completed' && (file.renderStatus === 'processing' || file.renderStatus === 'pending') && (
+                <div style={{ fontSize: '12px', marginTop: '8px', color: '#007bff' }}>
+                  🎨 3D render işleniyor, lütfen bekleyin...
+                </div>
+              )}
 
               {file.error && (
                 <div style={{ color: '#dc3545', fontSize: '12px', marginTop: '8px' }}>

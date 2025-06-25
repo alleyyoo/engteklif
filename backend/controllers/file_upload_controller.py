@@ -28,6 +28,97 @@ MAX_FILES_PER_REQUEST = 10
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("static", exist_ok=True)  # Render'lar için
 
+def background_render_task(analysis_id: str, step_path: str, extracted_step_path: str = None):
+    """Arka planda render işlemi"""
+    try:
+        print(f"[BG-RENDER] 🎨 Arka plan render başlıyor: {analysis_id}")
+        
+        # Step renderer'ı kullan
+        from services.step_renderer import StepRendererEnhanced
+        from models.file_analysis import FileAnalysis
+        import cadquery as cq
+        from cadquery import exporters
+        
+        step_renderer = StepRendererEnhanced()
+        
+        # Hangi STEP dosyasını kullanacağız?
+        render_path = extracted_step_path if extracted_step_path and os.path.exists(extracted_step_path) else step_path
+        
+        # Render oluştur
+        render_result = step_renderer.generate_comprehensive_views(
+            render_path,
+            analysis_id=analysis_id,
+            include_dimensions=True,
+            include_materials=True,
+            high_quality=True
+        )
+        
+        if render_result['success']:
+            # Analiz kaydını güncelle
+            update_data = {
+                "enhanced_renders": render_result['renders'],
+                "render_quality": "high",
+                "render_status": "completed"
+            }
+            
+            # Ana isometric view'ı ekle
+            if 'isometric' in render_result['renders']:
+                update_data["isometric_view"] = render_result['renders']['isometric']['file_path']
+                if 'excel_path' in render_result['renders']['isometric']:
+                    update_data["isometric_view_clean"] = render_result['renders']['isometric']['excel_path']
+            
+            # STL oluştur
+            try:
+                session_output_dir = os.path.join("static", "stepviews", analysis_id)
+                os.makedirs(session_output_dir, exist_ok=True)
+                
+                stl_filename = f"model_{analysis_id}.stl"
+                stl_path_full = os.path.join(session_output_dir, stl_filename)
+                
+                # STEP'ten STL oluştur
+                assembly = cq.importers.importStep(render_path)
+                shape = assembly.val()
+                exporters.export(shape, stl_path_full)
+                
+                if os.path.exists(stl_path_full):
+                    stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
+                    update_data["stl_generated"] = True
+                    update_data["stl_path"] = stl_relative
+                    update_data["stl_file_size"] = os.path.getsize(stl_path_full)
+                    
+                    print(f"[BG-RENDER] ✅ STL oluşturuldu: {stl_filename}")
+                    
+            except Exception as stl_error:
+                print(f"[BG-RENDER] ⚠️ STL oluşturma hatası: {stl_error}")
+            
+            FileAnalysis.update_analysis(analysis_id, update_data)
+            
+            print(f"[BG-RENDER] ✅ Render tamamlandı: {analysis_id} - {len(render_result['renders'])} görünüm")
+            return {"success": True, "renders": len(render_result['renders'])}
+            
+        else:
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": render_result.get('message', 'Render hatası')
+            })
+            print(f"[BG-RENDER] ❌ Render başarısız: {analysis_id}")
+            return {"success": False, "error": render_result.get('message')}
+            
+    except Exception as e:
+        import traceback
+        print(f"[BG-RENDER] ❌ Arka plan render hatası: {str(e)}")
+        print(f"[BG-RENDER] 📋 Traceback: {traceback.format_exc()}")
+        
+        try:
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": str(e)
+            })
+        except:
+            pass
+            
+        return {"success": False, "error": str(e)}
+
 def get_current_user():
     """Mevcut kullanıcıyı getir"""
     current_user_id = get_jwt_identity()
@@ -243,7 +334,7 @@ def upload_multiple_files():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file(analysis_id):
-    """✅ ENHANCED - Yüklenmiş dosyayı analiz et + STEP viewer entegrasyonu"""
+    """✅ ENHANCED - Hızlı analiz + arka planda render"""
     try:
         current_user = get_current_user()
         
@@ -285,50 +376,32 @@ def analyze_uploaded_file(analysis_id):
         
         start_time = time.time()
         
-        # ✅ Material Analysis Service kullan
+        # ✅ Material Analysis Service kullan - SADECE TEMEL ANALİZ
         try:
+            from services.background_tasks import task_manager
+            
             material_service = MaterialAnalysisService()
             
-            print(f"[ANALYSIS] 🔍 Enhanced analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
+            print(f"[ANALYSIS] ⚡ Hızlı analiz başlatılıyor: {analysis['file_type']} - {analysis['original_filename']}")
             
-            # Kapsamlı analiz
-            if analysis['file_type'] in ['pdf', 'document', 'step']:
-                result = material_service.analyze_document_comprehensive(
+            # ✅ HIZLI ANALİZ - analyze_document_fast kullan!
+            if analysis['file_type'] in ['pdf', 'document', 'step', 'stp', 'doc', 'docx']:
+                # ✅ DÜZELTİLDİ - analyze_document_fast metodunu çağır
+                result = material_service.analyze_document_fast(
                     analysis['file_path'], 
                     analysis['file_type'],
                     current_user['id']
                 )
                 
-                print(f"[ANALYSIS] 📊 Material analysis tamamlandı - Success: {not result.get('error')}")
+                print(f"[ANALYSIS] ✅ Hızlı analiz tamamlandı - Success: {not result.get('error')}")
                 
                 analysis_success = not result.get('error')
                 
                 if analysis_success:
                     processing_time = time.time() - start_time
+                    print(f"[ANALYSIS] ⏱️ Analiz süresi: {processing_time:.2f}s")
                     
-                    # ✅ STEP DOSYASI İÇİN STL OLUŞTUR
-                    if analysis['file_type'] in ['step', 'stp']:
-                        stl_result = create_stl_for_step_analysis(analysis['file_path'], analysis_id)
-                        if stl_result['success']:
-                            result['stl_generated'] = True
-                            result['stl_path'] = stl_result['stl_path']
-                            result['stl_url'] = stl_result['stl_url']
-                            print(f"[ANALYSIS] ✅ STEP için STL oluşturuldu: {stl_result['stl_path']}")
-                    
-                    # PDF'den çıkarılan STEP için STL
-                    elif analysis['file_type'] == 'pdf' and result.get('step_file_hash'):
-                        # PDF'den çıkarılan kalıcı STEP dosyasını kullan
-                        if result.get('extracted_step_path') and os.path.exists(result['extracted_step_path']):
-                            stl_result = create_stl_for_step_analysis(result['extracted_step_path'], analysis_id)
-                            if stl_result['success']:
-                                result['stl_generated'] = True
-                                result['stl_path'] = stl_result['stl_path']
-                                result['stl_url'] = stl_result['stl_url']
-                                print(f"[ANALYSIS] ✅ PDF-STEP için STL oluşturuldu: {stl_result['stl_path']}")
-                        else:
-                            print(f"[ANALYSIS] ⚠️ PDF-STEP dosyası bulunamadı: {result.get('extracted_step_path')}")
-                    
-                    # Sonuçları kaydet
+                    # ✅ Temel sonuçları hemen kaydet - RENDER ALANLARI BOŞ
                     update_data = {
                         "analysis_status": "completed",
                         "processing_time": processing_time,
@@ -341,13 +414,15 @@ def analyze_uploaded_file(analysis_id):
                         "processing_log": result.get('processing_log', []),
                         "all_material_calculations": result.get('all_material_calculations', []),
                         "material_options": result.get('material_options', []),
-                        "isometric_view": result.get('isometric_view'),
-                        "isometric_view_clean": result.get('isometric_view_clean'),
-                        "enhanced_renders": result.get('enhanced_renders', {}),
                         "step_file_hash": result.get('step_file_hash'),
-                        "render_quality": "high" if result.get('enhanced_renders') else "none",
-                        "stl_path": result.get('stl_path'),
-                        "stl_generated": result.get('stl_generated', False)
+                        # ✅ RENDER ALANLARI BOŞ/NONE
+                        "isometric_view": None,
+                        "isometric_view_clean": None,
+                        "enhanced_renders": {},  # ✅ BOŞ OBJE
+                        "render_status": "pending",
+                        "render_quality": "none",
+                        "stl_generated": False,
+                        "stl_path": None
                     }
                     
                     # PDF özel alanlar
@@ -359,30 +434,52 @@ def analyze_uploaded_file(analysis_id):
                     
                     FileAnalysis.update_analysis(analysis_id, update_data)
                     
-                    # Güncellenmiş analizi döndür
+                    # ✅ RENDER'I ARKA PLANDA YAP
+                    should_render = False
+                    render_path = None
+                    
+                    if analysis['file_type'] in ['step', 'stp']:
+                        should_render = True
+                        render_path = analysis['file_path']
+                    elif analysis['file_type'] == 'pdf' and result.get('step_file_hash'):
+                        should_render = True
+                        render_path = result.get('extracted_step_path')
+                    
+                    if should_render and render_path:
+                        # Render görevini kuyruğa ekle
+                        task_id = task_manager.add_task(
+                            func=background_render_task,
+                            args=(analysis_id, analysis['file_path'], render_path),
+                            name=f"Render_{analysis_id}",
+                            callback=lambda res: print(f"[BACKGROUND] ✅ Render tamamlandı: {analysis_id}")
+                        )
+                        
+                        # Task ID'yi kaydet
+                        FileAnalysis.update_analysis(analysis_id, {
+                            "render_task_id": task_id,
+                            "render_status": "processing"
+                        })
+                        
+                        print(f"[ANALYSIS] 🎨 Render görevi arka plana eklendi: {task_id}")
+                    
+                    # ✅ GÜNCELLENMIŞ ANALİZİ DÖNDÜR - RENDER ALANLARI BOŞ
                     updated_analysis = FileAnalysis.find_by_id(analysis_id)
                     
-                    # ✅ STEP viewer bilgilerini ekle
-                    step_viewer_info = {}
-                    if result.get('stl_generated'):
-                        step_viewer_info = {
-                            "viewer_url": f"/step-viewer/{analysis_id}",
-                            "stl_ready": True,
-                            "stl_path": result.get('stl_path'),
-                            "stl_url": result.get('stl_url')
-                        }
-                    elif analysis['file_type'] == 'step' or (analysis['file_type'] == 'pdf' and result.get('step_file_hash')):
-                        step_viewer_info = {
-                            "viewer_url": f"/step-viewer/{analysis_id}",
-                            "stl_ready": False,
-                            "note": "STL henüz oluşturulmamış, otomatik oluşturulacak"
-                        }
-                    
+                    # ✅ FRONTEND'E DÖNEN RESPONSE - RENDER ALANLARI BOŞ
                     response_data = {
                         "success": True,
                         "message": "Analiz başarıyla tamamlandı",
-                        "analysis": updated_analysis,
+                        "analysis": {
+                            **updated_analysis,
+                            # ✅ RENDER ALANLARINI AÇIKÇA BOŞ GÖNDER
+                            "enhanced_renders": {},
+                            "isometric_view": None,
+                            "isometric_view_clean": None,
+                            "stl_generated": False,
+                            "stl_path": None
+                        },
                         "processing_time": processing_time,
+                        "render_status": "processing" if should_render else "none",
                         "analysis_details": {
                             "material_matches_count": len(result.get('material_matches', [])),
                             "step_analysis_available": bool(result.get('step_analysis')),
@@ -390,18 +487,17 @@ def analyze_uploaded_file(analysis_id):
                             "processing_steps": len(result.get('processing_log', [])),
                             "all_material_calculations_count": len(result.get('all_material_calculations', [])),
                             "material_options_count": len(result.get('material_options', [])),
-                            "3d_render_available": bool(result.get('isometric_view')),
-                            "excel_friendly_render": bool(result.get('isometric_view_clean')),
+                            "3d_render_available": False,  # ✅ AÇIKÇA FALSE
+                            "excel_friendly_render": False,  # ✅ AÇIKÇA FALSE
                             "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
                             "step_file_hash": result.get('step_file_hash'),
                             "pdf_rotation_attempts": result.get('rotation_count', 0),
-                            "stl_generated": result.get('stl_generated', False)
+                            "stl_generated": False,  # ✅ AÇIKÇA FALSE
+                            "render_in_progress": should_render
                         }
                     }
                     
-                    # ✅ STEP viewer bilgilerini response'a ekle
-                    if step_viewer_info:
-                        response_data["step_viewer"] = step_viewer_info
+                    print(f"[ANALYSIS] 📤 Response gönderiliyor - Render alanları: BOŞ")
                     
                     return jsonify(response_data), 200
                     
@@ -2710,3 +2806,62 @@ def calculate_mass_and_cost_for_analysis(analysis):
             'volume_used_mm3': 0.0,
             'material_used': 'Unknown'
         }
+    
+    
+@upload_bp.route('/render-status/<analysis_id>', methods=['GET'])
+@jwt_required()
+def get_render_status(analysis_id):
+    """Render durumunu kontrol et"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            return jsonify({
+                "success": False,
+                "message": "Analiz kaydı bulunamadı"
+            }), 404
+        
+        # Kullanıcı yetkisi kontrolü
+        if analysis['user_id'] != current_user['id']:
+            return jsonify({
+                "success": False,
+                "message": "Bu dosyaya erişim yetkiniz yok"
+            }), 403
+        
+        # Render durumunu kontrol et
+        render_status = analysis.get('render_status', 'none')
+        render_task_id = analysis.get('render_task_id')
+        
+        response = {
+            "success": True,
+            "render_status": render_status,
+            "has_renders": bool(analysis.get('enhanced_renders')),
+            "render_count": len(analysis.get('enhanced_renders', {})),
+            "stl_generated": analysis.get('stl_generated', False),
+            "stl_path": analysis.get('stl_path')
+        }
+        
+        # Task manager'dan detaylı durum al
+        if render_task_id:
+            from services.background_tasks import task_manager
+            task_status = task_manager.get_task_status(render_task_id)
+            response["task_status"] = task_status
+        
+        # Render'lar hazırsa detayları ekle
+        if render_status == 'completed' and analysis.get('enhanced_renders'):
+            response["renders"] = {}
+            for view_name, view_data in analysis['enhanced_renders'].items():
+                if view_data.get('success'):
+                    response["renders"][view_name] = {
+                        "file_path": view_data.get('file_path'),
+                        "excel_path": view_data.get('excel_path')
+                    }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Durum kontrolü hatası: {str(e)}"
+        }), 500

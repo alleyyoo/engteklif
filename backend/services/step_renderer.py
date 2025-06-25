@@ -7,12 +7,15 @@ from cadquery import exporters
 from PIL import Image, ImageDraw, ImageFont
 import cairosvg
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import Rectangle
 import matplotlib.patches as mpatches
 import trimesh
 import hashlib
+from mpl_toolkits.mplot3d import Axes3D
+
 
 class StepRendererEnhanced:
     """Enhanced STEP renderer with 3D model generation and STL export"""
