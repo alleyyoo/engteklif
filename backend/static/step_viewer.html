@@ -2,13 +2,17 @@
 <html lang="tr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
     <title>EngTeklif 3D STEP Viewer</title>
     <style>
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
       }
 
       body {
@@ -17,6 +21,7 @@
         color: #2c3e50;
         overflow: hidden;
         height: 100vh;
+        touch-action: manipulation;
       }
 
       .header {
@@ -402,6 +407,361 @@
       #popup-close:hover {
         background: #dbeafb;
       }
+
+      /* Mobile-only styles - shown only on mobile */
+      .mobile-only {
+        display: none;
+      }
+
+      /* Mobile FAB container - hidden by default */
+      .fab-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        display: none;
+        flex-direction: column;
+        gap: 10px;
+        z-index: 1000;
+      }
+
+      .fab {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        cursor: pointer;
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        transition: all 0.3s ease;
+      }
+
+      .fab:hover,
+      .fab:active {
+        transform: scale(0.9);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+      }
+
+      .fab.secondary {
+        background: rgba(255, 255, 255, 0.9);
+        color: #667eea;
+        border: 2px solid #667eea;
+      }
+
+      .fab.active {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+      }
+
+      /* Mobile panel handle */
+      .panel-handle {
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 40px;
+        height: 4px;
+        background: #bdc3c7;
+        border-radius: 2px;
+        cursor: grab;
+        display: none;
+      }
+
+      /* Swipe indicator */
+      .swipe-indicator {
+        position: fixed;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.6);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 12px;
+        z-index: 900;
+        animation: fadeInOut 3s ease-in-out;
+        pointer-events: none;
+        display: none;
+      }
+
+      @keyframes fadeInOut {
+        0%,
+        100% {
+          opacity: 0;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      /* Mobile-specific styles - only apply on small screens */
+      @media (max-width: 768px) {
+        body {
+          height: 100dvh; /* Dynamic viewport height for mobile */
+        }
+
+        .header {
+          height: 50px;
+          padding: 0 15px;
+        }
+
+        .logo {
+          font-size: 16px;
+          flex: 1;
+        }
+
+        .header-controls {
+          gap: 5px;
+        }
+
+        .btn {
+          font-size: 12px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          min-height: 36px;
+          gap: 4px;
+          white-space: nowrap;
+        }
+
+        .btn:hover,
+        .btn:active {
+          transform: scale(0.95);
+        }
+
+        .btn-icon-only {
+          padding: 8px;
+          font-size: 16px;
+        }
+
+        .btn-text {
+          display: none;
+        }
+
+        #viewer-container {
+          top: 50px;
+        }
+
+        /* Transform desktop panel to mobile bottom panel */
+        .control-panel {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          top: auto;
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(20px);
+          border-radius: 16px 16px 0 0;
+          padding: 20px 15px;
+          min-width: auto;
+          width: 100%;
+          max-height: 70vh;
+          transform: translateY(100%);
+          transition: transform 0.3s ease;
+          box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .control-panel.visible {
+          transform: translateY(0);
+        }
+
+        .panel-handle {
+          display: block;
+        }
+
+        .control-row {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+          gap: 8px;
+        }
+
+        .control-btn {
+          border-radius: 8px;
+          padding: 10px 8px;
+          font-size: 11px;
+          min-height: 40px;
+          min-width: auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+        }
+
+        .control-btn:hover,
+        .control-btn:active {
+          transform: scale(0.95);
+        }
+
+        .section-title {
+          font-size: 14px;
+        }
+
+        .feature-toggle {
+          justify-content: space-between;
+          font-size: 13px;
+        }
+
+        .toggle-switch {
+          width: 40px;
+          height: 20px;
+          flex-shrink: 0;
+        }
+
+        .toggle-switch::after {
+          width: 16px;
+          height: 16px;
+        }
+
+        .toggle-switch.active::after {
+          transform: translateX(20px);
+        }
+
+        /* Hide desktop info panel on mobile */
+        .info-panel {
+          display: none;
+        }
+
+        /* Show mobile FAB controls */
+        .fab-container {
+          display: flex;
+          bottom: 15px;
+          right: 15px;
+        }
+
+        .fab {
+          width: 48px;
+          height: 48px;
+          font-size: 20px;
+        }
+
+        /* Mobile toast positioning */
+        .toast {
+          bottom: 20px;
+          left: 50%;
+          right: auto;
+          transform: translateX(-50%) translateY(100px);
+          max-width: 90vw;
+          text-align: center;
+          font-size: 14px;
+        }
+
+        .toast.show {
+          transform: translateX(-50%) translateY(0);
+        }
+
+        /* Mobile loading adjustments */
+        .loading {
+          max-width: 80vw;
+          padding: 25px;
+        }
+
+        .spinner {
+          width: 30px;
+          height: 30px;
+          border-width: 3px;
+          margin-bottom: 10px;
+        }
+
+        /* Mobile popup adjustments */
+        #distance-popup {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          right: auto;
+          transform: translate(-50%, -50%);
+          min-width: 250px;
+          max-width: 90vw;
+          font-size: 16px;
+          padding: 20px;
+        }
+
+        #popup-close {
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          top: -10px;
+          right: -10px;
+        }
+
+        /* Mobile error/welcome pages */
+        .error-state,
+        .main-page {
+          padding: 20px;
+          text-align: center;
+        }
+
+        .error-icon,
+        .welcome-icon {
+          font-size: 48px;
+        }
+
+        .error-text,
+        .welcome-text {
+          max-width: 90vw;
+          font-size: 14px;
+          padding: 20px;
+        }
+
+        .welcome-text div:first-child {
+          font-size: 20px !important;
+        }
+
+        .welcome-text div:nth-child(2) {
+          font-size: 14px !important;
+        }
+
+        .welcome-text div:last-child {
+          font-size: 12px !important;
+        }
+
+        /* Show mobile swipe indicator */
+        .swipe-indicator {
+          display: block;
+        }
+
+        /* Mobile-specific control adjustments */
+        .control-row {
+          grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+          gap: 6px;
+        }
+
+        .control-btn {
+          font-size: 10px;
+          padding: 8px 4px;
+        }
+      }
+
+      /* Portrait orientation optimizations */
+      @media (max-width: 768px) and (orientation: portrait) and (max-height: 800px) {
+        .control-panel {
+          max-height: 60vh;
+        }
+      }
+
+      /* Landscape orientation optimizations */
+      @media (max-width: 768px) and (orientation: landscape) and (max-height: 500px) {
+        .header {
+          height: 40px;
+        }
+
+        #viewer-container {
+          top: 40px;
+        }
+
+        .control-panel {
+          max-height: 50vh;
+        }
+
+        .fab-container {
+          bottom: 10px;
+          right: 10px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -409,12 +769,15 @@
     <div class="header">
       <div class="logo">🔧 EngTeklif 3D Viewer</div>
       <div class="header-controls">
+        <!-- Desktop controls - hidden on mobile via CSS -->
         <button id="toggle-controls" class="btn secondary">
-          🎮 Kontroller
+          🎮 <span class="btn-text">Kontroller</span>
         </button>
-        <button id="measure-btn" class="btn secondary">📏 Ölçüm</button>
+        <button id="measure-btn" class="btn secondary">
+          📏 <span class="btn-text">Ölçüm</span>
+        </button>
         <button id="toggle-fullscreen" class="btn secondary">
-          📺 Tam Ekran
+          📺 <span class="btn-text">Tam Ekran</span>
         </button>
       </div>
     </div>
@@ -422,8 +785,10 @@
     <!-- Main Viewer Container -->
     <div id="viewer-container"></div>
 
-    <!-- Control Panel -->
+    <!-- Control Panel (Desktop: side panel, Mobile: bottom panel) -->
     <div id="control-panel" class="control-panel visible">
+      <div class="panel-handle"></div>
+
       <div class="control-section">
         <div class="section-title">🎮 Görünüm Kontrolleri</div>
         <div class="control-row">
@@ -491,7 +856,7 @@
       </div>
     </div>
 
-    <!-- Info Panel -->
+    <!-- Info Panel (Desktop only) -->
     <div id="info-panel" class="info-panel">
       <div class="section-title">📊 Model Bilgileri</div>
       <div id="model-info">
@@ -500,6 +865,12 @@
           <span class="info-value" id="status-value">Yükleniyor...</span>
         </div>
       </div>
+    </div>
+
+    <!-- Mobile FAB Controls (Mobile only) -->
+    <div class="fab-container">
+      <button id="mobile-toggle-controls" class="fab secondary">🎮</button>
+      <button id="mobile-measure-btn" class="fab secondary">📏</button>
     </div>
 
     <!-- Loading Indicator -->
@@ -519,12 +890,17 @@
       </div>
     </div>
 
+    <!-- Mobile Swipe Indicator -->
+    <div id="swipe-indicator" class="swipe-indicator">
+      Yukarı kaydırarak kontrolleri açın
+    </div>
+
     <script type="module">
       import * as THREE from "https://esm.sh/three@0.176.0";
       import { OrbitControls } from "https://esm.sh/three@0.176.0/examples/jsm/controls/OrbitControls.js";
       import { STLLoader } from "https://esm.sh/three@0.176.0/examples/jsm/loaders/STLLoader.js";
 
-      class EngTeklifSTEPViewer {
+      class ResponsiveEngTeklifSTEPViewer {
         constructor() {
           this.scene = null;
           this.camera = null;
@@ -541,9 +917,17 @@
           this.raycaster = new THREE.Raycaster();
           this.mouse = new THREE.Vector2();
           this.mouse3D = new THREE.Vector3();
+          this.isMobile = window.innerWidth <= 768;
+          this.touchStartY = 0;
 
           this.init();
           this.setupEventListeners();
+
+          if (this.isMobile) {
+            this.setupMobileGestures();
+            this.showSwipeIndicator();
+          }
+
           this.checkForAnalysisId();
         }
 
@@ -555,18 +939,26 @@
           // Camera setup
           this.camera = new THREE.PerspectiveCamera(
             60,
-            window.innerWidth / window.innerHeight,
+            window.innerWidth /
+              (window.innerHeight - (this.isMobile ? 50 : 60)),
             1,
             1000
           );
           this.camera.position.set(50, 50, 50);
 
-          // Renderer setup
+          // Renderer setup with mobile optimizations
           this.renderer = new THREE.WebGLRenderer({
-            antialias: true,
+            antialias: !this.isMobile,
             alpha: true,
+            powerPreference: this.isMobile ? "low-power" : "high-performance",
           });
-          this.renderer.setSize(window.innerWidth, window.innerHeight - 60);
+
+          const headerHeight = this.isMobile ? 50 : 60;
+          this.renderer.setSize(
+            window.innerWidth,
+            window.innerHeight - headerHeight
+          );
+          this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
           this.renderer.shadowMap.enabled = true;
           this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
           this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -578,10 +970,17 @@
             this.renderer.domElement
           );
           this.controls.enableDamping = true;
-          this.controls.dampingFactor = 0.05;
+          this.controls.dampingFactor = this.isMobile ? 0.1 : 0.05;
           this.controls.screenSpacePanning = false;
           this.controls.minDistance = 10;
           this.controls.maxDistance = 1000;
+
+          if (this.isMobile) {
+            this.controls.rotateSpeed = 0.5;
+            this.controls.zoomSpeed = 0.8;
+            this.controls.panSpeed = 0.8;
+            this.controls.enableKeys = false;
+          }
 
           // Lighting setup
           this.setupLighting();
@@ -648,24 +1047,166 @@
           this.scene.add(axesHelper);
         }
 
+        setupMobileGestures() {
+          const controlPanel = document.getElementById("control-panel");
+          const panelHandle = document.querySelector(".panel-handle");
+
+          let startY = 0;
+          let currentY = 0;
+          let isDragging = false;
+          let initialTransform = 0;
+
+          const handleTouchStart = (e) => {
+            startY = e.touches[0].clientY;
+            currentY = startY;
+            isDragging = true;
+
+            const transform = controlPanel.style.transform;
+            if (transform.includes("translateY")) {
+              const match = transform.match(/translateY\(([^)]+)\)/);
+              if (match) {
+                initialTransform = parseInt(match[1]) || 0;
+              }
+            } else {
+              initialTransform = controlPanel.classList.contains("visible")
+                ? 0
+                : 100;
+            }
+
+            controlPanel.style.transition = "none";
+          };
+
+          const handleTouchMove = (e) => {
+            if (!isDragging) return;
+
+            e.preventDefault();
+            currentY = e.touches[0].clientY;
+            const deltaY = currentY - startY;
+            const percent = Math.max(
+              0,
+              Math.min(
+                100,
+                initialTransform + (deltaY / window.innerHeight) * 100
+              )
+            );
+
+            controlPanel.style.transform = `translateY(${percent}%)`;
+          };
+
+          const handleTouchEnd = (e) => {
+            if (!isDragging) return;
+
+            isDragging = false;
+            controlPanel.style.transition = "transform 0.3s ease";
+
+            const deltaY = currentY - startY;
+            const threshold = window.innerHeight * 0.1;
+
+            if (Math.abs(deltaY) > threshold) {
+              if (deltaY > 0) {
+                this.hideMobilePanel();
+              } else {
+                this.showMobilePanel();
+              }
+            } else {
+              if (controlPanel.classList.contains("visible")) {
+                controlPanel.style.transform = "translateY(0)";
+              } else {
+                controlPanel.style.transform = "translateY(100%)";
+              }
+            }
+          };
+
+          panelHandle.addEventListener("touchstart", handleTouchStart, {
+            passive: false,
+          });
+          controlPanel.addEventListener("touchstart", handleTouchStart, {
+            passive: false,
+          });
+          document.addEventListener("touchmove", handleTouchMove, {
+            passive: false,
+          });
+          document.addEventListener("touchend", handleTouchEnd, {
+            passive: false,
+          });
+        }
+
+        showMobilePanel() {
+          const controlPanel = document.getElementById("control-panel");
+          controlPanel.classList.add("visible");
+          controlPanel.style.transform = "translateY(0)";
+        }
+
+        hideMobilePanel() {
+          const controlPanel = document.getElementById("control-panel");
+          controlPanel.classList.remove("visible");
+          controlPanel.style.transform = "translateY(100%)";
+        }
+
+        showSwipeIndicator() {
+          const indicator = document.getElementById("swipe-indicator");
+          if (indicator) {
+            indicator.style.display = "block";
+            setTimeout(() => {
+              indicator.style.display = "none";
+            }, 3000);
+          }
+        }
+
         setupEventListeners() {
           this.setupControlButtons();
           this.setupMeasurement();
 
           // Window resize
           window.addEventListener("resize", () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
+            const wasMobile = this.isMobile;
+            this.isMobile = window.innerWidth <= 768;
+
+            this.camera.aspect =
+              window.innerWidth /
+              (window.innerHeight - (this.isMobile ? 50 : 60));
             this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight - 60);
+            this.renderer.setSize(
+              window.innerWidth,
+              window.innerHeight - (this.isMobile ? 50 : 60)
+            );
+
+            // If switching between mobile/desktop, setup appropriate gestures
+            if (wasMobile !== this.isMobile) {
+              if (this.isMobile) {
+                this.setupMobileGestures();
+              }
+            }
           });
 
-          // Toggle panels
+          // Desktop toggle controls
           document
             .getElementById("toggle-controls")
             .addEventListener("click", () => {
-              document
-                .getElementById("control-panel")
-                .classList.toggle("visible");
+              if (this.isMobile) {
+                const panel = document.getElementById("control-panel");
+                if (panel.classList.contains("visible")) {
+                  this.hideMobilePanel();
+                } else {
+                  this.showMobilePanel();
+                }
+              } else {
+                document
+                  .getElementById("control-panel")
+                  .classList.toggle("visible");
+              }
+            });
+
+          // Mobile FAB controls
+          document
+            .getElementById("mobile-toggle-controls")
+            .addEventListener("click", () => {
+              const panel = document.getElementById("control-panel");
+              if (panel.classList.contains("visible")) {
+                this.hideMobilePanel();
+              } else {
+                this.showMobilePanel();
+              }
             });
 
           // Fullscreen
@@ -681,22 +1222,17 @@
         }
 
         setupMeasurement() {
-          // Measurement button
+          // Desktop measurement button
           const measureBtn = document.getElementById("measure-btn");
           measureBtn.addEventListener("click", () => {
-            this.measurementMode = !this.measurementMode;
-            measureBtn.classList.toggle("active", this.measurementMode);
+            this.toggleMeasurementMode(measureBtn);
+          });
 
-            // Update button text and style
-            if (this.measurementMode) {
-              measureBtn.style.background =
-                "linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)";
-              measureBtn.textContent = "📏 Ölçüm Aktif";
-            } else {
-              measureBtn.style.background = "";
-              measureBtn.textContent = "📏 Ölçüm";
-              this.clearMeasurements();
-            }
+          // Mobile measurement FAB
+          const mobileMeasureBtn =
+            document.getElementById("mobile-measure-btn");
+          mobileMeasureBtn.addEventListener("click", () => {
+            this.toggleMeasurementMode(mobileMeasureBtn);
           });
 
           // Close popup handler
@@ -708,22 +1244,46 @@
             });
         }
 
+        toggleMeasurementMode(button) {
+          this.measurementMode = !this.measurementMode;
+
+          // Update both buttons
+          document
+            .getElementById("measure-btn")
+            .classList.toggle("active", this.measurementMode);
+          document
+            .getElementById("mobile-measure-btn")
+            .classList.toggle("active", this.measurementMode);
+
+          if (this.measurementMode) {
+            this.showToast("Ölçüm modu aktif - İki nokta seçin", "info");
+          } else {
+            this.clearMeasurements();
+          }
+        }
+
         setupMeasurementEvents() {
-          // Remove existing event listeners to avoid duplicates
           if (this.measurementEventsSetup) return;
 
-          // Mouse events for measurement
-          this.renderer.domElement.addEventListener("mousemove", (event) => {
+          const handlePointerMove = (event) => {
             if (
               this.measurementMode &&
               this.selectedPoints.length === 1 &&
               this.model
             ) {
-              // Calculate mouse position relative to the renderer canvas
               const rect = this.renderer.domElement.getBoundingClientRect();
-              this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-              this.mouse.y =
-                -((event.clientY - rect.top) / rect.height) * 2 + 1;
+              let clientX, clientY;
+
+              if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+              } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+              }
+
+              this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+              this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
               this.raycaster.setFromCamera(this.mouse, this.camera);
               const intersects = this.raycaster.intersectObject(
@@ -734,11 +1294,23 @@
                 this.mouse3D.copy(intersects[0].point);
               }
             }
-          });
+          };
 
-          this.renderer.domElement.addEventListener("click", (event) => {
-            this.onClick(event);
-          });
+          this.renderer.domElement.addEventListener(
+            "mousemove",
+            handlePointerMove
+          );
+          this.renderer.domElement.addEventListener(
+            "touchmove",
+            handlePointerMove,
+            { passive: true }
+          );
+          this.renderer.domElement.addEventListener("click", (event) =>
+            this.onClick(event)
+          );
+          this.renderer.domElement.addEventListener("touchend", (event) =>
+            this.onClick(event)
+          );
 
           this.measurementEventsSetup = true;
         }
@@ -750,10 +1322,29 @@
             return;
           if (!this.model || !this.measurementMode) return;
 
-          // Calculate mouse position relative to the renderer canvas
+          if (
+            event.target.closest(".control-panel") ||
+            event.target.closest(".fab-container")
+          ) {
+            return;
+          }
+
           const rect = this.renderer.domElement.getBoundingClientRect();
-          this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-          this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+          let clientX, clientY;
+
+          if (event.touches && event.touches[0]) {
+            clientX = event.touches[0].clientX;
+            clientY = event.touches[0].clientY;
+          } else if (event.changedTouches && event.changedTouches[0]) {
+            clientX = event.changedTouches[0].clientX;
+            clientY = event.changedTouches[0].clientY;
+          } else {
+            clientX = event.clientX;
+            clientY = event.clientY;
+          }
+
+          this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
           this.raycaster.setFromCamera(this.mouse, this.camera);
           const intersects = this.raycaster.intersectObject(this.model, true);
@@ -762,9 +1353,9 @@
             const point = intersects[0].point.clone();
             this.selectedPoints.push(point);
 
-            // Add marker
+            const markerSize = this.isMobile ? 0.8 : 0.5;
             const marker = new THREE.Mesh(
-              new THREE.SphereGeometry(0.5), // Larger marker for visibility
+              new THREE.SphereGeometry(markerSize),
               new THREE.MeshBasicMaterial({ color: 0xff6666 })
             );
             marker.position.copy(point);
@@ -772,13 +1363,7 @@
             if (!window._currentMarkers) window._currentMarkers = [];
             window._currentMarkers.push(marker);
 
-            console.log(
-              `Measurement point ${this.selectedPoints.length} added:`,
-              point
-            );
-
             if (this.selectedPoints.length === 1) {
-              // Create preview line
               this.createPreviewLine();
               this.showToast("İkinci noktayı seçin", "info");
             }
@@ -841,8 +1426,6 @@
         }
 
         clearMeasurements() {
-          console.log("Clearing measurements...");
-
           if (window._currentMarkers) {
             window._currentMarkers.forEach((m) => this.scene.remove(m));
             window._currentMarkers = [];
@@ -857,12 +1440,11 @@
           }
           this.selectedPoints = [];
 
-          // Update button style
-          const measureBtn = document.getElementById("measure-btn");
-          if (measureBtn && !this.measurementMode) {
-            measureBtn.style.background = "";
-            measureBtn.textContent = "📏 Ölçüm";
-          }
+          // Update both measure buttons
+          document.getElementById("measure-btn").classList.remove("active");
+          document
+            .getElementById("mobile-measure-btn")
+            .classList.remove("active");
         }
 
         setupControlButtons() {
@@ -983,7 +1565,6 @@
 
           this.currentColorMode = mode;
 
-          // Update button states
           document
             .querySelectorAll("#vertex-color-btn, #solid-color-btn")
             .forEach((btn) => {
@@ -996,7 +1577,6 @@
             document.getElementById("solid-color-btn").classList.add("active");
           }
 
-          // Reload model with new color mode
           if (this.model && this.currentAnalysisId) {
             this.reloadModelWithColorMode(mode);
           }
@@ -1078,7 +1658,6 @@
             const center = new THREE.Vector3();
             box.getCenter(center);
 
-            // Add padding
             const dims = [size.x, size.y, size.z];
             const minIndex = dims.indexOf(Math.min(...dims));
 
@@ -1118,30 +1697,19 @@
         }
 
         checkForAnalysisId() {
-          // URL'den analysis_id ve access_token al
           const path = window.location.pathname;
-
-          // Format 1: /step-viewer/{analysis_id}/{access_token}
           const fullMatch = path.match(/\/step-viewer\/([^\/]+)\/([^\/]+)$/);
-
-          // Format 2: /step-viewer/{analysis_id}
           const simpleMatch = path.match(/\/step-viewer\/([^\/]+)$/);
 
           if (fullMatch) {
             this.currentAnalysisId = fullMatch[1];
             this.accessToken = fullMatch[2];
-            console.log(
-              "[VIEWER] 🔐 Token ile erişim:",
-              this.currentAnalysisId
-            );
             this.loadAnalysisModel(this.currentAnalysisId);
           } else if (simpleMatch) {
             this.currentAnalysisId = simpleMatch[1];
             this.accessToken = null;
-            console.log("[VIEWER] 📋 Basit erişim:", this.currentAnalysisId);
             this.loadAnalysisModel(this.currentAnalysisId);
           } else {
-            console.log("[VIEWER] 🏠 Ana sayfa");
             this.showMainPage();
           }
         }
@@ -1158,7 +1726,6 @@
               headers["Authorization"] = `Bearer ${this.accessToken}`;
             }
 
-            // Try to load STL directly first
             const modelPath = `/static/stepviews/${analysisId}/model_${analysisId}.stl`;
 
             try {
@@ -1168,10 +1735,9 @@
               this.hideLoading();
               return;
             } catch (stlLoadError) {
-              console.log("[VIEWER] Direct STL load failed, trying API...");
+              console.log("Direct STL load failed, trying API...");
             }
 
-            // If direct STL fails, try API approach
             const modelInfoResponse = await fetch(
               `/api/upload/model-3d/${analysisId}`,
               {
@@ -1187,7 +1753,6 @@
             }
 
             const modelInfo = await modelInfoResponse.json();
-            console.log("[VIEWER] 📊 Model bilgileri:", modelInfo);
 
             let stlPath = null;
 
@@ -1196,7 +1761,6 @@
               modelInfo.model_info.models_available.stl?.ready
             ) {
               stlPath = modelInfo.model_info.models_available.stl.path;
-              console.log("[VIEWER] ✅ STL dosyası mevcut:", stlPath);
 
               try {
                 await this.loadSTLFromPath(stlPath);
@@ -1205,13 +1769,11 @@
                 this.hideLoading();
                 return;
               } catch (stlLoadError) {
-                console.error("[VIEWER] ❌ STL yükleme hatası:", stlLoadError);
+                console.error("STL yükleme hatası:", stlLoadError);
               }
             }
 
-            // Generate STL if not available
             if (!stlPath || !modelInfo.model_info.models_available.stl?.ready) {
-              console.log("[VIEWER] 🔧 STL oluşturuluyor...");
               this.showLoading("STL dosyası oluşturuluyor...");
 
               const analyzeResponse = await fetch(
@@ -1224,7 +1786,6 @@
 
               if (analyzeResponse.ok) {
                 const analyzeResult = await analyzeResponse.json();
-                console.log("[VIEWER] ✅ Analiz tamamlandı:", analyzeResult);
               }
 
               const generateResponse = await fetch(
@@ -1237,15 +1798,10 @@
 
               if (generateResponse.ok) {
                 const generateResult = await generateResponse.json();
-                console.log(
-                  "[VIEWER] 📦 STL oluşturma sonucu:",
-                  generateResult
-                );
 
                 if (generateResult.success) {
                   const newStlPath =
                     generateResult.stl_url || generateResult.stl_path;
-                  console.log("[VIEWER] 🔄 Yeni STL yükleniyor:", newStlPath);
 
                   await this.loadSTLFromPath(newStlPath);
                   await this.loadAnalysisInfo(analysisId);
@@ -1268,7 +1824,7 @@
               }
             }
           } catch (error) {
-            console.error("[VIEWER] ❌ Model yükleme hatası:", error);
+            console.error("Model yükleme hatası:", error);
             this.showToast(`Model yüklenemedi: ${error.message}`, "error");
             this.showErrorState(error.message);
           } finally {
@@ -1310,19 +1866,15 @@
               }
             }
           } catch (error) {
-            console.warn("[VIEWER] Analiz bilgileri yüklenemedi:", error);
+            console.warn("Analiz bilgileri yüklenemedi:", error);
           }
         }
 
         async loadSTLFromPath(stlPath) {
           return new Promise((resolve, reject) => {
-            console.log("[STL-LOADER] 📁 STL yükleme başlıyor:", stlPath);
-
             if (!stlPath.startsWith("/")) {
               stlPath = "/" + stlPath;
             }
-
-            console.log("[STL-LOADER] 📍 Normalized path:", stlPath);
 
             const loader = new STLLoader();
 
@@ -1330,21 +1882,9 @@
               stlPath,
               (geometry) => {
                 try {
-                  console.log("[STL-LOADER] ✅ Geometry yüklendi:", {
-                    vertices: geometry.attributes.position.count,
-                    faces: geometry.index
-                      ? geometry.index.count / 3
-                      : "calculated",
-                  });
-
                   this.processLoadedGeometry(geometry);
-                  console.log("[STL-LOADER] ✅ STL başarıyla işlendi");
                   resolve();
                 } catch (error) {
-                  console.error(
-                    "[STL-LOADER] ❌ Geometry işleme hatası:",
-                    error
-                  );
                   reject(error);
                 }
               },
@@ -1353,27 +1893,16 @@
                   const percent = Math.round(
                     (progress.loaded / progress.total) * 100
                   );
-                  console.log(
-                    `[STL-LOADER] 📊 Yükleme ilerlemesi: ${percent}% (${progress.loaded}/${progress.total})`
-                  );
                   this.showLoading(`STL yükleniyor... ${percent}%`);
                 }
               },
               (error) => {
-                console.error("[STL-LOADER] ❌ STL yükleme hatası:", {
-                  error: error,
-                  path: stlPath,
-                  errorType: error.type || "unknown",
-                  message: error.message || error.toString(),
-                });
-
                 let errorMessage = "STL dosyası yüklenemedi";
                 if (error.message) {
                   errorMessage += `: ${error.message}`;
                 } else if (error.type === "load") {
                   errorMessage += " - Dosya bulunamadı veya erişilemiyor";
                 }
-
                 reject(new Error(errorMessage));
               }
             );
@@ -1431,7 +1960,6 @@
           container.innerHTML = "";
           container.appendChild(this.renderer.domElement);
 
-          // Setup measurement event listeners after renderer is added
           this.setupMeasurementEvents();
         }
 
@@ -1616,6 +2144,13 @@
             this.controls.target.copy(center);
             this.controls.update();
           }
+
+          // Auto-hide mobile panel after view change
+          if (this.isMobile) {
+            setTimeout(() => {
+              this.hideMobilePanel();
+            }, 500);
+          }
         }
 
         setMaterial(materialType) {
@@ -1652,7 +2187,6 @@
           toast.textContent = message;
           toast.className = `toast ${type}`;
 
-          // Add info class for measurement feedback
           if (type === "info") {
             toast.style.background =
               "linear-gradient(135deg, #3498db 0%, #2980b9 100%)";
@@ -1661,14 +2195,16 @@
 
           toast.classList.add("show");
 
-          setTimeout(() => {
-            toast.classList.remove("show");
-            // Reset style for next use
-            if (type === "info") {
-              toast.style.background = "";
-              toast.style.boxShadow = "";
-            }
-          }, 3000);
+          setTimeout(
+            () => {
+              toast.classList.remove("show");
+              if (type === "info") {
+                toast.style.background = "";
+                toast.style.boxShadow = "";
+              }
+            },
+            this.isMobile ? 2000 : 3000
+          );
         }
 
         animate() {
@@ -1696,7 +2232,7 @@
 
       // Initialize the viewer
       window.addEventListener("DOMContentLoaded", () => {
-        new EngTeklifSTEPViewer();
+        new ResponsiveEngTeklifSTEPViewer();
       });
     </script>
   </body>
