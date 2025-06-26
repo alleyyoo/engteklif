@@ -15,7 +15,7 @@ export const Navbar = () => {
   const handleLogout = () => {
     authService.logout();
     navigate("/auth");
-    setIsMobileMenuOpen(false); // Mobil menu'yu kapat
+    setIsMobileMenuOpen(false);
   };
 
   const isActive = (path: string) => {
@@ -98,51 +98,82 @@ export const Navbar = () => {
   };
 
   return (
-    <div className={classes.navbarContainer} ref={mobileMenuRef}>
-      {/* Desktop Layout */}
-      <img src="/logo.svg" alt="Logo" />
+    <>
+      <div className={classes.navbarContainer} ref={mobileMenuRef}>
+        {/* Logo */}
+        <div className={classes.navbarBrand}>
+          <img src="/logo.svg" alt="Logo" />
+        </div>
 
-      <div className={classes.navbarMenu}>
-        <a
-          href="#"
-          className={`${classes.navbarItem} ${
-            isActive("/") ? classes.navbarItemActive : ""
-          }`}
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("/");
-          }}
+        {/* Mobil Menu Toggle Button */}
+        <button
+          className={classes.mobileMenuToggle}
+          onClick={toggleMobileMenu}
+          aria-label="Menu"
+          aria-expanded={isMobileMenuOpen}
         >
-          <i className="pi pi-home"></i>
-          Ana Sayfa
-        </a>
+          <i className={isMobileMenuOpen ? "pi pi-times" : "pi pi-bars"}></i>
+        </button>
 
-        {/* Sadece admin'lere Material Management menüsü göster */}
-        {isAdmin && (
+        {/* Navigation Menu */}
+        <div
+          className={`${classes.navbarMenu} ${
+            isMobileMenuOpen ? "active" : ""
+          }`}
+          role="navigation"
+        >
           <a
             href="#"
             className={`${classes.navbarItem} ${
-              isActive("/materials") ? classes.navbarItemActive : ""
+              isActive("/") ? classes.navbarItemActive : ""
             }`}
             onClick={(e) => {
               e.preventDefault();
-              navigate("/materials");
+              navigateToHome();
             }}
           >
-            <i className="pi pi-cog"></i>
-            Malzeme Yönetimi
+            <i className="pi pi-home"></i>
+            Ana Sayfa
           </a>
-        )}
 
-        <Button
-          label="Çıkış"
-          icon="pi pi-sign-out"
-          severity="danger"
-          outlined
-          onClick={handleLogout}
-          className={classes.logoutButton}
-        />
+          {/* Sadece admin'lere Material Management menüsü göster */}
+          {isAdmin && (
+            <a
+              href="#"
+              className={`${classes.navbarItem} ${
+                isActive("/materials") ? classes.navbarItemActive : ""
+              }`}
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToMaterials();
+              }}
+            >
+              <i className="pi pi-cog"></i>
+              Malzeme Yönetimi
+            </a>
+          )}
+
+          {/* User Info (Mobilde göster) */}
+
+          <Button
+            label="Çıkış"
+            icon="pi pi-sign-out"
+            severity="danger"
+            outlined
+            onClick={handleLogout}
+            className={classes.logoutButton}
+          />
+        </div>
       </div>
-    </div>
+
+      {/* Mobil Menu Overlay */}
+      <div
+        className={`${classes.mobileMenuOverlay} ${
+          isMobileMenuOpen ? "active" : ""
+        }`}
+        onClick={() => setIsMobileMenuOpen(false)}
+        aria-hidden="true"
+      />
+    </>
   );
 };
