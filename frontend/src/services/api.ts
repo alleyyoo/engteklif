@@ -43,7 +43,7 @@ export interface AnalysisStatus {
 export interface AnalysisResult {
   success: boolean;
   message: string;
-  render_status?: 'none' | 'pending' | 'processing' | 'completed' | 'failed'; // ✅ YENİ
+  render_status?: "none" | "pending" | "processing" | "completed" | "failed";
   analysis: {
     id: string;
     user_id: string;
@@ -70,6 +70,8 @@ export interface AnalysisResult {
       price_per_kg: number;
       material_cost: number;
       volume_mm3: number;
+      original_text?: string;
+      category?: string;
     }>;
     material_options: Array<{
       name: string;
@@ -88,33 +90,45 @@ export interface AnalysisResult {
         svg_path?: string;
       };
     };
-    stl_generated?: boolean;  // ✅ YENİ
-    stl_path?: string;        // ✅ YENİ
-    stl_file_size?: number;   // ✅ YENİ
-    render_status?: 'none' | 'pending' | 'processing' | 'completed' | 'failed'; // ✅ YENİ
-    render_task_id?: string;  // ✅ YENİ
+    stl_generated?: boolean;
+    stl_path?: string;
+    stl_file_size?: number;
+    render_status?: "none" | "pending" | "processing" | "completed" | "failed";
+    render_task_id?: string;
     processing_time: number;
     created_at: string;
+    // ✅ YENİ - Grup bilgileri
+    group_info?: {
+      group_id: string;
+      group_name: string;
+      total_files: number;
+      file_types: string[];
+      has_step: boolean;
+      has_pdf: boolean;
+    };
   };
   processing_time: number;
   analysis_details: {
     material_matches_count: number;
     step_analysis_available: boolean;
     cost_estimation_available: boolean;
-    enhanced_renders_count?: number;  // ✅ optional yap
-    render_types?: string[];          // ✅ optional yap
-    processing_steps?: number;        // ✅ YENİ
-    all_material_calculations_count?: number; // ✅ YENİ
-    material_options_count?: number;  // ✅ YENİ
-    "3d_render_available"?: boolean;  // ✅ YENİ
-    render_in_progress?: boolean;     // ✅ YENİ
+    enhanced_renders_count?: number;
+    render_types?: string[];
+    processing_steps?: number;
+    all_material_calculations_count?: number;
+    material_options_count?: number;
+    "3d_render_available"?: boolean;
+    render_in_progress?: boolean;
+    // ✅ YENİ - Grup analizi bilgileri
+    grouped_analysis?: boolean;
+    source_files?: number;
+    primary_source?: string;
   };
 }
 
-// ✅ Render Status Response type'ı da ekleyelim
 export interface RenderStatusResponse {
   success: boolean;
-  render_status: 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+  render_status: "none" | "pending" | "processing" | "completed" | "failed";
   has_renders: boolean;
   render_count: number;
   stl_generated?: boolean;
@@ -163,12 +177,32 @@ export interface ExcelMergePreviewResponse {
   };
 }
 
-// ✅ YENİ - Multiple Excel Export Response
 export interface MultipleExcelExportResponse {
   success: boolean;
   message?: string;
   blob: Blob;
   filename?: string;
+}
+
+// ✅ YENİ - Grup analizi için endpoint'ler
+export interface GroupAnalysisRequest {
+  analysis_ids: string[];
+  group_name: string;
+  primary_analysis_id?: string;
+}
+
+export interface GroupAnalysisResponse {
+  success: boolean;
+  message?: string;
+  group_analysis: AnalysisResult;
+  merged_data: {
+    best_step_analysis: any;
+    best_material_matches: string[];
+    best_renders: any;
+    source_breakdown: {
+      [key: string]: string; // analysis_id -> source_type
+    };
+  };
 }
 
 class ApiService {
@@ -227,6 +261,74 @@ class ApiService {
     return response.json();
   }
 
+  // ✅ YENİ - Grup analizi oluşturma
+  async createGroupAnalysis(
+    groupRequest: GroupAnalysisRequest
+  ): Promise<GroupAnalysisResponse> {
+    try {
+      console.log("📁 Creating group analysis...", groupRequest);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/analysis/create-group`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify(groupRequest),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || `HTTP ${response.status}`);
+      }
+
+      console.log("✅ Group analysis created successfully:", result);
+      return result;
+    } catch (error: any) {
+      console.error("❌ Group analysis creation failed:", error);
+      return {
+        success: false,
+        message: error.message || "Grup analizi oluşturulamadı",
+        group_analysis: {} as AnalysisResult,
+        merged_data: {
+          best_step_analysis: {},
+          best_material_matches: [],
+          best_renders: {},
+          source_breakdown: {},
+        },
+      };
+    }
+  }
+
+  // ✅ YENİ - Benzer dosyaları otomatik gruplama
+  async autoGroupSimilarFiles(analysisIds: string[]): Promise<{
+    success: boolean;
+    groups: Array<{
+      group_name: string;
+      analysis_ids: string[];
+      similarity_score: number;
+    }>;
+  }> {
+    try {
+      console.log("🤖 Auto-grouping similar files...", { analysisIds });
+
+      const response = await fetch(`${API_BASE_URL}/api/analysis/auto-group`, {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ analysis_ids: analysisIds }),
+      });
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ Auto-grouping failed:", error);
+      return {
+        success: false,
+        groups: [],
+      };
+    }
+  }
+
   async getAnalysisStatus(analysisId: string): Promise<AnalysisStatus> {
     const response = await fetch(
       `${API_BASE_URL}/api/upload/status/${analysisId}`,
@@ -263,7 +365,6 @@ class ApiService {
     return response.json();
   }
 
-  // ✅ ESKİ - Tek analiz Excel export (şimdi deprecated)
   async exportAnalysisExcel(analysisId: string): Promise<Blob> {
     const response = await fetch(
       `${API_BASE_URL}/api/upload/export-excel/${analysisId}`,
@@ -276,7 +377,6 @@ class ApiService {
     return response.blob();
   }
 
-  // ✅ YENİ - Birden fazla analizi Excel'e export
   async exportMultipleAnalysesExcel(
     analysisIds: string[]
   ): Promise<MultipleExcelExportResponse> {
@@ -298,17 +398,14 @@ class ApiService {
       );
 
       if (!response.ok) {
-        // Hata durumunda JSON response'u oku
         const errorData = await response.json();
         throw new Error(
           errorData.message || `HTTP ${response.status}: ${response.statusText}`
         );
       }
 
-      // Başarılı durumda blob'u al
       const blob = await response.blob();
 
-      // Response header'ından dosya adını al (eğer varsa)
       const contentDisposition = response.headers.get("content-disposition");
       let filename = `coklu_analiz_${
         analysisIds.length
@@ -340,7 +437,68 @@ class ApiService {
       return {
         success: false,
         message: error.message || "Çoklu Excel export başarısız",
-        blob: new Blob(), // Boş blob
+        blob: new Blob(),
+      };
+    }
+  }
+
+  // ✅ YENİ - Grup Excel export
+  async exportGroupAnalysisExcel(
+    groupAnalysisId: string,
+    groupName: string
+  ): Promise<MultipleExcelExportResponse> {
+    try {
+      console.log("📁 Group Excel export başlıyor...", {
+        groupAnalysisId,
+        groupName,
+      });
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/export-excel/${groupAnalysisId}`,
+        {
+          method: "GET",
+          headers: this.getMultipartHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        );
+      }
+
+      const blob = await response.blob();
+
+      const contentDisposition = response.headers.get("content-disposition");
+      let filename = `grup_analizi_${groupName}_${Date.now()}.xlsx`;
+
+      if (contentDisposition) {
+        const matches = contentDisposition.match(
+          /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+        );
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, "");
+        }
+      }
+
+      console.log("✅ Group Excel export başarılı:", {
+        blobSize: blob.size,
+        filename: filename,
+      });
+
+      return {
+        success: true,
+        blob: blob,
+        filename: filename,
+      };
+    } catch (error: any) {
+      console.error("❌ Group Excel export hatası:", error);
+
+      return {
+        success: false,
+        message: error.message || "Grup Excel export başarısız",
+        blob: new Blob(),
       };
     }
   }
@@ -358,7 +516,6 @@ class ApiService {
       const formData = new FormData();
       formData.append("excel_file", excelFile);
 
-      // Analysis ID'lerini array olarak ekle
       analysisIds.forEach((id) => {
         formData.append("analysis_ids", id);
       });
@@ -373,17 +530,14 @@ class ApiService {
       );
 
       if (!response.ok) {
-        // Hata durumunda JSON response'u oku
         const errorData = await response.json();
         throw new Error(
           errorData.message || `HTTP ${response.status}: ${response.statusText}`
         );
       }
 
-      // Başarılı durumda blob'u al
       const blob = await response.blob();
 
-      // Response header'ından dosya adını al (eğer varsa)
       const contentDisposition = response.headers.get("content-disposition");
       let filename = `merged_excel_${Date.now()}.xlsx`;
 
@@ -412,7 +566,7 @@ class ApiService {
       return {
         success: false,
         message: error.message || "Excel birleştirme başarısız",
-        blob: new Blob(), // Boş blob
+        blob: new Blob(),
       };
     }
   }
@@ -515,7 +669,38 @@ class ApiService {
 
     return response.json();
   }
-}
 
+  // ✅ YENİ - Benzer dosya önerisi
+  async getSimilarFilesSuggestions(currentAnalysisIds: string[]): Promise<{
+    success: boolean;
+    suggestions: Array<{
+      group_name: string;
+      files: Array<{
+        analysis_id: string;
+        filename: string;
+        similarity_score: number;
+      }>;
+    }>;
+  }> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/analysis/similar-suggestions`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({ analysis_ids: currentAnalysisIds }),
+        }
+      );
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ Similar files suggestions failed:", error);
+      return {
+        success: false,
+        suggestions: [],
+      };
+    }
+  }
+}
 
 export const apiService = new ApiService();
