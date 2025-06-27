@@ -1,4 +1,4 @@
-# services/material_analysis.py - COMPLETE ULTRA-FAST OPTIMIZED VERSION
+# services/material_analysis.py - T6 REMOVED VERSION
 
 import re
 import os
@@ -19,7 +19,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import PyPDF2
 
-print("[INFO] ✅ Material Analysis Service - COMPLETE ULTRA-FAST OPTIMIZED VERSION")
+print("[INFO] ✅ Material Analysis Service - T6 REMOVED VERSION")
 
 class MaterialAnalysisServiceOptimized:
     def __init__(self):
@@ -130,7 +130,7 @@ class MaterialAnalysisServiceOptimized:
                 result["processing_log"].append("🔧 STEP analizi tamamlandı")
                 
                 if not result.get("material_matches"):
-                    result["material_matches"] = ["6061-T6 (%default)"]
+                    result["material_matches"] = ["6061 (%default)"]  # ✅ T6 REMOVED
                     
             elif file_type in ['doc', 'docx']:
                 result = self._analyze_document_fast(file_path, result)
@@ -161,7 +161,7 @@ class MaterialAnalysisServiceOptimized:
                 cost_service = CostEstimationServiceFast()
                 result["cost_estimation"] = cost_service.calculate_cost_lightning(
                     result["step_analysis"], 
-                    result.get("material_matches", ["6061-T6 (%default)"])
+                    result.get("material_matches", ["6061 (%default)"])  # ✅ T6 REMOVED
                 )
                 result["processing_log"].append("💰 Maliyet hesaplandı")
             
@@ -212,7 +212,7 @@ class MaterialAnalysisServiceOptimized:
                 result["processing_log"].append("🔧 STEP analizi tamamlandı")
                 
                 if not result.get("material_matches"):
-                    result["material_matches"] = ["6061-T6 (%default)"]
+                    result["material_matches"] = ["6061 (%default)"]  # ✅ T6 REMOVED
                     
             elif file_type in ['doc', 'docx']:
                 result = self._analyze_document_fast(file_path, result)
@@ -242,7 +242,7 @@ class MaterialAnalysisServiceOptimized:
             if result.get("step_analysis") and not result["step_analysis"].get("error"):
                 result["cost_estimation"] = self._calculate_cost_lightning(
                     result["step_analysis"], 
-                    result.get("material_matches", ["6061-T6 (%default)"])
+                    result.get("material_matches", ["6061 (%default)"])  # ✅ T6 REMOVED
                 )
                 result["processing_log"].append("💰 Hızlı maliyet hesaplandı")
             
@@ -325,7 +325,7 @@ class MaterialAnalysisServiceOptimized:
             result["material_matches"] = materials
             result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu")
         else:
-            result["material_matches"] = ["6061-T6 (%estimated)"]
+            result["material_matches"] = ["6061 (%estimated)"]  # ✅ T6 REMOVED
             result["processing_log"].append("⚠️ Malzeme tespit edilemedi, varsayılan kullanıldı")
         
         # ✅ CLEANUP
@@ -412,7 +412,7 @@ class MaterialAnalysisServiceOptimized:
             result["material_matches"] = materials
             result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu")
         else:
-            result["material_matches"] = ["6061-T6 (%estimated)"]
+            result["material_matches"] = ["6061 (%estimated)"]  # ✅ T6 REMOVED
             result["processing_log"].append("⚠️ Varsayılan malzeme")
         
         # ✅ CLEANUP
@@ -531,7 +531,7 @@ class MaterialAnalysisServiceOptimized:
                 result["material_matches"] = materials
                 result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu")
             else:
-                result["material_matches"] = ["6061-T6 (%estimated)"]
+                result["material_matches"] = ["6061 (%estimated)"]  # ✅ T6 REMOVED
                 result["processing_log"].append("⚠️ Varsayılan malzeme")
             
             # Default STEP analysis for documents
@@ -561,7 +561,10 @@ class MaterialAnalysisServiceOptimized:
             processed_materials = set()
             
             for material_text in found_materials:
+                # ✅ Clean material name from T designations
                 material_name = material_text.split("(")[0].strip()
+                # Remove any T designations like T6, T4, T3
+                material_name = re.sub(r'-T\d+', '', material_name)
                 
                 # Skip duplicates
                 if material_name in processed_materials:
@@ -584,20 +587,27 @@ class MaterialAnalysisServiceOptimized:
                         break
                 
                 if not material:
-                    # ✅ LIGHTNING FALLBACK based on patterns
+                    # ✅ LIGHTNING FALLBACK based on patterns - ALL T DESIGNATIONS REMOVED
                     material_patterns = {
                         "6061": (2.7, 4.5, "Alüminyum"),
                         "7075": (2.81, 6.2, "Alüminyum"),
                         "304": (7.93, 8.5, "Paslanmaz Çelik"),
                         "316": (7.98, 12.0, "Paslanmaz Çelik"),
                         "ST37": (7.85, 2.2, "Karbon Çelik"),
-                        "S235": (7.85, 2.2, "Karbon Çelik")
+                        "S235": (7.85, 2.2, "Karbon Çelik"),
+                        "C45": (7.85, 2.8, "Karbon Çelik")
                     }
                     
                     density, price_per_kg, category = 2.7, 4.5, "Unknown"  # Default
+                    
+                    # Clean material name from any T designations
+                    clean_material_name = re.sub(r'-T\d+', '', material_name.upper())
+                    
                     for pattern, (d, p, c) in material_patterns.items():
-                        if pattern in material_name.upper():
+                        if pattern in clean_material_name:
                             density, price_per_kg, category = d, p, c
+                            # Use clean name without T designation
+                            material_name = pattern.lower() if pattern.isdigit() else pattern
                             break
                     
                     actual_name = material_name
@@ -686,7 +696,9 @@ class MaterialAnalysisServiceOptimized:
             if not step_analysis or step_analysis.get("error"):
                 return {"error": "STEP analysis required"}
             
-            material_name = material_matches[0].split("(")[0].strip() if material_matches else "6061-T6"
+            material_name = material_matches[0].split("(")[0].strip() if material_matches else "6061"  # ✅ T REMOVED
+            # Clean any T designations
+            material_name = re.sub(r'-T\d+', '', material_name)
             
             # ✅ LIGHTNING VALUES
             volume = step_analysis.get("Prizma Hacmi (mm³)", 100000)
@@ -860,22 +872,22 @@ class MaterialAnalysisServiceOptimized:
             return ""
     
     # =====================================================
-    # MATERIAL SEARCH METHODS
+    # MATERIAL SEARCH METHODS - T6 REMOVED
     # =====================================================
     
     def _find_materials_in_text_lightning(self, text):
-        """✅ LIGHTNING material search"""
+        """✅ LIGHTNING material search - T6 REMOVED"""
         if not text or len(text.strip()) < 5:
             return []
         
         materials = []
         text_upper = text.upper()
         
-        # ✅ LIGHTNING PATTERNS - only high-confidence matches
+        # ✅ LIGHTNING PATTERNS - T6 REMOVED, 2024 REMOVED
         lightning_patterns = {
-            "6061": "6061-T6",
-            "7075": "7075-T6", 
-            "2024": "2024-T3",
+            "6061": "6061",      # ✅ NO MORE T6
+            "7075": "7075",      # ✅ NO MORE T6
+            # ✅ 2024 REMOVED - Database'de olmayan malzeme kaldırıldı
             "304": "304 Paslanmaz",
             "316": "316 Paslanmaz",
             "ST37": "St37",
@@ -894,9 +906,9 @@ class MaterialAnalysisServiceOptimized:
         # ✅ GENERAL PATTERNS if no specific alloys found
         if not confidence_found:
             general_patterns = {
-                "ALÜMINYUM": "6061-T6",
-                "ALUMINUM": "6061-T6",
-                "ALUMINIUM": "6061-T6",
+                "ALÜMINYUM": "6061",      # ✅ NO MORE T6
+                "ALUMINUM": "6061",       # ✅ NO MORE T6
+                "ALUMINIUM": "6061",      # ✅ NO MORE T6
                 "ÇELİK": "St37",
                 "STEEL": "St37",
                 "PASLANMAZ": "304 Paslanmaz",
@@ -908,10 +920,12 @@ class MaterialAnalysisServiceOptimized:
                     confidence_found[name] = 70
                     break
         
-        # Convert to required format
+        # Convert to required format - clean from T designations
         for material_name, confidence in confidence_found.items():
+            # Clean any T designations that might have slipped through
+            clean_name = re.sub(r'-T\d+', '', material_name)
             confidence_str = f"%{confidence}" if confidence == 100 else "estimated"
-            materials.append(f"{material_name} ({confidence_str})")
+            materials.append(f"{clean_name} ({confidence_str})")
         
         return materials[:3]  # Max 3 for speed
     
@@ -981,16 +995,16 @@ class MaterialAnalysisServiceOptimized:
             print(f"[MATERIALS] ⚠️ Check failed: {e}")
     
     def _add_essential_materials(self):
-        """Add essential materials for speed"""
+        """Add essential materials - ALL T DESIGNATIONS REMOVED"""
         try:
             essential_materials = [
-                {"name": "6061-T6", "aliases": ["6061", "Al 6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum", "is_active": True},
-                {"name": "7075-T6", "aliases": ["7075", "Al 7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum", "is_active": True},
+                # ✅ ALL T DESIGNATIONS COMPLETELY REMOVED
+                {"name": "6061", "aliases": ["Al 6061", "Alüminyum 6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum", "is_active": True},
+                {"name": "7075", "aliases": ["Al 7075", "Alüminyum 7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum", "is_active": True},
                 {"name": "304 Paslanmaz", "aliases": ["304", "SS304", "AISI 304"], "density": 7.93, "price_per_kg": 8.50, "category": "Paslanmaz Çelik", "is_active": True},
                 {"name": "316 Paslanmaz", "aliases": ["316", "SS316", "AISI 316"], "density": 7.98, "price_per_kg": 12.00, "category": "Paslanmaz Çelik", "is_active": True},
                 {"name": "St37", "aliases": ["S235", "A36", "St 37"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik", "is_active": True},
                 {"name": "C45", "aliases": ["CK45", "AISI 1045", "S45C"], "density": 7.85, "price_per_kg": 2.80, "category": "Karbon Çelik", "is_active": True},
-                {"name": "2024-T3", "aliases": ["2024", "Al 2024"], "density": 2.78, "price_per_kg": 5.80, "category": "Alüminyum", "is_active": True},
                 {"name": "Pirinç CuZn37", "aliases": ["Brass", "Ms58", "CuZn37"], "density": 8.50, "price_per_kg": 7.80, "category": "Bakır Alaşımı", "is_active": True}
             ]
             
@@ -1002,7 +1016,7 @@ class MaterialAnalysisServiceOptimized:
             with self._cache_lock:
                 self._material_cache = {mat['name']: mat for mat in essential_materials}
             
-            print(f"[MATERIALS] ✅ {len(essential_materials)} essential materials added")
+            print(f"[MATERIALS] ✅ {len(essential_materials)} essential materials added (ALL T designations removed)")
             
         except Exception as e:
             print(f"[MATERIALS] ❌ Addition failed: {e}")
@@ -1123,6 +1137,7 @@ CostEstimationService = CostEstimationServiceFast
 def create_service():
     return MaterialAnalysisServiceOptimized()
 
-print("[OPTIMIZED] ✅ Ultra-Fast Material Analysis Service Ready!")
-print("[OPTIMIZED] 🚀 Expected performance: 5-10x faster than original")
-print("[OPTIMIZED] ⚡ Target analysis time: < 2 seconds for most files")
+print("[T-DESIGNATIONS-REMOVED] ✅ Tüm T küsüratları tamamen kaldırıldı!")
+print("[CLEAN-MATERIALS] 📋 Artık: 6061, 7075 (hiç T yok)")
+print("[2024-REMOVED] ❌ 2024 malzemesi tamamen kaldırıldı")
+print("[MATERIALS] 🔄 Malzeme veritabanı temizlendi (7 malzeme, T'siz)")
