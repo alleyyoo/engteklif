@@ -552,7 +552,7 @@ export const DashboardPage = () => {
                   }}
                 >
                   <p>
-                    {calc.category
+                    {calc.original_text
                       ? `Malzeme: ${calc.original_text}`
                       : "Malzeme bilgisi mevcut değil."}
                   </p>
