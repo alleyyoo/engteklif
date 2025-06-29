@@ -541,8 +541,8 @@ export const DashboardPage = () => {
               <p className={classes.titleSmall}>Esas Değerler</p>
             </div>
 
-            {materialCalculations.map((calc: any, idx: any) => (
-              <React.Fragment key={idx}>
+            {materialCalculations.length > 0 && (
+              <>
                 <div
                   className={classes.analyseInsideItem}
                   style={{
@@ -552,35 +552,41 @@ export const DashboardPage = () => {
                   }}
                 >
                   <p>
-                    {calc.original_text
-                      ? `Malzeme: ${calc.original_text}`
+                    {materialCalculations[0].original_text
+                      ? `Malzeme: ${materialCalculations[0].original_text}`
                       : "Malzeme bilgisi mevcut değil."}
                   </p>
                 </div>
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Prizma Hacmi(mm³)</p>
-                  <p className={classes.analyseItemExp}>{calc.volume_mm3}</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].volume_mm3}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
 
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>
-                    Özkütle(g/cm³)({calc.material})
+                    Özkütle(g/cm³)({materialCalculations[0].material})
                   </p>
-                  <p className={classes.analyseItemExp}>{calc.density}</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].density}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
 
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Kütle(kg)</p>
-                  <p className={classes.analyseItemExp}>{calc.mass_kg}</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].mass_kg}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
 
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Hammadde Maliyeti</p>
                   <p className={classes.analyseItemExp}>
-                    {calc.material_cost} USD
+                    {materialCalculations[0].material_cost} USD
                   </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
@@ -591,11 +597,8 @@ export const DashboardPage = () => {
                     {stepAnalysis?.["Toplam Yüzey Alanı (mm²)"] || "0"} mm²
                   </p>
                 </div>
-                {idx < materialCalculations.length - 1 && (
-                  <div className={classes.lineAnalyseItem}></div>
-                )}
-              </React.Fragment>
-            ))}
+              </>
+            )}
           </div>
         )}
 
