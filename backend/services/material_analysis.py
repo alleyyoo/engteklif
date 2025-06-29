@@ -36,13 +36,79 @@ class MaterialAnalysisServiceOptimized:
     
     @lru_cache(maxsize=100)
     def _get_materials_cached(self):
-        """Cached material lookup"""
+        """✅ ENHANCED - Get materials with better caching"""
         with self._cache_lock:
             if not self._material_cache:
-                materials = list(self.database.materials.find({}))
-                for material in materials:
-                    self._material_cache[material['name']] = material
+                try:
+                    # Veritabanından tüm aktif malzemeleri al
+                    materials = list(self.database.materials.find({"is_active": True}))
+                    self._material_cache = {mat['name']: mat for mat in materials}
+                    print(f"[CACHE] 🔄 Refreshed cache with {len(materials)} materials")
+                except Exception as e:
+                    print(f"[CACHE] ❌ Cache refresh failed: {e}")
+                    # Fallback to essential materials
+                    self._material_cache = self._get_essential_materials_fallback()
+            
             return self._material_cache
+    
+    def _get_essential_materials_fallback(self):
+        """✅ Fallback essential materials if database fails"""
+        return {
+            "6061": {"name": "6061", "aliases": ["Al 6061", "Alüminyum 6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum"},
+            "7075": {"name": "7075", "aliases": ["Al 7075", "Alüminyum 7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum"},
+            "7050": {"name": "7050", "aliases": ["Al 7050", "Alüminyum 7050"], "density": 2.83, "price_per_kg": 7.80, "category": "Alüminyum"},
+            "304 Paslanmaz": {"name": "304 Paslanmaz", "aliases": ["304", "SS304", "AISI 304"], "density": 7.93, "price_per_kg": 8.50, "category": "Paslanmaz Çelik"},
+            "316 Paslanmaz": {"name": "316 Paslanmaz", "aliases": ["316", "SS316", "AISI 316"], "density": 7.98, "price_per_kg": 12.00, "category": "Paslanmaz Çelik"},
+            "St37": {"name": "St37", "aliases": ["S235", "A36", "St 37"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik"}
+        }
+
+    def refresh_material_cache(self):
+        """✅ PUBLIC method to refresh cache when materials are added/updated"""
+        with self._cache_lock:
+            self._material_cache = {}
+            self._keyword_cache = None
+            self._alias_cache = None
+        
+        # Reload
+        self._preload_materials()
+        self._preload_material_keywords()
+        print("[CACHE] ✅ Material cache refreshed from database")
+
+    def _add_essential_materials(self):
+        """✅ IMPROVED - Add essential materials if database is empty"""
+        try:
+            # Önce mevcut malzeme sayısını kontrol et
+            count = self.database.materials.count_documents({})
+            if count >= 5:
+                print(f"[MATERIALS] ✅ Database has {count} materials, skipping initialization")
+                return
+            
+            essential_materials = [
+                {"name": "6061", "aliases": ["Al 6061", "Alüminyum 6061", "AL 6061"], "density": 2.70, "price_per_kg": 4.50, "category": "Alüminyum", "is_active": True},
+                {"name": "7075", "aliases": ["Al 7075", "Alüminyum 7075", "AL 7075"], "density": 2.81, "price_per_kg": 6.20, "category": "Alüminyum", "is_active": True},
+                {"name": "7050", "aliases": ["Al 7050", "Alüminyum 7050", "AL 7050"], "density": 2.83, "price_per_kg": 7.80, "category": "Alüminyum", "is_active": True},
+                {"name": "304 Paslanmaz", "aliases": ["304", "SS304", "AISI 304"], "density": 7.93, "price_per_kg": 8.50, "category": "Paslanmaz Çelik", "is_active": True},
+                {"name": "316 Paslanmaz", "aliases": ["316", "SS316", "AISI 316"], "density": 7.98, "price_per_kg": 12.00, "category": "Paslanmaz Çelik", "is_active": True},
+                {"name": "St37", "aliases": ["S235", "A36", "St 37"], "density": 7.85, "price_per_kg": 2.20, "category": "Karbon Çelik", "is_active": True},
+                {"name": "C45", "aliases": ["CK45", "AISI 1045", "S45C"], "density": 7.85, "price_per_kg": 2.80, "category": "Karbon Çelik", "is_active": True},
+                {"name": "Pirinç CuZn37", "aliases": ["Brass", "Ms58", "CuZn37"], "density": 8.50, "price_per_kg": 7.80, "category": "Bakır Alaşımı", "is_active": True}
+            ]
+            
+            from datetime import datetime
+            for material in essential_materials:
+                material['created_at'] = datetime.utcnow()
+                material['updated_at'] = datetime.utcnow()
+            
+            # Insert materials
+            self.database.materials.insert_many(essential_materials)
+            
+            # Refresh cache
+            self.refresh_material_cache()
+            
+            print(f"[MATERIALS] ✅ {len(essential_materials)} essential materials added and cache refreshed")
+            
+        except Exception as e:
+            print(f"[MATERIALS] ❌ Addition failed: {e}")
     
     def _preload_materials(self):
         """Preload materials into memory for instant access"""
@@ -876,58 +942,112 @@ class MaterialAnalysisServiceOptimized:
     # =====================================================
     
     def _find_materials_in_text_lightning(self, text):
-        """✅ LIGHTNING material search - T6 REMOVED"""
+        """✅ DYNAMIC material search - DATABASE DRIVEN"""
         if not text or len(text.strip()) < 5:
             return []
         
         materials = []
         text_upper = text.upper()
         
-        # ✅ LIGHTNING PATTERNS - T6 REMOVED, 2024 REMOVED
-        lightning_patterns = {
-            "6061": "6061",      # ✅ NO MORE T6
-            "7075": "7075",      # ✅ NO MORE T6
-            # ✅ 2024 REMOVED - Database'de olmayan malzeme kaldırıldı
-            "304": "304 Paslanmaz",
-            "316": "316 Paslanmaz",
-            "ST37": "St37",
-            "S235": "St37",
-            "C45": "C45",
-            "CK45": "C45"
-        }
-        
+        # ✅ GET ALL MATERIALS FROM DATABASE DYNAMICALLY
+        materials_cache = self._get_materials_cached()
         confidence_found = {}
         
-        for pattern, name in lightning_patterns.items():
-            if pattern in text_upper:
-                confidence_found[name] = 100
-                print(f"[MAT-LIGHTNING] ⚡ Found: {pattern} -> {name} (100%)")
+        # ✅ OCR Error Corrections (genel OCR hataları)
+        ocr_corrections = {
+            "2064": "7050",  # OCR sık hatası
+            "7056": "7050",  
+            "705O": "7050",  # O harfi 0 olarak algılanması
+            "606I": "6061",  # I harfi 1 olarak
+            "3O4": "304",    # O harfi 0 olarak
+        }
         
-        # ✅ GENERAL PATTERNS if no specific alloys found
+        # ✅ 1. OCR CORRECTION CHECK
+        corrected_text = text_upper
+        for error_pattern, correction in ocr_corrections.items():
+            if error_pattern in text_upper:
+                corrected_text = text_upper.replace(error_pattern, correction)
+                print(f"[MAT-DYNAMIC] 🔧 OCR Corrected: {error_pattern} -> {correction}")
+        
+        # ✅ 2. DYNAMIC DATABASE SEARCH
+        for material_name, material in materials_cache.items():
+            confidence = 0
+            matched_term = ""
+            
+            # Ana isim kontrolü
+            material_name_clean = material_name.upper()
+            if material_name_clean in corrected_text:
+                confidence = 100
+                matched_term = material_name_clean
+            
+            # Alias kontrolü
+            if not confidence:
+                aliases = material.get('aliases', [])
+                for alias in aliases:
+                    alias_clean = alias.upper()
+                    if alias_clean in corrected_text:
+                        confidence = 95  # Alias için biraz düşük
+                        matched_term = alias_clean
+                        break
+            
+            # Kısmi eşleşme (4+ karakter)
+            if not confidence and len(material_name_clean) >= 4:
+                if material_name_clean in corrected_text or any(material_name_clean in word for word in corrected_text.split()):
+                    confidence = 85
+                    matched_term = material_name_clean
+            
+            # Sayısal malzemeler için özel kontrol (6061, 7075, vs)
+            if not confidence and material_name_clean.isdigit() and len(material_name_clean) == 4:
+                # Sayısal malzemeler için daha esnek arama
+                if material_name_clean in corrected_text.replace(" ", "").replace("-", ""):
+                    confidence = 100
+                    matched_term = material_name_clean
+            
+            if confidence > 0:
+                confidence_found[material_name] = {
+                    'confidence': confidence,
+                    'matched_term': matched_term,
+                    'material': material
+                }
+                print(f"[MAT-DYNAMIC] ⚡ Found: {matched_term} -> {material_name} ({confidence}%)")
+        
+        # ✅ 3. GENEL KATEGORI ARAMASI (spesifik malzeme bulunamazsa)
         if not confidence_found:
-            general_patterns = {
-                "ALÜMINYUM": "6061",      # ✅ NO MORE T6
-                "ALUMINUM": "6061",       # ✅ NO MORE T6
-                "ALUMINIUM": "6061",      # ✅ NO MORE T6
-                "ÇELİK": "St37",
-                "STEEL": "St37",
-                "PASLANMAZ": "304 Paslanmaz",
-                "STAINLESS": "304 Paslanmaz"
+            general_keywords = {
+                "ALÜMINYUM": "Alüminyum",
+                "ALUMINUM": "Alüminyum", 
+                "ALUMINIUM": "Alüminyum",
+                "ÇELİK": "Karbon Çelik",
+                "STEEL": "Karbon Çelik",
+                "PASLANMAZ": "Paslanmaz Çelik",
+                "STAINLESS": "Paslanmaz Çelik"
             }
             
-            for keyword, name in general_patterns.items():
-                if keyword in text_upper:
-                    confidence_found[name] = 70
+            for keyword, category in general_keywords.items():
+                if keyword in corrected_text:
+                    # O kategoriden default malzeme bul
+                    for material_name, material in materials_cache.items():
+                        if material.get('category') == category:
+                            confidence_found[material_name] = {
+                                'confidence': 70,
+                                'matched_term': keyword,
+                                'material': material
+                            }
+                            print(f"[MAT-DYNAMIC] 📂 Category match: {keyword} -> {material_name} (70%)")
+                            break
                     break
         
-        # Convert to required format - clean from T designations
-        for material_name, confidence in confidence_found.items():
-            # Clean any T designations that might have slipped through
-            clean_name = re.sub(r'-T\d+', '', material_name)
-            confidence_str = f"%{confidence}" if confidence == 100 else "estimated"
-            materials.append(f"{clean_name} ({confidence_str})")
+        # ✅ 4. RESULT FORMATTING
+        # Confidence'a göre sırala
+        sorted_materials = sorted(confidence_found.items(), 
+                                key=lambda x: x[1]['confidence'], reverse=True)
         
-        return materials[:3]  # Max 3 for speed
+        for material_name, match_info in sorted_materials[:3]:  # Top 3
+            confidence = match_info['confidence']
+            confidence_str = f"%{confidence}" if confidence >= 85 else "estimated"
+            materials.append(f"{material_name} ({confidence_str})")
+        
+        return materials
     
     # =====================================================
     # DOCUMENT PROCESSING METHODS

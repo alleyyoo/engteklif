@@ -6,6 +6,7 @@ from bson import ObjectId
 from models.user import User, UserRole
 from services.material_service import MaterialService
 import traceback
+from datetime import datetime
 
 material_bp = Blueprint('materials', __name__, url_prefix='/api/materials')
 
@@ -401,3 +402,148 @@ def health_check():
             "message": f"Materials API hatası: {str(e)}",
             "database": "disconnected"
         }), 500
+    
+    
+@material_bp.route('/refresh-cache', methods=['POST'])
+@jwt_required()
+def refresh_material_cache():
+    """✅ Malzeme cache'ini yenile - Analiz sistemi için kritik"""
+    try:
+        current_user = get_current_user()
+        
+        # Sadece admin cache yenileyebilir (güvenlik için)
+        if current_user['role'] != UserRole.ADMIN:
+            return jsonify({
+                "success": False,
+                "message": "Bu işlem için admin yetkisi gerekli"
+            }), 403
+        
+        print("[CACHE-REFRESH] 🔄 Material cache refresh başlatılıyor...")
+        
+        # Material analysis service cache'ini yenile
+        try:
+            from services.material_analysis import MaterialAnalysisService
+            
+            # Service instance oluştur
+            service = MaterialAnalysisService()
+            
+            # Cache'i yenile
+            service.refresh_material_cache()
+            
+            # Veritabanından mevcut malzeme sayısını al
+            material_count = MaterialService.get_all_materials(limit=10000)
+            total_materials = len(material_count.get('materials', [])) if material_count.get('success') else 0
+            
+            print(f"[CACHE-REFRESH] ✅ Cache başarıyla yenilendi: {total_materials} malzeme")
+            
+            return jsonify({
+                "success": True,
+                "message": f"Malzeme cache başarıyla yenilendi. {total_materials} malzeme analiz sisteminde aktif.",
+                "cache_refreshed": True,
+                "material_count": total_materials,
+                "refresh_time": datetime.utcnow().isoformat(),
+                "admin_user": current_user.get('username', 'unknown')
+            }), 200
+            
+        except Exception as service_error:
+            print(f"[CACHE-REFRESH] ❌ Service error: {service_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Material analysis service hatası: {str(service_error)}"
+            }), 500
+        
+    except Exception as e:
+        error_msg = f"Cache yenileme hatası: {str(e)}"
+        print(f"[CACHE-REFRESH] ❌ Error: {error_msg}")
+        return jsonify({
+            "success": False,
+            "message": error_msg
+        }), 500
+
+@material_bp.route('/cache-status', methods=['GET'])
+@jwt_required()
+def get_cache_status():
+    """✅ Malzeme cache durumunu kontrol et"""
+    try:
+        print("[CACHE-STATUS] 📊 Cache status kontrolü...")
+        
+        # Material count from database
+        material_result = MaterialService.get_all_materials(limit=10000)
+        db_material_count = len(material_result.get('materials', [])) if material_result.get('success') else 0
+        
+        # Cache status from service
+        cache_info = {
+            "database_material_count": db_material_count,
+            "cache_status": "unknown",
+            "analysis_service_ready": False,
+            "last_refresh": None
+        }
+        
+        try:
+            from services.material_analysis import MaterialAnalysisService
+            service = MaterialAnalysisService()
+            
+            # Cache'den malzeme sayısını al
+            cached_materials = service._get_materials_cached()
+            cache_material_count = len(cached_materials) if cached_materials else 0
+            
+            cache_info.update({
+                "cache_material_count": cache_material_count,
+                "cache_status": "active" if cache_material_count > 0 else "empty",
+                "analysis_service_ready": True,
+                "cache_db_sync": cache_material_count == db_material_count
+            })
+            
+            print(f"[CACHE-STATUS] ✅ Status: DB={db_material_count}, Cache={cache_material_count}")
+            
+        except Exception as service_error:
+            print(f"[CACHE-STATUS] ⚠️ Service check failed: {service_error}")
+            cache_info["service_error"] = str(service_error)
+        
+        return jsonify({
+            "success": True,
+            "cache_info": cache_info,
+            "recommendations": get_cache_recommendations(cache_info)
+        }), 200
+        
+    except Exception as e:
+        error_msg = f"Cache status check hatası: {str(e)}"
+        print(f"[CACHE-STATUS] ❌ Error: {error_msg}")
+        return jsonify({
+            "success": False,
+            "message": error_msg
+        }), 500
+
+def get_cache_recommendations(cache_info):
+    """Cache durumuna göre öneriler"""
+    recommendations = []
+    
+    if not cache_info.get("analysis_service_ready"):
+        recommendations.append({
+            "type": "error",
+            "message": "Malzeme analiz servisi çalışmıyor",
+            "action": "Servisi yeniden başlatın"
+        })
+    
+    elif cache_info.get("cache_status") == "empty":
+        recommendations.append({
+            "type": "warning", 
+            "message": "Cache boş - malzemeler analiz edilemez",
+            "action": "Cache Yenile butonuna tıklayın"
+        })
+    
+    elif not cache_info.get("cache_db_sync", True):
+        recommendations.append({
+            "type": "info",
+            "message": f"Cache senkronize değil (DB: {cache_info.get('database_material_count')}, Cache: {cache_info.get('cache_material_count')})",
+            "action": "Cache'i yenileyin"
+        })
+    
+    elif cache_info.get("cache_status") == "active":
+        recommendations.append({
+            "type": "success",
+            "message": "Cache aktif ve güncel",
+            "action": "Yeni malzemeler eklendikten sonra cache'i yenileyin"
+        })
+    
+    return recommendations

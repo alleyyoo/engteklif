@@ -854,7 +854,7 @@ class StepRendererEnhanced:
             
             # Material info (example)
             material_info = [
-                "Material: 6061-T6 Aluminum",
+                "Material: 6061 Aluminum",
                 "Density: 2.70 g/cm³",
                 f"Est. Mass: {self._estimate_mass(dimensions):.2f} kg",
                 "Machinability: Excellent"

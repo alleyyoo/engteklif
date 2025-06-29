@@ -23,6 +23,10 @@ p {
   margin: 0;
 }
 
-.p-component-overlay-enter  {
-  background-color: rgb(175, 174, 174) !important
+.p-component-overlay-enter {
+  background-color: rgb(175, 174, 174) !important;
+}
+
+.p-toolbar-group-start {
+  width: 100%;
 }

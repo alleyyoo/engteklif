@@ -184,7 +184,7 @@ export interface MultipleExcelExportResponse {
   filename?: string;
 }
 
-// ✅ YENİ - Grup analizi için endpoint'ler
+// ✅ YENİ - Grup analizi için interface'ler
 export interface GroupAnalysisRequest {
   analysis_ids: string[];
   group_name: string;
@@ -205,6 +205,70 @@ export interface GroupAnalysisResponse {
   };
 }
 
+// ✅ YENİ - Cache refresh interface'leri
+export interface CacheRefreshResponse {
+  success: boolean;
+  message: string;
+  cache_refreshed?: boolean;
+  material_count?: number;
+  refresh_time?: string;
+  admin_user?: string;
+}
+
+export interface CacheStatusResponse {
+  success: boolean;
+  cache_info: {
+    database_material_count: number;
+    cache_material_count?: number;
+    cache_status: "active" | "empty" | "unknown";
+    analysis_service_ready: boolean;
+    cache_db_sync?: boolean;
+    last_refresh?: string;
+    service_error?: string;
+  };
+  recommendations: Array<{
+    type: "success" | "info" | "warning" | "error";
+    message: string;
+    action: string;
+  }>;
+}
+
+// ✅ YENİ - Re-analysis interface'leri
+export interface ReanalysisResponse {
+  success: boolean;
+  message: string;
+  analysis: AnalysisResult["analysis"];
+  processing_time: number;
+  reanalysis: boolean;
+  material_cache_refreshed: boolean;
+  changes: {
+    old_materials: string[];
+    new_materials: string[];
+    material_changed: boolean;
+  };
+}
+
+export interface BulkReanalysisResponse {
+  success: boolean;
+  message: string;
+  results: Array<{
+    analysis_id: string;
+    success: boolean;
+    message: string;
+    filename?: string;
+    processing_time?: number;
+    material_changed?: boolean;
+    old_materials?: string[];
+    new_materials?: string[];
+  }>;
+  summary: {
+    total: number;
+    successful: number;
+    failed: number;
+    material_cache_refreshed: boolean;
+  };
+}
+
 class ApiService {
   private getAuthHeaders(): HeadersInit {
     const token = localStorage.getItem("accessToken");
@@ -220,6 +284,10 @@ class ApiService {
       Authorization: token ? `Bearer ${token}` : "",
     };
   }
+
+  // ============================================================================
+  // FILE UPLOAD METHODS
+  // ============================================================================
 
   async uploadSingleFile(file: File): Promise<FileUploadResponse> {
     const formData = new FormData();
@@ -249,6 +317,10 @@ class ApiService {
     return response.json();
   }
 
+  // ============================================================================
+  // ANALYSIS METHODS
+  // ============================================================================
+
   async analyzeFile(analysisId: string): Promise<AnalysisResult> {
     const response = await fetch(
       `${API_BASE_URL}/api/upload/analyze/${analysisId}`,
@@ -259,6 +331,85 @@ class ApiService {
     );
 
     return response.json();
+  }
+
+  // ✅ YENİ - Force re-analysis (updated materials ile)
+  async forceReanalysis(analysisId: string): Promise<ReanalysisResponse> {
+    try {
+      console.log("🔄 Force re-analysis başlatılıyor...", { analysisId });
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/re-analyze/${analysisId}`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || `HTTP ${response.status}: ${response.statusText}`
+        );
+      }
+
+      console.log("✅ Force re-analysis başarılı:", result);
+      return result;
+    } catch (error: any) {
+      console.error("❌ Force re-analysis hatası:", error);
+      throw error;
+    }
+  }
+
+  // ✅ YENİ - Bulk re-analysis
+  async bulkReanalysis(analysisIds: string[]): Promise<BulkReanalysisResponse> {
+    try {
+      console.log("🔄 Bulk re-analysis başlatılıyor...", {
+        analysisCount: analysisIds.length,
+        analysisIds,
+      });
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/bulk-re-analyze`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({
+            analysis_ids: analysisIds,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || `HTTP ${response.status}: ${response.statusText}`
+        );
+      }
+
+      console.log("✅ Bulk re-analysis başarılı:", {
+        total: result.summary?.total,
+        successful: result.summary?.successful,
+        failed: result.summary?.failed,
+      });
+
+      return result;
+    } catch (error: any) {
+      console.error("❌ Bulk re-analysis hatası:", error);
+      return {
+        success: false,
+        message: error.message || "Toplu yeniden analiz başarısız",
+        results: [],
+        summary: {
+          total: analysisIds.length,
+          successful: 0,
+          failed: analysisIds.length,
+          material_cache_refreshed: false,
+        },
+      };
+    }
   }
 
   // ✅ YENİ - Grup analizi oluşturma
@@ -329,6 +480,148 @@ class ApiService {
     }
   }
 
+  // ✅ YENİ - Benzer dosya önerisi
+  async getSimilarFilesSuggestions(currentAnalysisIds: string[]): Promise<{
+    success: boolean;
+    suggestions: Array<{
+      group_name: string;
+      files: Array<{
+        analysis_id: string;
+        filename: string;
+        similarity_score: number;
+      }>;
+    }>;
+  }> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/analysis/similar-suggestions`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({ analysis_ids: currentAnalysisIds }),
+        }
+      );
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ Similar files suggestions failed:", error);
+      return {
+        success: false,
+        suggestions: [],
+      };
+    }
+  }
+
+  // ============================================================================
+  // MATERIAL CACHE METHODS - ✅ YENİ
+  // ============================================================================
+
+  // ✅ YENİ - Material cache refresh
+  async refreshMaterialCache(): Promise<CacheRefreshResponse> {
+    try {
+      console.log("🔄 Material cache refresh API çağrısı...");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/materials/refresh-cache`,
+        {
+          method: "POST",
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || `HTTP ${response.status}: ${response.statusText}`
+        );
+      }
+
+      console.log("✅ Material cache refresh başarılı:", result);
+      return result;
+    } catch (error: any) {
+      console.error("❌ Material cache refresh hatası:", error);
+      return {
+        success: false,
+        message: error.message || "Cache yenileme başarısız",
+      };
+    }
+  }
+
+  // ✅ YENİ - Cache status kontrolü
+  async getCacheStatus(): Promise<CacheStatusResponse> {
+    try {
+      console.log("📊 Cache status kontrolü...");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/materials/cache-status`,
+        {
+          method: "GET",
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || `HTTP ${response.status}: ${response.statusText}`
+        );
+      }
+
+      console.log("✅ Cache status alındı:", result);
+      return result;
+    } catch (error: any) {
+      console.error("❌ Cache status hatası:", error);
+      return {
+        success: false,
+        cache_info: {
+          database_material_count: 0,
+          cache_status: "unknown",
+          analysis_service_ready: false,
+          service_error: error.message,
+        },
+        recommendations: [
+          {
+            type: "error",
+            message: "Cache status alınamadı",
+            action: "Bağlantıyı kontrol edin",
+          },
+        ],
+      };
+    }
+  }
+
+  // ✅ YENİ - Material analysis health check
+  async checkMaterialAnalysisHealth(): Promise<{
+    success: boolean;
+    material_count: number;
+    cache_status: string;
+    last_cache_update?: string;
+    analysis_service_ready: boolean;
+  }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/materials/health`, {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      });
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ Material analysis health check failed:", error);
+      return {
+        success: false,
+        material_count: 0,
+        cache_status: "error",
+        analysis_service_ready: false,
+      };
+    }
+  }
+
+  // ============================================================================
+  // ANALYSIS STATUS & MANAGEMENT
+  // ============================================================================
+
   async getAnalysisStatus(analysisId: string): Promise<AnalysisStatus> {
     const response = await fetch(
       `${API_BASE_URL}/api/upload/status/${analysisId}`,
@@ -364,6 +657,10 @@ class ApiService {
 
     return response.json();
   }
+
+  // ============================================================================
+  // EXCEL EXPORT METHODS
+  // ============================================================================
 
   async exportAnalysisExcel(analysisId: string): Promise<Blob> {
     const response = await fetch(
@@ -503,6 +800,10 @@ class ApiService {
     }
   }
 
+  // ============================================================================
+  // EXCEL MERGE METHODS
+  // ============================================================================
+
   async mergeWithExcel(
     excelFile: File,
     analysisIds: string[]
@@ -610,16 +911,9 @@ class ApiService {
     }
   }
 
-  async getSupportedFormats(): Promise<ApiResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/upload/supported-formats`,
-      {
-        method: "GET",
-      }
-    );
-
-    return response.json();
-  }
+  // ============================================================================
+  // RENDER METHODS
+  // ============================================================================
 
   async generateStepRender(
     analysisId: string,
@@ -636,6 +930,22 @@ class ApiService {
 
     return response.json();
   }
+
+  async getRenderStatus(analysisId: string): Promise<RenderStatusResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/upload/render-status/${analysisId}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
+    );
+
+    return response.json();
+  }
+
+  // ============================================================================
+  // AUTH METHODS
+  // ============================================================================
 
   async login(username: string, password: string): Promise<ApiResponse> {
     const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -658,11 +968,91 @@ class ApiService {
     return response.json();
   }
 
-  async getRenderStatus(analysisId: string): Promise<RenderStatusResponse> {
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  async getSupportedFormats(): Promise<ApiResponse> {
     const response = await fetch(
-      `${API_BASE_URL}/api/upload/render-status/${analysisId}`,
+      `${API_BASE_URL}/api/upload/supported-formats`,
       {
         method: "GET",
+      }
+    );
+
+    return response.json();
+  }
+
+  // ============================================================================
+  // MATERIAL MANAGEMENT METHODS - ✅ YENİ
+  // ============================================================================
+
+  async getMaterials(
+    page = 1,
+    limit = 50,
+    search = "",
+    category = ""
+  ): Promise<ApiResponse> {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(search && { search }),
+      ...(category && { category }),
+    });
+
+    const response = await fetch(`${API_BASE_URL}/api/materials?${params}`, {
+      method: "GET",
+      headers: this.getAuthHeaders(),
+    });
+
+    return response.json();
+  }
+
+  async createMaterial(materialData: {
+    name: string;
+    aliases?: string[];
+    density?: number;
+    price_per_kg?: number;
+    category?: string;
+    description?: string;
+  }): Promise<ApiResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/materials`, {
+      method: "POST",
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(materialData),
+    });
+
+    return response.json();
+  }
+
+  async updateMaterial(
+    materialId: string,
+    updateData: {
+      name?: string;
+      aliases?: string[];
+      density?: number;
+      price_per_kg?: number;
+      category?: string;
+      description?: string;
+    }
+  ): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/materials/${materialId}`,
+      {
+        method: "PUT",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(updateData),
+      }
+    );
+
+    return response.json();
+  }
+
+  async deleteMaterial(materialId: string): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/materials/${materialId}`,
+      {
+        method: "DELETE",
         headers: this.getAuthHeaders(),
       }
     );
@@ -670,36 +1060,61 @@ class ApiService {
     return response.json();
   }
 
-  // ✅ YENİ - Benzer dosya önerisi
-  async getSimilarFilesSuggestions(currentAnalysisIds: string[]): Promise<{
-    success: boolean;
-    suggestions: Array<{
-      group_name: string;
-      files: Array<{
-        analysis_id: string;
-        filename: string;
-        similarity_score: number;
-      }>;
-    }>;
-  }> {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/analysis/similar-suggestions`,
-        {
-          method: "POST",
-          headers: this.getAuthHeaders(),
-          body: JSON.stringify({ analysis_ids: currentAnalysisIds }),
-        }
-      );
+  async addMaterialAliases(
+    materialId: string,
+    aliases: string[]
+  ): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/materials/${materialId}/aliases`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ aliases }),
+      }
+    );
 
-      return response.json();
-    } catch (error: any) {
-      console.error("❌ Similar files suggestions failed:", error);
-      return {
-        success: false,
-        suggestions: [],
-      };
-    }
+    return response.json();
+  }
+
+  async removeMaterialAlias(
+    materialId: string,
+    alias: string
+  ): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/materials/${materialId}/aliases/${encodeURIComponent(
+        alias
+      )}`,
+      {
+        method: "DELETE",
+        headers: this.getAuthHeaders(),
+      }
+    );
+
+    return response.json();
+  }
+
+  async getMaterialCategories(): Promise<ApiResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/materials/categories`, {
+      method: "GET",
+      headers: this.getAuthHeaders(),
+    });
+
+    return response.json();
+  }
+
+  async bulkUpdateMaterialPrices(priceUpdates: {
+    [materialName: string]: number;
+  }): Promise<ApiResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/materials/bulk-update-prices`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ price_updates: priceUpdates }),
+      }
+    );
+
+    return response.json();
   }
 }
 
