@@ -4,6 +4,7 @@ import {
   FileUploadResponse,
   AnalysisResult,
   RenderStatusResponse,
+  MultipleUploadResponse,
 } from "../services/api";
 
 export interface UploadedFile {
@@ -21,45 +22,58 @@ export interface UploadedFile {
   result?: AnalysisResult;
   renderStatus?: "none" | "pending" | "processing" | "completed" | "failed";
   renderCheckInterval?: NodeJS.Timer;
+  lastRenderCheck?: number;
+  renderRetryCount?: number;
+  isPartOfMatch?: boolean; // PDF-STEP eşleştirmesinin parçası mı?
+  matchPairId?: string; // Hangi eşleştirmeye ait?
 }
 
-// ✅ GÜNCELLENMIŞ - Dosya grubu interface'i
-export interface FileGroup {
-  groupId: string;
-  groupName: string; // Ortak dosya ismi (uzantısız)
-  groupType: string; // ✅ YENİ - Grup türü açıklaması
-  files: UploadedFile[];
-  mergedResult?: AnalysisResult; // Birleştirilmiş sonuç
+export interface MatchedPair {
+  id: string;
+  pdfFile: UploadedFile;
+  stepFile: UploadedFile;
+  matchScore: number;
+  matchQuality: string;
+  displayName: string;
   status: "pending" | "processing" | "completed" | "failed";
   progress: number;
-  primaryFile?: UploadedFile; // En detaylı veriye sahip dosya
+  mergedResult?: AnalysisResult;
+}
+
+export interface FileGroup {
+  groupId: string;
+  groupName: string;
+  groupType: string;
+  files: UploadedFile[];
+  mergedResult?: AnalysisResult;
+  status: "pending" | "processing" | "completed" | "failed";
+  progress: number;
+  primaryFile?: UploadedFile;
   hasStep: boolean;
   hasPdf: boolean;
-  hasDoc: boolean; // ✅ YENİ - DOC dosyası kontrolü
+  hasDoc: boolean;
   totalFiles: number;
 }
 
 export const useFileUpload = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [matchedPairs, setMatchedPairs] = useState<MatchedPair[]>([]);
   const [fileGroups, setFileGroups] = useState<FileGroup[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [totalProcessingTime, setTotalProcessingTime] = useState(0);
   const [groupMode, setGroupMode] = useState(true);
 
-  // Interval'leri takip etmek için ref kullan
+  const [renderStatusMap, setRenderStatusMap] = useState<Map<string, string>>(
+    new Map()
+  );
+  const [renderProgressMap, setRenderProgressMap] = useState<
+    Map<string, number>
+  >(new Map());
+
   const intervalsRef = useRef<Map<string, NodeJS.Timer>>(new Map());
+  const lastCheckTimesRef = useRef<Map<string, number>>(new Map());
+  const retryCountsRef = useRef<Map<string, number>>(new Map());
 
-  // ✅ GÜNCELLENMIŞ - Dosya ismi normalize etme fonksiyonu
-  const normalizeFileName = useCallback((fileName: string): string => {
-    // Uzantıyı kaldır ve normalize et
-    return fileName
-      .replace(/\.[^/.]+$/, "") // Uzantıyı kaldır (.pdf, .step, .stp, .doc, .docx)
-      .replace(/[_\-\s]+/g, "_") // Boşluk, tire ve alt çizgiyi normalize et
-      .toLowerCase()
-      .trim();
-  }, []);
-
-  // ✅ GÜNCELLENMIŞ - Dosya türü belirleme fonksiyonu
   const getFileType = useCallback((fileName: string): string => {
     const lowerName = fileName.toLowerCase();
     if (lowerName.endsWith(".pdf")) return "pdf";
@@ -69,512 +83,429 @@ export const useFileUpload = () => {
     return "other";
   }, []);
 
-  // ✅ TAMAMEN YENİDEN YAZILMIŞ - Gelişmiş gruplama fonksiyonu
-  const groupFilesByName = useCallback(
-    (fileList: UploadedFile[]): FileGroup[] => {
-      if (!groupMode) return [];
-
-      const groupMap = new Map<string, UploadedFile[]>();
-
-      // Dosyaları normalize edilmiş isme göre grupla
-      fileList.forEach((file) => {
-        const normalizedName = normalizeFileName(file.file.name);
-        if (!groupMap.has(normalizedName)) {
-          groupMap.set(normalizedName, []);
-        }
-        groupMap.get(normalizedName)!.push(file);
-      });
-
-      // Grupları filtrele ve oluştur
-      return Array.from(groupMap.entries())
-        .filter(([_, files]) => {
-          // Grup oluşturma kriterleri:
-          // 1. Birden fazla dosya var
-          // 2. VEYA tek dosya ama özel türlerden (step, pdf, doc)
-          return (
-            files.length > 1 ||
-            files.some((f) => {
-              const type = getFileType(f.file.name);
-              return ["pdf", "step", "doc"].includes(type);
-            })
-          );
-        })
-        .map(([groupName, groupFiles]) => {
-          // Dosya türlerini analiz et
-          const fileTypes = groupFiles.map((f) => getFileType(f.file.name));
-          const hasStep = fileTypes.includes("step");
-          const hasPdf = fileTypes.includes("pdf");
-          const hasDoc = fileTypes.includes("doc");
-
-          // Grup türü belirleme
-          let groupType = "";
-          if (groupFiles.length === 1) {
-            groupType = "Single File";
-          } else if (hasStep && hasPdf && hasDoc) {
-            groupType = "PDF + STEP + DOC";
-          } else if (hasStep && hasPdf) {
-            groupType = "PDF + STEP";
-          } else if (hasStep && hasDoc) {
-            groupType = "STEP + DOC";
-          } else if (hasPdf && hasDoc) {
-            groupType = "PDF + DOC";
-          } else if (
-            hasStep &&
-            fileTypes.filter((t) => t === "step").length > 1
-          ) {
-            groupType = `Multiple STEP (${
-              fileTypes.filter((t) => t === "step").length
-            })`;
-          } else if (
-            hasPdf &&
-            fileTypes.filter((t) => t === "pdf").length > 1
-          ) {
-            groupType = `Multiple PDF (${
-              fileTypes.filter((t) => t === "pdf").length
-            })`;
-          } else if (
-            hasDoc &&
-            fileTypes.filter((t) => t === "doc").length > 1
-          ) {
-            groupType = `Multiple DOC (${
-              fileTypes.filter((t) => t === "doc").length
-            })`;
-          } else {
-            groupType = `Mixed Files (${groupFiles.length})`;
-          }
-
-          // Primary dosyayı belirle
-          const primaryFile = determinePrimaryFile(groupFiles);
-
-          // Grup durumunu hesapla
-          const groupStatus = calculateGroupStatus(groupFiles);
-          const groupProgress = calculateGroupProgress(groupFiles);
-
-          return {
-            groupId: `group_${groupName}_${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2, 9)}`,
-            groupName,
-            groupType,
-            files: groupFiles,
-            status: groupStatus,
-            progress: groupProgress,
-            primaryFile,
-            hasStep,
-            hasPdf,
-            hasDoc,
-            totalFiles: groupFiles.length,
-          };
-        });
-    },
-    [groupMode, normalizeFileName, getFileType]
-  );
-
-  // ✅ GÜNCELLENMIŞ - Primary dosya belirleme (daha akıllı)
-  const determinePrimaryFile = (
-    groupFiles: UploadedFile[]
-  ): UploadedFile | undefined => {
-    // 1. Öncelik: Tamamlanmış STEP dosyası (en detaylı geometri)
-    const completedStep = groupFiles.find(
-      (f) =>
-        f.status === "completed" &&
-        getFileType(f.file.name) === "step" &&
-        f.result?.analysis?.step_analysis
-    );
-    if (completedStep) return completedStep;
-
-    // 2. Öncelik: Tamamlanmış PDF (STEP çıkarılmış)
-    const completedPdfWithStep = groupFiles.find(
-      (f) =>
-        f.status === "completed" &&
-        getFileType(f.file.name) === "pdf" &&
-        f.result?.analysis?.step_analysis &&
-        f.result?.analysis?.pdf_step_extracted
-    );
-    if (completedPdfWithStep) return completedPdfWithStep;
-
-    // 3. Öncelik: En çok malzeme eşleşmesi olan
-    const fileWithMostMaterials = groupFiles
-      .filter(
-        (f) => f.status === "completed" && f.result?.analysis?.material_matches
-      )
-      .sort(
-        (a, b) =>
-          (b.result?.analysis?.material_matches?.length || 0) -
-          (a.result?.analysis?.material_matches?.length || 0)
-      )[0];
-    if (fileWithMostMaterials) return fileWithMostMaterials;
-
-    // 4. Öncelik: En büyük dosya boyutu (daha çok veri içerebilir)
-    const largestFile = groupFiles
-      .filter((f) => f.status === "completed")
-      .sort((a, b) => b.file.size - a.file.size)[0];
-    if (largestFile) return largestFile;
-
-    // 5. Fallback: İlk tamamlanmış dosya
-    const firstCompleted = groupFiles.find((f) => f.status === "completed");
-    if (firstCompleted) return firstCompleted;
-
-    // 6. Son fallback: Dosya türü önceliğine göre (STEP > PDF > DOC)
-    const stepFile = groupFiles.find(
-      (f) => getFileType(f.file.name) === "step"
-    );
-    if (stepFile) return stepFile;
-
-    const pdfFile = groupFiles.find((f) => getFileType(f.file.name) === "pdf");
-    if (pdfFile) return pdfFile;
-
-    // 7. En son fallback: İlk dosya
-    return groupFiles[0];
-  };
-
-  // Grup durumu hesaplama (değişiklik yok)
-  const calculateGroupStatus = (
-    groupFiles: UploadedFile[]
-  ): FileGroup["status"] => {
-    const statuses = groupFiles.map((f) => f.status);
-
-    if (statuses.every((s) => s === "completed")) return "completed";
-    if (statuses.some((s) => s === "failed")) return "failed";
-    if (statuses.some((s) => s === "analyzing" || s === "uploading"))
-      return "processing";
-    return "pending";
-  };
-
-  // Grup progress hesaplama (değişiklik yok)
-  const calculateGroupProgress = (groupFiles: UploadedFile[]): number => {
-    if (groupFiles.length === 0) return 0;
-    const totalProgress = groupFiles.reduce(
-      (sum, file) => sum + file.progress,
-      0
-    );
-    return Math.round(totalProgress / groupFiles.length);
-  };
-
-  // ✅ GÜNCELLENMIŞ - Grup sonuçlarını birleştirme
-  const mergeGroupResults = useCallback(
-    (group: FileGroup): AnalysisResult | undefined => {
-      const completedFiles = group.files.filter(
-        (f) => f.status === "completed" && f.result
-      );
-      if (completedFiles.length === 0) return undefined;
-
-      const primaryResult = group.primaryFile?.result;
-      if (!primaryResult) return completedFiles[0].result;
-
-      // Birleştirilmiş sonuç oluştur
-      const mergedResult: AnalysisResult = {
-        ...primaryResult,
-        // En iyi analizi kullan
-        analysis: {
-          ...primaryResult.analysis,
-          // STEP analizi - en detaylısını kullan
-          step_analysis: getBestStepAnalysis(completedFiles),
-          // Malzeme eşleşmeleri - en kapsamlısını kullan
-          material_matches: getBestMaterialMatches(completedFiles),
-          // Malzeme hesaplamaları - en detaylısını kullan
-          all_material_calculations:
-            getBestMaterialCalculations(completedFiles),
-          // Render - en kalitelisini kullan
-          enhanced_renders: getBestRenders(completedFiles),
-          // Grup bilgileri - detaylı
-          group_info: {
-            group_id: group.groupId,
-            group_name: group.groupName,
-            group_type: group.groupType,
-            total_files: group.totalFiles,
-            file_types: [
-              ...new Set(group.files.map((f) => getFileType(f.file.name))),
-            ],
-            file_names: group.files.map((f) => f.file.name),
-            has_step: group.hasStep,
-            has_pdf: group.hasPdf,
-            has_doc: group.hasDoc,
-            primary_source: group.primaryFile?.file.name || "",
-            analysis_sources: completedFiles.length,
-          },
-        },
-        // Analysis details - grup bilgisi ekle
-        analysis_details: {
-          ...primaryResult.analysis_details,
-          grouped_analysis: true,
-          source_files: completedFiles.length,
-          primary_source: group.primaryFile?.file.name || "",
-          group_composition: group.groupType,
-        },
-      };
-
-      return mergedResult;
-    },
-    [getFileType]
-  );
-
-  // ✅ GÜNCELLENMIŞ - Helper fonksiyonlar
-  const getBestStepAnalysis = (files: UploadedFile[]) => {
-    // 1. STEP dosyasından gelen analizi öncelikle kullan
-    const stepFileResult = files.find(
-      (f) =>
-        getFileType(f.file.name) === "step" && f.result?.analysis?.step_analysis
-    );
-    if (stepFileResult) return stepFileResult.result!.analysis.step_analysis;
-
-    // 2. PDF'den çıkarılan STEP analizi
-    const pdfWithStepResult = files.find(
-      (f) =>
-        getFileType(f.file.name) === "pdf" &&
-        f.result?.analysis?.step_analysis &&
-        f.result?.analysis?.pdf_step_extracted
-    );
-    if (pdfWithStepResult)
-      return pdfWithStepResult.result!.analysis.step_analysis;
-
-    // 3. En detaylı step analizi
-    const filesWithStep = files.filter(
-      (f) => f.result?.analysis?.step_analysis
-    );
-    const mostDetailedStep = filesWithStep.sort((a, b) => {
-      const aKeys = Object.keys(a.result?.analysis?.step_analysis || {}).length;
-      const bKeys = Object.keys(b.result?.analysis?.step_analysis || {}).length;
-      return bKeys - aKeys;
-    })[0];
-
-    return mostDetailedStep?.result?.analysis?.step_analysis || {};
-  };
-
-  const getBestMaterialMatches = (files: UploadedFile[]) => {
-    // En çok eşleşmesi olan dosyayı kullan
-    const sortedByMatches = files
-      .filter((f) => f.result?.analysis?.material_matches)
-      .sort(
-        (a, b) =>
-          (b.result?.analysis?.material_matches?.length || 0) -
-          (a.result?.analysis?.material_matches?.length || 0)
-      );
-
-    if (sortedByMatches.length > 0) {
-      return sortedByMatches[0].result!.analysis.material_matches;
-    }
-
-    return [];
-  };
-
-  // ✅ YENİ - En iyi malzeme hesaplamalarını getir
-  const getBestMaterialCalculations = (files: UploadedFile[]) => {
-    const sortedByCalculations = files
-      .filter((f) => f.result?.analysis?.all_material_calculations)
-      .sort(
-        (a, b) =>
-          (b.result?.analysis?.all_material_calculations?.length || 0) -
-          (a.result?.analysis?.all_material_calculations?.length || 0)
-      );
-
-    if (sortedByCalculations.length > 0) {
-      return sortedByCalculations[0].result!.analysis.all_material_calculations;
-    }
-
-    return [];
-  };
-
-  const getBestRenders = (files: UploadedFile[]) => {
-    // 1. STEP dosyasından gelen render'ları öncelikle kullan
-    const stepFileResult = files.find(
-      (f) =>
-        getFileType(f.file.name) === "step" &&
-        f.result?.analysis?.enhanced_renders &&
-        Object.keys(f.result.analysis.enhanced_renders).length > 0
-    );
-    if (stepFileResult) return stepFileResult.result!.analysis.enhanced_renders;
-
-    // 2. En çok render'ı olan dosya
-    const sortedByRenders = files
-      .filter((f) => f.result?.analysis?.enhanced_renders)
-      .sort((a, b) => {
-        const aRenderCount = Object.keys(
-          a.result?.analysis?.enhanced_renders || {}
-        ).length;
-        const bRenderCount = Object.keys(
-          b.result?.analysis?.enhanced_renders || {}
-        ).length;
-        return bRenderCount - aRenderCount;
-      });
-
-    if (sortedByRenders.length > 0) {
-      return sortedByRenders[0].result!.analysis.enhanced_renders;
-    }
-
-    return {};
-  };
-
-  // ✅ Dosyalar değiştiğinde grupları güncelle
-  useEffect(() => {
-    if (groupMode) {
-      const groups = groupFilesByName(files);
-
-      // Grup sonuçlarını güncelle
-      const updatedGroups = groups.map((group) => ({
-        ...group,
-        mergedResult: mergeGroupResults(group),
-      }));
-
-      // Sadece gerçekten değişiklik varsa güncelle
-      setFileGroups((prevGroups) => {
-        // Grup sayısı değişti mi kontrol et
-        if (prevGroups.length !== updatedGroups.length) {
-          return updatedGroups;
-        }
-
-        // Her grup için değişiklik var mı kontrol et
-        const hasChanges = updatedGroups.some((newGroup, index) => {
-          const oldGroup = prevGroups[index];
-          if (!oldGroup) return true;
-
-          // Status veya progress değişti mi?
-          if (
-            oldGroup.status !== newGroup.status ||
-            oldGroup.progress !== newGroup.progress
-          ) {
-            return true;
-          }
-
-          // Dosya durumları değişti mi?
-          const filesChanged = newGroup.files.some((newFile, fileIndex) => {
-            const oldFile = oldGroup.files[fileIndex];
-            if (!oldFile) return true;
-            return (
-              oldFile.status !== newFile.status ||
-              oldFile.progress !== newFile.progress ||
-              oldFile.renderStatus !== newFile.renderStatus
-            );
-          });
-
-          return filesChanged;
-        });
-
-        return hasChanges ? updatedGroups : prevGroups;
-      });
-    } else {
-      setFileGroups([]);
-    }
-  }, [files, groupMode, groupFilesByName, mergeGroupResults]);
-
-  // Interval temizleme fonksiyonu
-  const clearRenderInterval = useCallback((analysisId: string) => {
-    const interval = intervalsRef.current.get(analysisId);
-    if (interval) {
-      clearInterval(interval);
-      intervalsRef.current.delete(analysisId);
-      console.log(`🧹 Interval temizlendi: ${analysisId}`);
-    }
-  }, []);
-
-  // Tüm interval'leri temizle
-  const clearAllIntervals = useCallback(() => {
-    intervalsRef.current.forEach((interval, analysisId) => {
-      clearInterval(interval);
-      console.log(`🧹 Interval temizlendi: ${analysisId}`);
-    });
-    intervalsRef.current.clear();
-  }, []);
-
   const checkRenderStatus = useCallback(
-    async (analysisId: string, fileIndex: number) => {
+    async (analysisId: string, fileIndex?: number) => {
+      const now = Date.now();
+      const lastCheck = lastCheckTimesRef.current.get(analysisId) || 0;
+      const minInterval = 2000;
+
+      if (now - lastCheck < minInterval) {
+        console.log(`⏭️ Render check skipped (too soon): ${analysisId}`);
+        return;
+      }
+
+      lastCheckTimesRef.current.set(analysisId, now);
+
       try {
+        console.log(`🎨 Render status kontrol ediliyor: ${analysisId}`);
+
         const response: RenderStatusResponse = await apiService.getRenderStatus(
           analysisId
         );
 
         if (response.success) {
-          setFiles((prev) => {
-            const newFiles = [...prev];
-            const file = newFiles[fileIndex];
+          const currentStatus = renderStatusMap.get(analysisId);
+          const newStatus = response.render_status;
+          const renderProgress = response.progress || 0;
 
-            if (!file) {
-              clearRenderInterval(analysisId);
-              return prev;
-            }
+          setRenderProgressMap(
+            (prev) => new Map(prev.set(analysisId, renderProgress))
+          );
 
-            if (response.render_status === "completed") {
-              clearRenderInterval(analysisId);
-              console.log(`✅ Render tamamlandı: ${analysisId}`);
+          if (currentStatus !== newStatus) {
+            console.log(
+              `🔄 Render status güncellemesi: ${analysisId} -> ${newStatus} (${renderProgress}%)`
+            );
 
-              if (file.result && file.result.analysis) {
-                if (response.stl_generated !== undefined) {
-                  file.result.analysis.stl_generated = response.stl_generated;
-                }
+            setRenderStatusMap(
+              (prev) => new Map(prev.set(analysisId, newStatus))
+            );
 
-                if (response.stl_path) {
-                  file.result.analysis.stl_path = response.stl_path;
-                }
+            // Update files
+            setFiles((prevFiles) =>
+              prevFiles.map((file) => {
+                if (
+                  file.analysisId === analysisId ||
+                  file.result?.analysis?.id === analysisId
+                ) {
+                  const updatedFile = {
+                    ...file,
+                    renderStatus: newStatus as any,
+                    lastRenderCheck: now,
+                  };
 
-                file.result.analysis.render_status = "completed";
+                  if (
+                    newStatus === "completed" &&
+                    response.renders &&
+                    file.result?.analysis
+                  ) {
+                    const enhancedRenders: any = {};
 
-                if (response.renders && file.result) {
-                  file.result.analysis.enhanced_renders = {};
-
-                  Object.entries(response.renders).forEach(
-                    ([viewType, renderData]) => {
-                      if (
-                        file.result &&
-                        file.result.analysis.enhanced_renders
-                      ) {
-                        file.result.analysis.enhanced_renders[viewType] = {
+                    Object.entries(response.renders).forEach(
+                      ([viewType, renderData]: [string, any]) => {
+                        enhancedRenders[viewType] = {
                           success: true,
                           view_type: viewType,
                           file_path: renderData.file_path,
                           excel_path: renderData.excel_path || undefined,
-                          svg_path: undefined,
                         };
                       }
+                    );
+
+                    file.result.analysis.enhanced_renders = enhancedRenders;
+                    file.result.analysis.render_status = "completed";
+
+                    if (response.stl_generated !== undefined) {
+                      file.result.analysis.stl_generated =
+                        response.stl_generated;
                     }
-                  );
+                    if (response.stl_path) {
+                      file.result.analysis.stl_path = response.stl_path;
+                    }
+                  }
 
-                  console.log(
-                    `✅ Enhanced renders güncellendi:`,
-                    file.result.analysis.enhanced_renders
-                  );
+                  return updatedFile;
                 }
-              }
+                return file;
+              })
+            );
 
-              newFiles[fileIndex] = {
-                ...file,
-                renderStatus: "completed",
-                renderCheckInterval: undefined,
-              };
-            } else if (response.render_status === "failed") {
-              clearRenderInterval(analysisId);
-              console.log(`❌ Render başarısız: ${analysisId}`);
+            // Update matched pairs
+            setMatchedPairs((prevPairs) =>
+              prevPairs.map((pair) => {
+                if (
+                  pair.pdfFile.analysisId === analysisId ||
+                  pair.stepFile.analysisId === analysisId ||
+                  pair.mergedResult?.analysis?.id === analysisId
+                ) {
+                  return {
+                    ...pair,
+                    mergedResult: pair.mergedResult
+                      ? {
+                          ...pair.mergedResult,
+                          analysis: {
+                            ...pair.mergedResult.analysis,
+                            render_status: newStatus as any,
+                            enhanced_renders:
+                              response.renders && newStatus === "completed"
+                                ? Object.entries(response.renders).reduce(
+                                    (
+                                      acc,
+                                      [viewType, renderData]: [string, any]
+                                    ) => {
+                                      acc[viewType] = {
+                                        success: true,
+                                        view_type: viewType,
+                                        file_path: renderData.file_path,
+                                        excel_path:
+                                          renderData.excel_path || undefined,
+                                      };
+                                      return acc;
+                                    },
+                                    {} as any
+                                  )
+                                : pair.mergedResult.analysis.enhanced_renders,
+                          },
+                        }
+                      : undefined,
+                  };
+                }
+                return pair;
+              })
+            );
+          }
 
-              if (file.result && file.result.analysis) {
-                file.result.analysis.render_status = "failed";
-              }
+          if (newStatus === "completed" || newStatus === "failed") {
+            clearRenderInterval(analysisId);
+            retryCountsRef.current.delete(analysisId);
 
-              newFiles[fileIndex] = {
-                ...file,
-                renderStatus: "failed",
-                renderCheckInterval: undefined,
-              };
-            } else if (response.render_status === "processing") {
-              newFiles[fileIndex] = {
-                ...file,
-                renderStatus: "processing",
-              };
+            if (newStatus === "completed" && response.renders) {
+              console.log(`🎉 3D Model başarıyla oluşturuldu: ${analysisId}`, {
+                renderCount: Object.keys(response.renders).length,
+                views: Object.keys(response.renders),
+                stlGenerated: response.stl_generated,
+              });
             }
+          }
+        } else {
+          console.warn(
+            `⚠️ Render status kontrolü başarısız: ${analysisId}`,
+            response
+          );
 
-            return newFiles;
-          });
+          const retryCount = retryCountsRef.current.get(analysisId) || 0;
+          if (retryCount < 3) {
+            retryCountsRef.current.set(analysisId, retryCount + 1);
+            console.log(
+              `🔄 Render status retry: ${analysisId} (${retryCount + 1}/3)`
+            );
+
+            setTimeout(
+              () => checkRenderStatus(analysisId, fileIndex),
+              Math.pow(2, retryCount) * 1000
+            );
+          } else {
+            console.error(
+              `❌ Render status retry limit exceeded: ${analysisId}`
+            );
+            clearRenderInterval(analysisId);
+          }
         }
-      } catch (error) {
-        console.error("Render status check failed:", error);
+      } catch (error: any) {
+        console.error(`❌ Render status kontrol hatası: ${analysisId}`, error);
+
+        const retryCount = retryCountsRef.current.get(analysisId) || 0;
+        if (
+          retryCount < 3 &&
+          (error.name === "NetworkError" || error.code === "NETWORK_ERROR")
+        ) {
+          retryCountsRef.current.set(analysisId, retryCount + 1);
+          console.log(
+            `🔄 Network error retry: ${analysisId} (${retryCount + 1}/3)`
+          );
+
+          setTimeout(() => checkRenderStatus(analysisId, fileIndex), 5000);
+        } else {
+          clearRenderInterval(analysisId);
+          setRenderStatusMap((prev) => new Map(prev.set(analysisId, "failed")));
+        }
       }
     },
-    [clearRenderInterval]
+    [renderStatusMap]
   );
+
+  const clearRenderInterval = useCallback((analysisId: string) => {
+    const interval = intervalsRef.current.get(analysisId);
+    if (interval) {
+      clearInterval(interval);
+      intervalsRef.current.delete(analysisId);
+      lastCheckTimesRef.current.delete(analysisId);
+      console.log(`🧹 Render interval temizlendi: ${analysisId}`);
+    }
+  }, []);
+
+  const clearAllIntervals = useCallback(() => {
+    console.log(
+      `🧹 Tüm render interval'ları temizleniyor (${intervalsRef.current.size} adet)`
+    );
+
+    intervalsRef.current.forEach((interval, analysisId) => {
+      clearInterval(interval);
+      console.log(`🧹 Temizlendi: ${analysisId}`);
+    });
+
+    intervalsRef.current.clear();
+    lastCheckTimesRef.current.clear();
+    retryCountsRef.current.clear();
+
+    setRenderStatusMap(new Map());
+    setRenderProgressMap(new Map());
+  }, []);
+
+  const startRenderStatusMonitoring = useCallback(
+    (analysisId: string, fileIndex?: number) => {
+      clearRenderInterval(analysisId);
+
+      console.log(`🎨 Render monitoring başlatılıyor: ${analysisId}`);
+
+      checkRenderStatus(analysisId, fileIndex);
+
+      let checkCount = 0;
+      const maxChecks = 100;
+
+      const adaptiveCheck = () => {
+        checkCount++;
+
+        const baseInterval = 3000;
+        const intervalMultiplier = Math.min(Math.floor(checkCount / 10) + 1, 4);
+        const currentInterval = baseInterval * intervalMultiplier;
+
+        console.log(
+          `🎨 Adaptive render check #${checkCount}: ${analysisId} (interval: ${currentInterval}ms)`
+        );
+
+        checkRenderStatus(analysisId, fileIndex);
+
+        const currentStatus = renderStatusMap.get(analysisId);
+        if (
+          currentStatus === "completed" ||
+          currentStatus === "failed" ||
+          checkCount >= maxChecks
+        ) {
+          console.log(
+            `🛑 Render monitoring durduruluyor: ${analysisId} (${
+              currentStatus || "timeout"
+            })`
+          );
+          clearRenderInterval(analysisId);
+          return;
+        }
+
+        const nextInterval = setTimeout(adaptiveCheck, currentInterval);
+        intervalsRef.current.set(analysisId, nextInterval as any);
+      };
+
+      const initialInterval = setTimeout(adaptiveCheck, 3000);
+      intervalsRef.current.set(analysisId, initialInterval as any);
+
+      setTimeout(() => {
+        const currentInterval = intervalsRef.current.get(analysisId);
+        if (
+          currentInterval === initialInterval ||
+          intervalsRef.current.has(analysisId)
+        ) {
+          console.log(`⏰ Render monitoring max timeout: ${analysisId}`);
+          clearRenderInterval(analysisId);
+          setRenderStatusMap((prev) => new Map(prev.set(analysisId, "failed")));
+        }
+      }, 15 * 60 * 1000);
+    },
+    [checkRenderStatus, renderStatusMap, clearRenderInterval]
+  );
+
+  const mergeMatchedPairResults = useCallback(
+    (pair: MatchedPair): AnalysisResult | undefined => {
+      const pdfResult = pair.pdfFile.result;
+      const stepResult = pair.stepFile.result;
+
+      if (!pdfResult && !stepResult) return undefined;
+
+      // Use the result that has step_analysis, preferring STEP file result
+      const primaryResult = stepResult?.analysis?.step_analysis
+        ? stepResult
+        : pdfResult;
+      const secondaryResult =
+        primaryResult === stepResult ? pdfResult : stepResult;
+
+      if (!primaryResult) return undefined;
+
+      const mergedResult: AnalysisResult = {
+        ...primaryResult,
+        analysis: {
+          ...primaryResult.analysis,
+          // Merge step_analysis (prefer STEP file's analysis)
+          step_analysis:
+            stepResult?.analysis?.step_analysis ||
+            pdfResult?.analysis?.step_analysis ||
+            {},
+          // Merge material matches (combine both)
+          material_matches: [
+            ...(pdfResult?.analysis?.material_matches || []),
+            ...(stepResult?.analysis?.material_matches || []),
+          ].filter((value, index, self) => self.indexOf(value) === index),
+          // Use the best material calculations
+          all_material_calculations:
+            stepResult?.analysis?.all_material_calculations ||
+            pdfResult?.analysis?.all_material_calculations ||
+            [],
+          // Use enhanced renders from STEP file
+          enhanced_renders:
+            stepResult?.analysis?.enhanced_renders ||
+            pdfResult?.analysis?.enhanced_renders ||
+            {},
+          // Merge metadata
+          original_filename: pair.displayName,
+          matched_step_file: pair.stepFile.file.name,
+          match_score: pair.matchScore,
+          match_quality: pair.matchQuality,
+          analysis_strategy: "pdf_with_matched_step",
+          // Preserve other important fields
+          render_status:
+            stepResult?.analysis?.render_status ||
+            pdfResult?.analysis?.render_status ||
+            "none",
+          stl_generated:
+            stepResult?.analysis?.stl_generated ||
+            pdfResult?.analysis?.stl_generated ||
+            false,
+          stl_path:
+            stepResult?.analysis?.stl_path || pdfResult?.analysis?.stl_path,
+        },
+        processing_time: Math.max(
+          primaryResult.processing_time || 0,
+          secondaryResult?.processing_time || 0
+        ),
+        analysis_details: {
+          ...primaryResult.analysis_details,
+          matched_pair: true,
+          pdf_file: pair.pdfFile.file.name,
+          step_file: pair.stepFile.file.name,
+          match_score: pair.matchScore,
+          match_quality: pair.matchQuality,
+        },
+      };
+
+      return mergedResult;
+    },
+    []
+  );
+
+  const calculatePairStatus = useCallback(
+    (pair: MatchedPair): MatchedPair["status"] => {
+      const statuses = [pair.pdfFile.status, pair.stepFile.status];
+
+      if (statuses.every((s) => s === "completed")) return "completed";
+      if (statuses.some((s) => s === "failed")) return "failed";
+      if (statuses.some((s) => s === "analyzing" || s === "uploading"))
+        return "processing";
+      return "pending";
+    },
+    []
+  );
+
+  const calculatePairProgress = useCallback((pair: MatchedPair): number => {
+    const pdfProgress = pair.pdfFile.progress;
+    const stepProgress = pair.stepFile.progress;
+    return Math.round((pdfProgress + stepProgress) / 2);
+  }, []);
+
+  // Update matched pairs when files change
+  useEffect(() => {
+    setMatchedPairs((prevPairs) =>
+      prevPairs.map((pair) => {
+        const updatedPair = { ...pair };
+
+        // Update file references - use matchPairId to find correct files
+        const pdfFile = files.find(
+          (f) => f.matchPairId === pair.id && getFileType(f.file.name) === "pdf"
+        );
+        const stepFile = files.find(
+          (f) =>
+            f.matchPairId === pair.id && getFileType(f.file.name) === "step"
+        );
+
+        if (pdfFile) updatedPair.pdfFile = pdfFile;
+        if (stepFile) updatedPair.stepFile = stepFile;
+
+        // Update status and progress
+        updatedPair.status = calculatePairStatus(updatedPair);
+        updatedPair.progress = calculatePairProgress(updatedPair);
+
+        // Merge results if both completed
+        if (updatedPair.status === "completed") {
+          updatedPair.mergedResult = mergeMatchedPairResults(updatedPair);
+        }
+
+        return updatedPair;
+      })
+    );
+  }, [
+    files,
+    calculatePairStatus,
+    calculatePairProgress,
+    mergeMatchedPairResults,
+    getFileType,
+  ]);
 
   const addFiles = useCallback((newFiles: File[]) => {
     const uploadedFiles: UploadedFile[] = newFiles.map((file) => ({
       file,
       status: "pending",
       progress: 0,
+      renderStatus: "none",
+      lastRenderCheck: 0,
+      renderRetryCount: 0,
+      isPartOfMatch: false,
     }));
     setFiles((prev) => [...prev, ...uploadedFiles]);
   }, []);
@@ -586,34 +517,48 @@ export const useFileUpload = () => {
         if (fileToRemove?.analysisId) {
           clearRenderInterval(fileToRemove.analysisId);
         }
+
+        // Remove from matched pairs if part of match
+        if (fileToRemove?.isPartOfMatch && fileToRemove.matchPairId) {
+          setMatchedPairs((prevPairs) =>
+            prevPairs.filter((pair) => pair.id !== fileToRemove.matchPairId)
+          );
+        }
+
         return prev.filter((_, i) => i !== index);
       });
     },
     [clearRenderInterval]
   );
 
-  // Grup silme fonksiyonu
   const removeGroup = useCallback(
     (groupId: string) => {
-      const group = fileGroups.find((g) => g.groupId === groupId);
-      if (group) {
-        // Grup içindeki tüm dosyaları sil
-        group.files.forEach((file) => {
-          if (file.analysisId) {
-            clearRenderInterval(file.analysisId);
-          }
-        });
+      const pair = matchedPairs.find((p) => p.id === groupId);
+      if (pair) {
+        // Clear render intervals
+        if (pair.pdfFile.analysisId)
+          clearRenderInterval(pair.pdfFile.analysisId);
+        if (pair.stepFile.analysisId)
+          clearRenderInterval(pair.stepFile.analysisId);
 
-        // Files listesinden grup dosyalarını kaldır
-        setFiles((prev) => prev.filter((file) => !group.files.includes(file)));
+        // Remove files
+        setFiles((prev) =>
+          prev.filter(
+            (file) => !(file.isPartOfMatch && file.matchPairId === groupId)
+          )
+        );
+
+        // Remove pair
+        setMatchedPairs((prev) => prev.filter((p) => p.id !== groupId));
       }
     },
-    [fileGroups, clearRenderInterval]
+    [matchedPairs, clearRenderInterval]
   );
 
   const clearFiles = useCallback(() => {
     clearAllIntervals();
     setFiles([]);
+    setMatchedPairs([]);
     setFileGroups([]);
     setTotalProcessingTime(0);
   }, [clearAllIntervals]);
@@ -627,44 +572,56 @@ export const useFileUpload = () => {
     []
   );
 
-  const startRenderStatusCheck = useCallback(
-    (analysisId: string, fileIndex: number) => {
-      clearRenderInterval(analysisId);
+  // Process upload response and create matched pairs
+  const processUploadResponse = useCallback(
+    (uploadResponse: MultipleUploadResponse, pendingFiles: UploadedFile[]) => {
+      const newMatchedPairs: MatchedPair[] = [];
 
-      console.log(`🎨 Render status kontrolü başlatılıyor: ${analysisId}`);
+      // Process PDF-STEP matches
+      uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
+        const pdfFile = pendingFiles.find(
+          (f) => f.file.name === match.pdf_file
+        );
+        const stepFile = pendingFiles.find(
+          (f) => f.file.name === match.step_file
+        );
 
-      const interval = setInterval(() => {
-        setFiles((currentFiles) => {
-          if (
-            !currentFiles[fileIndex] ||
-            currentFiles[fileIndex].analysisId !== analysisId
-          ) {
-            clearRenderInterval(analysisId);
-            return currentFiles;
-          }
-          return currentFiles;
-        });
+        if (pdfFile && stepFile) {
+          const pairId = `pair_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
 
-        checkRenderStatus(analysisId, fileIndex);
-      }, 3000);
+          // Mark files as part of match
+          pdfFile.isPartOfMatch = true;
+          pdfFile.matchPairId = pairId;
+          stepFile.isPartOfMatch = true;
+          stepFile.matchPairId = pairId;
 
-      intervalsRef.current.set(analysisId, interval);
+          const matchedPair: MatchedPair = {
+            id: pairId,
+            pdfFile,
+            stepFile,
+            matchScore: match.match_score,
+            matchQuality: match.match_quality,
+            displayName: pdfFile.file.name.replace(/\.[^/.]+$/, ""),
+            status: "pending",
+            progress: 0,
+          };
 
-      setFiles((prev) =>
-        prev.map((f, i) =>
-          i === fileIndex ? { ...f, renderCheckInterval: interval } : f
-        )
-      );
+          newMatchedPairs.push(matchedPair);
+        }
+      });
+
+      return newMatchedPairs;
     },
-    [checkRenderStatus, clearRenderInterval]
+    []
   );
 
+  // Upload and analyze with multiple endpoint
   const uploadAndAnalyze = useCallback(async () => {
     if (files.length === 0) return;
 
-    const pendingFiles = files
-      .map((file, index) => ({ file, index }))
-      .filter(({ file }) => file.status === "pending");
+    const pendingFiles = files.filter((file) => file.status === "pending");
 
     if (pendingFiles.length === 0) {
       console.log("Tüm dosyalar zaten işlenmiş veya işleniyor");
@@ -675,66 +632,255 @@ export const useFileUpload = () => {
     const startTime = Date.now();
 
     try {
-      for (const { file, index } of pendingFiles) {
-        updateFileStatus(index, { status: "uploading", progress: 0 });
+      // Mark all pending files as uploading
+      pendingFiles.forEach((file) => {
+        const index = files.indexOf(file);
+        updateFileStatus(index, {
+          status: "uploading",
+          progress: 20,
+        });
+      });
 
-        try {
-          const uploadResponse: FileUploadResponse =
-            await apiService.uploadSingleFile(file.file);
+      // Upload multiple files
+      const filesToUpload = pendingFiles.map((f) => f.file);
+      console.log(`📤 Multiple upload başlıyor: ${filesToUpload.length} dosya`);
 
-          if (uploadResponse.success && uploadResponse.file_info) {
-            const analysisId = uploadResponse.file_info.analysis_id;
+      const uploadResponse: MultipleUploadResponse =
+        await apiService.uploadMultipleFiles(filesToUpload);
 
-            updateFileStatus(index, {
-              status: "uploaded",
-              progress: 50,
-              analysisId: analysisId,
+      if (uploadResponse.success && uploadResponse.analyses) {
+        console.log(
+          "✅ Multiple upload başarılı:",
+          uploadResponse.upload_summary
+        );
+
+        // Process matched pairs BEFORE updating file statuses
+        const matchedFileNames = new Set<string>();
+        const newMatchedPairs: MatchedPair[] = [];
+
+        // Process PDF-STEP matches
+        uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
+          const pdfFileIndex = pendingFiles.findIndex(
+            (f) => f.file.name === match.pdf_file
+          );
+          const stepFileIndex = pendingFiles.findIndex(
+            (f) => f.file.name === match.step_file
+          );
+
+          if (pdfFileIndex !== -1 && stepFileIndex !== -1) {
+            const pairId = `pair_${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}`;
+
+            // Track matched file names
+            matchedFileNames.add(match.pdf_file);
+            matchedFileNames.add(match.step_file);
+
+            // Update the pending files with match info
+            pendingFiles[pdfFileIndex].isPartOfMatch = true;
+            pendingFiles[pdfFileIndex].matchPairId = pairId;
+            pendingFiles[stepFileIndex].isPartOfMatch = true;
+            pendingFiles[stepFileIndex].matchPairId = pairId;
+
+            const matchedPair: MatchedPair = {
+              id: pairId,
+              pdfFile: { ...pendingFiles[pdfFileIndex] },
+              stepFile: { ...pendingFiles[stepFileIndex] },
+              matchScore: match.match_score,
+              matchQuality: match.match_quality,
+              displayName: pendingFiles[pdfFileIndex].file.name.replace(
+                /\.[^/.]+$/,
+                ""
+              ),
+              status: "pending",
+              progress: 0,
+            };
+
+            newMatchedPairs.push(matchedPair);
+          }
+        });
+
+        if (newMatchedPairs.length > 0) {
+          setMatchedPairs((prev) => [...prev, ...newMatchedPairs]);
+          console.log(
+            `🔗 ${newMatchedPairs.length} PDF-STEP eşleştirmesi oluşturuldu`
+          );
+        }
+
+        // Create analysis map
+        const analysisMap = new Map<string, any>();
+        uploadResponse.analyses.forEach((analysis: any) => {
+          analysisMap.set(analysis.primary_file, analysis);
+          if (analysis.secondary_file) {
+            analysisMap.set(analysis.secondary_file, analysis);
+          }
+        });
+
+        // Update file statuses with match information
+        setFiles((prevFiles) => {
+          return prevFiles.map((file) => {
+            const pendingFile = pendingFiles.find(
+              (pf) => pf.file.name === file.file.name
+            );
+            if (!pendingFile) return file;
+
+            const analysis = analysisMap.get(file.file.name);
+            const isMatched = matchedFileNames.has(file.file.name);
+            const matchedPair = newMatchedPairs.find(
+              (pair) =>
+                pair.pdfFile.file.name === file.file.name ||
+                pair.stepFile.file.name === file.file.name
+            );
+
+            if (analysis) {
+              return {
+                ...file,
+                status: "uploaded",
+                progress: 50,
+                analysisId: analysis.analysis_id,
+                isPartOfMatch: isMatched,
+                matchPairId: matchedPair?.id,
+              };
+            } else {
+              const failedUpload = uploadResponse.failed_uploads?.find(
+                (f) => f.filename === file.file.name
+              );
+
+              return {
+                ...file,
+                status: "failed",
+                progress: 0,
+                error: failedUpload?.error || "Dosya yüklenemedi",
+              };
+            }
+          });
+        });
+
+        // Analyze each file
+        for (const analysisData of uploadResponse.analyses) {
+          const analysisId = analysisData.analysis_id;
+
+          // Find related files
+          const relatedFiles = files.filter(
+            (f) =>
+              f.file.name === analysisData.primary_file ||
+              f.file.name === analysisData.secondary_file
+          );
+
+          relatedFiles.forEach((file) => {
+            const fileIndex = files.indexOf(file);
+            updateFileStatus(fileIndex, {
+              status: "analyzing",
+              progress: 70,
             });
+          });
 
-            updateFileStatus(index, { status: "analyzing", progress: 60 });
-
+          try {
             const analysisResponse = await apiService.analyzeFile(analysisId);
 
             if (analysisResponse.success) {
-              updateFileStatus(index, {
-                status: "completed",
-                progress: 100,
-                result: analysisResponse,
-                renderStatus: analysisResponse.render_status || "none",
+              const renderStatus =
+                analysisResponse.analysis?.render_status || "none";
+
+              // Update all related files - preserve match info
+              setFiles((prevFiles) => {
+                return prevFiles.map((file) => {
+                  if (
+                    file.file.name === analysisData.primary_file ||
+                    file.file.name === analysisData.secondary_file
+                  ) {
+                    const matchedPair = newMatchedPairs.find(
+                      (pair) =>
+                        pair.pdfFile.file.name === file.file.name ||
+                        pair.stepFile.file.name === file.file.name
+                    );
+
+                    return {
+                      ...file,
+                      status: "completed",
+                      progress: 100,
+                      result: analysisResponse,
+                      renderStatus: renderStatus as any,
+                      lastRenderCheck: Date.now(),
+                      // Make sure match info is preserved
+                      isPartOfMatch:
+                        file.isPartOfMatch ||
+                        !!matchedPair ||
+                        matchedFileNames.has(file.file.name),
+                      matchPairId: file.matchPairId || matchedPair?.id,
+                    };
+                  }
+                  return file;
+                });
               });
 
-              if (analysisResponse.render_status === "processing") {
-                startRenderStatusCheck(analysisId, index);
+              // Start render monitoring if needed
+              if (renderStatus === "processing" || renderStatus === "pending") {
+                console.log(`🎨 Render monitoring başlatılıyor: ${analysisId}`);
+                setRenderStatusMap(
+                  (prev) => new Map(prev.set(analysisId, renderStatus))
+                );
+                startRenderStatusMonitoring(analysisId);
               }
             } else {
-              updateFileStatus(index, {
-                status: "failed",
-                progress: 0,
-                error: analysisResponse.message || "Analiz başarısız",
+              // Update failed files
+              setFiles((prevFiles) => {
+                return prevFiles.map((file) => {
+                  if (
+                    file.file.name === analysisData.primary_file ||
+                    file.file.name === analysisData.secondary_file
+                  ) {
+                    return {
+                      ...file,
+                      status: "failed",
+                      progress: 0,
+                      error: analysisResponse.message || "Analiz başarısız",
+                    };
+                  }
+                  return file;
+                });
               });
             }
-          } else {
-            updateFileStatus(index, {
-              status: "failed",
-              progress: 0,
-              error: uploadResponse.message || "Upload başarısız",
+          } catch (error) {
+            relatedFiles.forEach((file) => {
+              const fileIndex = files.indexOf(file);
+              updateFileStatus(fileIndex, {
+                status: "failed",
+                progress: 0,
+                error: error instanceof Error ? error.message : "Analiz hatası",
+              });
             });
           }
-        } catch (error) {
-          updateFileStatus(index, {
+        }
+      } else {
+        // Upload failed
+        pendingFiles.forEach((file) => {
+          const fileIndex = files.indexOf(file);
+          updateFileStatus(fileIndex, {
             status: "failed",
             progress: 0,
-            error: error instanceof Error ? error.message : "Bilinmeyen hata",
+            error: uploadResponse.message || "Upload başarısız",
           });
-        }
+        });
       }
 
       const endTime = Date.now();
       setTotalProcessingTime((endTime - startTime) / 1000);
+    } catch (error) {
+      console.error("❌ Upload/Analyze hatası:", error);
+
+      pendingFiles.forEach((file) => {
+        const fileIndex = files.indexOf(file);
+        updateFileStatus(fileIndex, {
+          status: "failed",
+          progress: 0,
+          error: error instanceof Error ? error.message : "Bilinmeyen hata",
+        });
+      });
     } finally {
       setIsUploading(false);
     }
-  }, [files, updateFileStatus, startRenderStatusCheck]);
+  }, [files, updateFileStatus, startRenderStatusMonitoring]);
 
   const retryFile = useCallback(
     async (index: number) => {
@@ -746,88 +892,71 @@ export const useFileUpload = () => {
         clearRenderInterval(file.analysisId);
       }
 
+      // Reset file status
       updateFileStatus(index, {
-        status: "uploading",
+        status: "pending",
         progress: 0,
         error: undefined,
+        renderStatus: "none",
+        renderRetryCount: 0,
+        analysisId: undefined,
+        result: undefined,
+        isPartOfMatch: false,
+        matchPairId: undefined,
       });
 
-      try {
-        const uploadResponse = await apiService.uploadSingleFile(file.file);
-
-        if (uploadResponse.success && uploadResponse.file_info) {
-          const analysisId = uploadResponse.file_info.analysis_id;
-
-          updateFileStatus(index, {
-            status: "uploaded",
-            progress: 50,
-            analysisId: analysisId,
-          });
-
-          updateFileStatus(index, { status: "analyzing", progress: 60 });
-
-          const analysisResponse = await apiService.analyzeFile(analysisId);
-
-          if (analysisResponse.success) {
-            updateFileStatus(index, {
-              status: "completed",
-              progress: 100,
-              result: analysisResponse,
-              renderStatus: analysisResponse.render_status || "none",
-            });
-
-            if (
-              analysisResponse.render_status !== "completed" &&
-              analysisResponse.render_status !== "failed"
-            ) {
-              startRenderStatusCheck(analysisId, index);
-            }
-          } else {
-            updateFileStatus(index, {
-              status: "failed",
-              progress: 0,
-              error: analysisResponse.message || "Analiz başarısız",
-            });
-          }
-        } else {
-          updateFileStatus(index, {
-            status: "failed",
-            progress: 0,
-            error: uploadResponse.message || "Upload başarısız",
-          });
-        }
-      } catch (error) {
-        updateFileStatus(index, {
-          status: "failed",
-          progress: 0,
-          error: error instanceof Error ? error.message : "Bilinmeyen hata",
-        });
+      // Remove from matched pairs if it was part of one
+      if (file.isPartOfMatch && file.matchPairId) {
+        setMatchedPairs((prev) =>
+          prev.filter((pair) => pair.id !== file.matchPairId)
+        );
       }
+
+      // Retry upload
+      setTimeout(() => {
+        uploadAndAnalyze();
+      }, 100);
     },
-    [files, updateFileStatus, clearRenderInterval, startRenderStatusCheck]
+    [files, updateFileStatus, clearRenderInterval, uploadAndAnalyze]
   );
 
-  // Grup export fonksiyonu
-  const exportGroupToExcel = useCallback(async (group: FileGroup) => {
-    if (!group.mergedResult) return;
+  const refreshRenderStatus = useCallback(
+    (analysisId: string, fileIndex?: number) => {
+      console.log(`🔄 Manual render status refresh: ${analysisId}`);
 
-    try {
-      const blob = await apiService.exportAnalysisExcel(
-        group.mergedResult.analysis.id
-      );
+      retryCountsRef.current.delete(analysisId);
+      lastCheckTimesRef.current.delete(analysisId);
+      checkRenderStatus(analysisId, fileIndex);
 
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${group.groupName}_group_analysis.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error("Group Excel export failed:", error);
-    }
-  }, []);
+      if (!intervalsRef.current.has(analysisId)) {
+        startRenderStatusMonitoring(analysisId, fileIndex);
+      }
+    },
+    [checkRenderStatus, startRenderStatusMonitoring]
+  );
+
+  const exportGroupToExcel = useCallback(
+    async (group: MatchedPair | FileGroup) => {
+      const result = "mergedResult" in group ? group.mergedResult : undefined;
+      if (!result) return;
+
+      try {
+        const blob = await apiService.exportAnalysisExcel(result.analysis.id);
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${group.displayName || group.groupName}_analysis.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (error) {
+        console.error("Group Excel export failed:", error);
+      }
+    },
+    []
+  );
 
   const exportToExcel = useCallback(
     async (analysisId: string, fileName: string) => {
@@ -895,46 +1024,60 @@ export const useFileUpload = () => {
   );
 
   const exportAllCompletedToExcel = useCallback(async () => {
-    if (groupMode) {
-      // Grup modunda - grup sonuçlarını export et
-      const completedGroups = fileGroups.filter(
-        (g) => g.status === "completed" && g.mergedResult
-      );
-      if (completedGroups.length === 0) {
-        return {
-          success: false,
-          error: "Export edilecek tamamlanmış grup bulunamadı",
-        };
+    const analysisIds: string[] = [];
+
+    // Add completed matched pairs
+    matchedPairs.forEach((pair) => {
+      if (pair.status === "completed" && pair.mergedResult?.analysis?.id) {
+        analysisIds.push(pair.mergedResult.analysis.id);
       }
+    });
 
-      const analysisIds = completedGroups.map(
-        (g) => g.mergedResult!.analysis.id
-      );
-      return await exportMultipleToExcel(
-        analysisIds,
-        `grup_analizleri_${Date.now()}.xlsx`
-      );
-    } else {
-      // Normal mod - individual dosyaları export et
-      const completedFiles = files.filter(
-        (f) => f.status === "completed" && f.result?.analysis?.id
-      );
-
-      if (completedFiles.length === 0) {
-        return { success: false, error: "Export edilecek analiz bulunamadı" };
+    // Add completed individual files
+    files.forEach((file) => {
+      if (
+        file.status === "completed" &&
+        file.result?.analysis?.id &&
+        !file.isPartOfMatch
+      ) {
+        analysisIds.push(file.result.analysis.id);
       }
+    });
 
-      const analysisIds = completedFiles.map((f) => f.result!.analysis.id);
-      return await exportMultipleToExcel(
-        analysisIds,
-        `tum_analizler_${Date.now()}.xlsx`
-      );
+    if (analysisIds.length === 0) {
+      return { success: false, error: "Export edilecek analiz bulunamadı" };
     }
-  }, [files, fileGroups, groupMode, exportMultipleToExcel]);
 
-  // Component unmount olduğunda tüm interval'leri temizle
+    return await exportMultipleToExcel(
+      analysisIds,
+      `tum_analizler_${Date.now()}.xlsx`
+    );
+  }, [files, matchedPairs, exportMultipleToExcel]);
+
+  const getRenderStatistics = useCallback(() => {
+    const stats = {
+      total: renderStatusMap.size,
+      processing: Array.from(renderStatusMap.values()).filter(
+        (s) => s === "processing"
+      ).length,
+      completed: Array.from(renderStatusMap.values()).filter(
+        (s) => s === "completed"
+      ).length,
+      failed: Array.from(renderStatusMap.values()).filter((s) => s === "failed")
+        .length,
+      pending: Array.from(renderStatusMap.values()).filter(
+        (s) => s === "pending"
+      ).length,
+    };
+
+    return stats;
+  }, [renderStatusMap]);
+
   useEffect(() => {
     return () => {
+      console.log(
+        "🧹 useFileUpload cleanup - tüm render interval'ları temizleniyor"
+      );
       clearAllIntervals();
     };
   }, [clearAllIntervals]);
@@ -942,20 +1085,32 @@ export const useFileUpload = () => {
   return {
     files,
     fileGroups,
+    matchedPairs,
     groupMode,
     setGroupMode,
     isUploading,
     totalProcessingTime,
+
+    renderStatusMap,
+    renderProgressMap,
+    getRenderStatistics,
+
     addFiles,
     removeFile,
     removeGroup,
     clearFiles,
     uploadAndAnalyze,
     retryFile,
+
+    startRenderStatusMonitoring,
+    clearRenderInterval,
+    refreshRenderStatus,
+
     exportToExcel,
     exportGroupToExcel,
     exportMultipleToExcel,
     exportAllCompletedToExcel,
-    getFileType, // ✅ YENİ - Dışarıdan kullanım için export
+
+    getFileType,
   };
 };
