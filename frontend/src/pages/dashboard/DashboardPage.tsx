@@ -327,7 +327,7 @@ export const DashboardPage = () => {
 
   const open3DViewer = (analysisId: string, fileName: string) => {
     const viewerUrl = `${
-      process.env.REACT_APP_API_URL || "http://localhost:5050"
+      process.env.REACT_APP_API_URL || "http://188.132.220.35:5051"
     }/3d-viewer/${analysisId}/${accessToken}`;
     window.open(
       viewerUrl,
@@ -422,12 +422,14 @@ export const DashboardPage = () => {
               ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
                 <Image
                   src={`${
-                    process.env.REACT_APP_API_URL || "http://localhost:5050"
+                    process.env.REACT_APP_API_URL ||
+                    "http://188.132.220.35:5051"
                   }${fixImagePath(
                     analysis.enhanced_renders.isometric.file_path
                   )}`}
                   zoomSrc={`${
-                    process.env.REACT_APP_API_URL || "http://localhost:5050"
+                    process.env.REACT_APP_API_URL ||
+                    "http://188.132.220.35:5051"
                   }${fixImagePath(
                     analysis.enhanced_renders.isometric.file_path
                   )}`}
