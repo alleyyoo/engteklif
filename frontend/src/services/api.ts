@@ -8,6 +8,61 @@ export interface ApiResponse<T = any> {
   [key: string]: any;
 }
 
+export interface MultipleUploadResponse {
+  success: boolean;
+  message: string;
+  upload_summary: {
+    total_uploaded: number;
+    pdf_files: number;
+    step_files: number;
+    other_files: number;
+    failed_uploads: number;
+    matched_pairs: number;
+    unmatched_pdfs: number;
+    unmatched_steps: number;
+  };
+  analyses: Array<{
+    analysis_id: string;
+    type: "pdf_with_step" | "pdf_only" | "step_only" | "document";
+    primary_file: string;
+    secondary_file?: string;
+    match_score?: number;
+    file_info: {
+      id: string;
+      filename: string;
+      original_filename: string;
+      file_type: string;
+      file_size: number;
+      analysis_status: string;
+      matched_step_file?: string;
+      matched_step_path?: string;
+      match_score?: number;
+      match_quality?: string;
+      analysis_strategy?: string;
+    };
+  }>;
+  matching_results: {
+    pdf_step_matches: Array<{
+      pdf_file: string;
+      step_file: string;
+      match_score: number;
+      match_quality: string;
+    }>;
+    unmatched_files: {
+      pdfs: string[];
+      steps: string[];
+    };
+  };
+  failed_uploads: Array<{
+    filename: string;
+    error: string;
+  }>;
+  next_steps: {
+    analyze_all: string;
+    analyze_individual: string;
+  };
+}
+
 export interface FileUploadResponse {
   success: boolean;
   message: string;
@@ -44,6 +99,7 @@ export interface AnalysisResult {
   success: boolean;
   message: string;
   render_status?: "none" | "pending" | "processing" | "completed" | "failed";
+
   analysis: {
     id: string;
     user_id: string;
@@ -52,6 +108,8 @@ export interface AnalysisResult {
     file_type: string;
     analysis_status: string;
     material_matches: string[];
+
+    // STEP Analysis Data
     step_analysis: {
       "X (mm)": number;
       "Y (mm)": number;
@@ -61,8 +119,12 @@ export interface AnalysisResult {
       "Talaş Hacmi (mm³)": number;
       "Talaş Oranı (%)": number;
       "Toplam Yüzey Alanı (mm²)": number;
+      "Silindirik Çap (mm)"?: number;
+      "Silindirik Yükseklik (mm)"?: number;
       [key: string]: any;
     };
+
+    // Material Calculations
     all_material_calculations: Array<{
       material: string;
       density: number;
@@ -73,6 +135,7 @@ export interface AnalysisResult {
       original_text?: string;
       category?: string;
     }>;
+
     material_options: Array<{
       name: string;
       category: string;
@@ -81,6 +144,8 @@ export interface AnalysisResult {
       price_per_kg: number;
       material_cost: number;
     }>;
+
+    // ✅ ENHANCED - Render Information
     enhanced_renders?: {
       [key: string]: {
         success: boolean;
@@ -88,26 +153,74 @@ export interface AnalysisResult {
         file_path: string;
         excel_path?: string;
         svg_path?: string;
+        dimensions?: {
+          width: number;
+          height: number;
+          depth: number;
+        };
+        quality?: string;
+        file_exists?: boolean;
       };
     };
+
+    // ✅ NEW - Quick access to isometric view
+    isometric_view?: string;
+
+    // ✅ ENHANCED - STL Model
     stl_generated?: boolean;
     stl_path?: string;
     stl_file_size?: number;
+
+    // ✅ ENHANCED - Render Status & Details
     render_status?: "none" | "pending" | "processing" | "completed" | "failed";
     render_task_id?: string;
+    render_count?: number;
+    render_quality?: "high" | "medium" | "low";
+    render_strategy?: string;
+    render_error?: string;
+
+    // ✅ NEW - PDF Enhancement Details
+    pdf_step_extracted?: boolean;
+
+    // ✅ NEW - Render Debug Information
+    render_debug?: {
+      analysis_id: string;
+      file_type: string;
+      original_filename: string;
+      matched_step_path?: string;
+      extracted_step_path?: string;
+      step_analysis_available: boolean;
+    };
+
+    // ✅ NEW - Render Progress
+    render_progress?: {
+      renders: number;
+      strategy: string;
+      render_paths: string[];
+    };
+
+    // Processing & Timing
     processing_time: number;
     created_at: string;
+
     // ✅ YENİ - Grup bilgileri
     group_info?: {
       group_id: string;
       group_name: string;
+      group_type: string;
       total_files: number;
       file_types: string[];
+      file_names: string[];
       has_step: boolean;
       has_pdf: boolean;
+      has_doc: boolean;
+      primary_source: string;
+      analysis_sources: number;
     };
   };
+
   processing_time: number;
+
   analysis_details: {
     material_matches_count: number;
     step_analysis_available: boolean;
@@ -119,10 +232,20 @@ export interface AnalysisResult {
     material_options_count?: number;
     "3d_render_available"?: boolean;
     render_in_progress?: boolean;
+
     // ✅ YENİ - Grup analizi bilgileri
     grouped_analysis?: boolean;
     source_files?: number;
     primary_source?: string;
+    group_composition?: string;
+  };
+
+  // ✅ NEW - Enhancement Details (PDF-STEP matching info)
+  enhancement_details?: {
+    analysis_strategy: string;
+    step_source: string;
+    match_score?: number;
+    used_matched_step: boolean;
   };
 }
 
@@ -131,16 +254,72 @@ export interface RenderStatusResponse {
   render_status: "none" | "pending" | "processing" | "completed" | "failed";
   has_renders: boolean;
   render_count: number;
+  render_quality?: "high" | "medium" | "low";
+  render_strategy?: string;
+  render_error?: string;
+
+  // STL Model
   stl_generated?: boolean;
   stl_path?: string;
+
+  // Quick access to isometric view
+  isometric_view?: string;
+
+  // Background task info
+  background_task?: {
+    success: boolean;
+    result?: {
+      success: boolean;
+      renders: number;
+      strategy: string;
+      render_paths: string[];
+    };
+  };
+
+  // Debug information
+  debug_info?: {
+    analysis_id: string;
+    file_type: string;
+    original_filename: string;
+    matched_step_path?: string;
+    extracted_step_path?: string;
+    step_analysis_available: boolean;
+  };
+
+  // Render timing
+  last_render_update?: number;
+
+  // Task status
   task_status?: {
     status: string;
     [key: string]: any;
   };
+
+  // Basic renders structure (for compatibility)
   renders?: {
     [key: string]: {
       file_path: string;
       excel_path?: string;
+      file_exists?: boolean;
+    };
+  };
+
+  // Detailed render information
+  render_details?: {
+    [key: string]: {
+      file_path: string;
+      success: boolean;
+      view_type: string;
+      svg_path?: string;
+      excel_path?: string;
+      dimensions?: {
+        width: number;
+        height: number;
+        depth: number;
+      };
+      quality?: string;
+      file_size?: number;
+      format?: string;
     };
   };
 }
@@ -302,7 +481,7 @@ class ApiService {
     return response.json();
   }
 
-  async uploadMultipleFiles(files: File[]): Promise<ApiResponse> {
+  async uploadMultipleFiles(files: File[]): Promise<MultipleUploadResponse> {
     const formData = new FormData();
     files.forEach((file) => {
       formData.append("files", file);
