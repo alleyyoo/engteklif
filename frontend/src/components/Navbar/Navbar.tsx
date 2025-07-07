@@ -97,13 +97,18 @@ export const Navbar = () => {
     setIsMobileMenuOpen(false);
   };
 
+  const navigateToCmm = () => {
+    navigate("/cmm");
+    setIsMobileMenuOpen(false);
+  };
+
   return (
     <>
       <div className={classes.navbarContainer} ref={mobileMenuRef}>
         {/* Logo */}
-        <div className={classes.navbarBrand}>
+        <a href="/" className={classes.navbarBrand}>
           <img src="/logo.svg" alt="Logo" />
-        </div>
+        </a>
 
         {/* Mobil Menu Toggle Button */}
         <button
@@ -123,17 +128,26 @@ export const Navbar = () => {
           role="navigation"
         >
           <a
-            href="#"
+            href="/"
+            className={`${classes.navbarItem} ${
+              isActive("/") ? classes.navbarItemActive : ""
+            }`}
+          >
+            <i className="pi pi-home"></i>
+            Ana Sayfa
+          </a>
+
+          <a
+            href="/cmm"
             className={`${classes.navbarItem} ${
               isActive("/") ? classes.navbarItemActive : ""
             }`}
             onClick={(e) => {
               e.preventDefault();
-              navigateToHome();
+              navigateToCmm();
             }}
           >
-            <i className="pi pi-home"></i>
-            Ana Sayfa
+            CMM
           </a>
 
           {/* Sadece admin'lere Material Management menüsü göster */}

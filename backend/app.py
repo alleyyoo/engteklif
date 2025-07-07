@@ -14,6 +14,7 @@ from controllers.cost_calculation_controller import cost_bp
 from controllers.material_controller import material_bp
 from controllers.file_upload_controller import upload_bp
 from controllers.material_price_controller import material_price_bp
+from controllers.cmm_controller import cmm_bp
 
 def create_app():
     """Application factory pattern"""
@@ -42,6 +43,7 @@ def create_app():
     app.register_blueprint(cost_bp)
     app.register_blueprint(upload_bp)
     app.register_blueprint(material_price_bp)
+    app.register_blueprint(cmm_bp)
 
     # ===== STATIC FILE SERVING - ENHANCED =====
     @app.route('/static/<path:filename>')
