@@ -26,7 +26,7 @@ upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'step', 'stp'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_FILES_PER_REQUEST = 20
+MAX_FILES_PER_REQUEST = 100
 
 # Upload klasörünü oluştur
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
