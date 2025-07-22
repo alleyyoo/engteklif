@@ -5,6 +5,9 @@ import {
   AnalysisResult,
   RenderStatusResponse,
   MultipleUploadResponse,
+  getFileTypeFromName,  // ✅ ENHANCED
+  isCADFile,            // ✅ NEW
+  needsConversion,      // ✅ NEW
 } from "../services/api";
 
 export interface UploadedFile {
@@ -24,20 +27,35 @@ export interface UploadedFile {
   renderCheckInterval?: NodeJS.Timer;
   lastRenderCheck?: number;
   renderRetryCount?: number;
-  isPartOfMatch?: boolean; // PDF-STEP eşleştirmesinin parçası mı?
+  isPartOfMatch?: boolean; // PDF-CAD eşleştirmesinin parçası mı?
   matchPairId?: string; // Hangi eşleştirmeye ait?
+  
+  // ✅ NEW - CAD conversion information
+  conversionInfo?: {
+    needsConversion: boolean;
+    originalFormat?: string;
+    converted?: boolean;
+    conversionTime?: number;
+    conversionError?: string;
+  };
 }
 
 export interface MatchedPair {
   id: string;
   pdfFile: UploadedFile;
-  stepFile: UploadedFile;
+  cadFile: UploadedFile;  // ✅ ENHANCED - CAD instead of STEP (backward compatible with stepFile)
+  stepFile?: UploadedFile; // ✅ BACKWARD COMPATIBILITY - deprecated, use cadFile
   matchScore: number;
   matchQuality: string;
   displayName: string;
   status: "pending" | "processing" | "completed" | "failed";
   progress: number;
   mergedResult?: AnalysisResult;
+  
+  // ✅ NEW - CAD format information
+  cadFormat?: string;  // PRT, CATPART, STEP
+  cadConverted?: boolean;
+  cadConversionTime?: number;
 }
 
 export interface FileGroup {
@@ -52,6 +70,7 @@ export interface FileGroup {
   hasStep: boolean;
   hasPdf: boolean;
   hasDoc: boolean;
+  hasCad?: boolean; // ✅ NEW
   totalFiles: number;
 }
 
@@ -62,6 +81,14 @@ export const useFileUpload = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [totalProcessingTime, setTotalProcessingTime] = useState(0);
   const [groupMode, setGroupMode] = useState(true);
+
+  // ✅ NEW - CAD conversion statistics
+  const [conversionStats, setConversionStats] = useState({
+    totalAttempted: 0,
+    successful: 0,
+    failed: 0,
+    averageTime: 0,
+  });
 
   const [renderStatusMap, setRenderStatusMap] = useState<Map<string, string>>(
     new Map()
@@ -74,14 +101,42 @@ export const useFileUpload = () => {
   const lastCheckTimesRef = useRef<Map<string, number>>(new Map());
   const retryCountsRef = useRef<Map<string, number>>(new Map());
 
+  // ✅ ENHANCED - getFileType with CAD support
   const getFileType = useCallback((fileName: string): string => {
-    const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".pdf")) return "pdf";
-    if (lowerName.endsWith(".step") || lowerName.endsWith(".stp"))
-      return "step";
-    if (lowerName.endsWith(".doc") || lowerName.endsWith(".docx")) return "doc";
-    return "other";
+    return getFileTypeFromName(fileName);
   }, []);
+
+  // ✅ NEW - CAD file detection methods
+  const isCADFileType = useCallback((fileName: string): boolean => {
+    return isCADFile(fileName);
+  }, []);
+
+  const needsCADConversion = useCallback((fileName: string): boolean => {
+    return needsConversion(fileName);
+  }, []);
+
+  // ✅ ENHANCED - Enhanced file type icon
+  const getFileTypeIcon = useCallback((fileName: string) => {
+    const fileType = getFileType(fileName);
+    
+    switch (fileType) {
+      case "pdf":
+        return "📄";
+      case "step":
+        return "📐";
+      case "cad_part":
+        if (fileName.toLowerCase().endsWith('.prt')) {
+          return "🔧"; // NX/Unigraphics PRT
+        } else if (fileName.toLowerCase().endsWith('.catpart')) {
+          return "⚙️"; // CATIA CATPART
+        }
+        return "📐"; // Generic CAD
+      case "doc":
+        return "📝";
+      default:
+        return "📎";
+    }
+  }, [getFileType]);
 
   const checkRenderStatus = useCallback(
     async (analysisId: string, fileIndex?: number) => {
@@ -175,7 +230,8 @@ export const useFileUpload = () => {
               prevPairs.map((pair) => {
                 if (
                   pair.pdfFile.analysisId === analysisId ||
-                  pair.stepFile.analysisId === analysisId ||
+                  pair.cadFile?.analysisId === analysisId ||
+                  pair.stepFile?.analysisId === analysisId || // ✅ BACKWARD COMPATIBILITY
                   pair.mergedResult?.analysis?.id === analysisId
                 ) {
                   return {
@@ -366,16 +422,16 @@ export const useFileUpload = () => {
   const mergeMatchedPairResults = useCallback(
     (pair: MatchedPair): AnalysisResult | undefined => {
       const pdfResult = pair.pdfFile.result;
-      const stepResult = pair.stepFile.result;
+      const cadResult = pair.cadFile?.result || pair.stepFile?.result; // ✅ BACKWARD COMPATIBILITY
 
-      if (!pdfResult && !stepResult) return undefined;
+      if (!pdfResult && !cadResult) return undefined;
 
-      // Use the result that has step_analysis, preferring STEP file result
-      const primaryResult = stepResult?.analysis?.step_analysis
-        ? stepResult
+      // Use the result that has step_analysis, preferring CAD file result
+      const primaryResult = cadResult?.analysis?.step_analysis
+        ? cadResult
         : pdfResult;
       const secondaryResult =
-        primaryResult === stepResult ? pdfResult : stepResult;
+        primaryResult === cadResult ? pdfResult : cadResult;
 
       if (!primaryResult) return undefined;
 
@@ -383,43 +439,46 @@ export const useFileUpload = () => {
         ...primaryResult,
         analysis: {
           ...primaryResult.analysis,
-          // Merge step_analysis (prefer STEP file's analysis)
+          // Merge step_analysis (prefer CAD file's analysis)
           step_analysis:
-            stepResult?.analysis?.step_analysis ||
+            cadResult?.analysis?.step_analysis ||
             pdfResult?.analysis?.step_analysis ||
             {},
           // Merge material matches (combine both)
           material_matches: [
             ...(pdfResult?.analysis?.material_matches || []),
-            ...(stepResult?.analysis?.material_matches || []),
+            ...(cadResult?.analysis?.material_matches || []),
           ].filter((value, index, self) => self.indexOf(value) === index),
           // Use the best material calculations
           all_material_calculations:
-            stepResult?.analysis?.all_material_calculations ||
+            cadResult?.analysis?.all_material_calculations ||
             pdfResult?.analysis?.all_material_calculations ||
             [],
-          // Use enhanced renders from STEP file
+          // Use enhanced renders from CAD file
           enhanced_renders:
-            stepResult?.analysis?.enhanced_renders ||
+            cadResult?.analysis?.enhanced_renders ||
             pdfResult?.analysis?.enhanced_renders ||
             {},
           // Merge metadata
           original_filename: pair.displayName,
-          matched_step_file: pair.stepFile.file.name,
+          matched_cad_file: pair.cadFile?.file.name || pair.stepFile?.file.name, // ✅ ENHANCED
+          matched_step_file: pair.stepFile?.file.name, // ✅ BACKWARD COMPATIBILITY
           match_score: pair.matchScore,
           match_quality: pair.matchQuality,
-          analysis_strategy: "pdf_with_matched_step",
+          analysis_strategy: "pdf_with_matched_cad", // ✅ ENHANCED
+          cad_format: pair.cadFormat, // ✅ NEW
+          cad_converted: pair.cadConverted, // ✅ NEW
           // Preserve other important fields
           render_status:
-            stepResult?.analysis?.render_status ||
+            cadResult?.analysis?.render_status ||
             pdfResult?.analysis?.render_status ||
             "none",
           stl_generated:
-            stepResult?.analysis?.stl_generated ||
+            cadResult?.analysis?.stl_generated ||
             pdfResult?.analysis?.stl_generated ||
             false,
           stl_path:
-            stepResult?.analysis?.stl_path || pdfResult?.analysis?.stl_path,
+            cadResult?.analysis?.stl_path || pdfResult?.analysis?.stl_path,
         },
         processing_time: Math.max(
           primaryResult.processing_time || 0,
@@ -429,9 +488,12 @@ export const useFileUpload = () => {
           ...primaryResult.analysis_details,
           matched_pair: true,
           pdf_file: pair.pdfFile.file.name,
-          step_file: pair.stepFile.file.name,
+          cad_file: pair.cadFile?.file.name || pair.stepFile?.file.name, // ✅ ENHANCED
+          step_file: pair.stepFile?.file.name, // ✅ BACKWARD COMPATIBILITY
           match_score: pair.matchScore,
           match_quality: pair.matchQuality,
+          cad_format: pair.cadFormat, // ✅ NEW
+          cad_converted: pair.cadConverted, // ✅ NEW
         },
       };
 
@@ -442,7 +504,8 @@ export const useFileUpload = () => {
 
   const calculatePairStatus = useCallback(
     (pair: MatchedPair): MatchedPair["status"] => {
-      const statuses = [pair.pdfFile.status, pair.stepFile.status];
+      const cadFile = pair.cadFile || pair.stepFile; // ✅ BACKWARD COMPATIBILITY
+      const statuses = [pair.pdfFile.status, cadFile?.status].filter(Boolean);
 
       if (statuses.every((s) => s === "completed")) return "completed";
       if (statuses.some((s) => s === "failed")) return "failed";
@@ -455,8 +518,9 @@ export const useFileUpload = () => {
 
   const calculatePairProgress = useCallback((pair: MatchedPair): number => {
     const pdfProgress = pair.pdfFile.progress;
-    const stepProgress = pair.stepFile.progress;
-    return Math.round((pdfProgress + stepProgress) / 2);
+    const cadFile = pair.cadFile || pair.stepFile; // ✅ BACKWARD COMPATIBILITY
+    const cadProgress = cadFile?.progress || 0;
+    return Math.round((pdfProgress + cadProgress) / 2);
   }, []);
 
   // Update matched pairs when files change
@@ -469,13 +533,20 @@ export const useFileUpload = () => {
         const pdfFile = files.find(
           (f) => f.matchPairId === pair.id && getFileType(f.file.name) === "pdf"
         );
-        const stepFile = files.find(
+        const cadFile = files.find(
           (f) =>
-            f.matchPairId === pair.id && getFileType(f.file.name) === "step"
+            f.matchPairId === pair.id && 
+            (getFileType(f.file.name) === "step" || getFileType(f.file.name) === "cad_part")
         );
 
         if (pdfFile) updatedPair.pdfFile = pdfFile;
-        if (stepFile) updatedPair.stepFile = stepFile;
+        if (cadFile) {
+          updatedPair.cadFile = cadFile;
+          // ✅ BACKWARD COMPATIBILITY
+          if (getFileType(cadFile.file.name) === "step") {
+            updatedPair.stepFile = cadFile;
+          }
+        }
 
         // Update status and progress
         updatedPair.status = calculatePairStatus(updatedPair);
@@ -497,18 +568,43 @@ export const useFileUpload = () => {
     getFileType,
   ]);
 
+  // ✅ ENHANCED - Add files with CAD conversion info
   const addFiles = useCallback((newFiles: File[]) => {
-    const uploadedFiles: UploadedFile[] = newFiles.map((file) => ({
-      file,
-      status: "pending",
-      progress: 0,
-      renderStatus: "none",
-      lastRenderCheck: 0,
-      renderRetryCount: 0,
-      isPartOfMatch: false,
-    }));
+    const uploadedFiles: UploadedFile[] = newFiles.map((file) => {
+      const fileType = getFileType(file.name);
+      const needsConv = needsCADConversion(file.name);
+      
+      return {
+        file,
+        status: "pending",
+        progress: 0,
+        renderStatus: "none",
+        lastRenderCheck: 0,
+        renderRetryCount: 0,
+        isPartOfMatch: false,
+        // ✅ NEW - CAD conversion info
+        conversionInfo: {
+          needsConversion: needsConv,
+          originalFormat: needsConv ? 
+            (file.name.toLowerCase().endsWith('.prt') ? 'PRT' : 
+             file.name.toLowerCase().endsWith('.catpart') ? 'CATPART' : 'UNKNOWN') 
+            : undefined,
+          converted: false,
+        }
+      };
+    });
+    
     setFiles((prev) => [...prev, ...uploadedFiles]);
-  }, []);
+    
+    // ✅ NEW - Update conversion stats
+    const conversionCount = uploadedFiles.filter(f => f.conversionInfo?.needsConversion).length;
+    if (conversionCount > 0) {
+      setConversionStats(prev => ({
+        ...prev,
+        totalAttempted: prev.totalAttempted + conversionCount
+      }));
+    }
+  }, [getFileType, needsCADConversion]);
 
   const removeFile = useCallback(
     (index: number) => {
@@ -538,8 +634,9 @@ export const useFileUpload = () => {
         // Clear render intervals
         if (pair.pdfFile.analysisId)
           clearRenderInterval(pair.pdfFile.analysisId);
-        if (pair.stepFile.analysisId)
-          clearRenderInterval(pair.stepFile.analysisId);
+        const cadFile = pair.cadFile || pair.stepFile; // ✅ BACKWARD COMPATIBILITY
+        if (cadFile?.analysisId)
+          clearRenderInterval(cadFile.analysisId);
 
         // Remove files
         setFiles((prev) =>
@@ -561,6 +658,13 @@ export const useFileUpload = () => {
     setMatchedPairs([]);
     setFileGroups([]);
     setTotalProcessingTime(0);
+    // ✅ NEW - Reset conversion stats
+    setConversionStats({
+      totalAttempted: 0,
+      successful: 0,
+      failed: 0,
+      averageTime: 0,
+    });
   }, [clearAllIntervals]);
 
   const updateFileStatus = useCallback(
@@ -577,16 +681,19 @@ export const useFileUpload = () => {
     (uploadResponse: MultipleUploadResponse, pendingFiles: UploadedFile[]) => {
       const newMatchedPairs: MatchedPair[] = [];
 
-      // Process PDF-STEP matches
-      uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
+      // ✅ ENHANCED - Process PDF-CAD matches (supports both old and new formats)
+      const cadMatches = uploadResponse.matching_results?.pdf_cad_matches || 
+                        uploadResponse.matching_results?.pdf_step_matches || [];
+
+      cadMatches.forEach((match: any) => {
         const pdfFile = pendingFiles.find(
           (f) => f.file.name === match.pdf_file
         );
-        const stepFile = pendingFiles.find(
-          (f) => f.file.name === match.step_file
+        const cadFile = pendingFiles.find(
+          (f) => f.file.name === (match.cad_file || match.step_file)
         );
 
-        if (pdfFile && stepFile) {
+        if (pdfFile && cadFile) {
           const pairId = `pair_${Date.now()}_${Math.random()
             .toString(36)
             .substr(2, 9)}`;
@@ -594,30 +701,49 @@ export const useFileUpload = () => {
           // Mark files as part of match
           pdfFile.isPartOfMatch = true;
           pdfFile.matchPairId = pairId;
-          stepFile.isPartOfMatch = true;
-          stepFile.matchPairId = pairId;
+          cadFile.isPartOfMatch = true;
+          cadFile.matchPairId = pairId;
 
           const matchedPair: MatchedPair = {
             id: pairId,
             pdfFile,
-            stepFile,
+            cadFile,
             matchScore: match.match_score,
             matchQuality: match.match_quality,
             displayName: pdfFile.file.name.replace(/\.[^/.]+$/, ""),
             status: "pending",
             progress: 0,
+            // ✅ NEW - CAD format information
+            cadFormat: match.cad_format || (match.step_file ? 'STEP' : 'UNKNOWN'),
+            cadConverted: match.cad_format !== 'STEP',
           };
+
+          // ✅ BACKWARD COMPATIBILITY
+          if (getFileType(cadFile.file.name) === "step") {
+            matchedPair.stepFile = cadFile;
+          }
 
           newMatchedPairs.push(matchedPair);
         }
       });
 
+      // ✅ NEW - Update conversion statistics from response
+      if (uploadResponse.upload_summary?.cad_conversions) {
+        const cadConversions = uploadResponse.upload_summary.cad_conversions;
+        setConversionStats(prev => ({
+          totalAttempted: prev.totalAttempted + cadConversions.total_attempted,
+          successful: prev.successful + cadConversions.successful,
+          failed: prev.failed + cadConversions.failed,
+          averageTime: prev.averageTime, // Will be updated when individual results come
+        }));
+      }
+
       return newMatchedPairs;
     },
-    []
+    [getFileType]
   );
 
-  // Upload and analyze with multiple endpoint
+  // ✅ ENHANCED - Upload and analyze with CAD conversion support
   const uploadAndAnalyze = useCallback(async () => {
     if (files.length === 0) return;
 
@@ -644,6 +770,17 @@ export const useFileUpload = () => {
       // Upload multiple files
       const filesToUpload = pendingFiles.map((f) => f.file);
       console.log(`📤 Multiple upload başlıyor: ${filesToUpload.length} dosya`);
+      
+      // ✅ NEW - Log CAD files being uploaded
+      const cadFiles = filesToUpload.filter(f => isCADFileType(f.name));
+      const conversionFiles = filesToUpload.filter(f => needsCADConversion(f.name));
+      
+      if (cadFiles.length > 0) {
+        console.log(`🔧 CAD dosyaları: ${cadFiles.length} adet`);
+      }
+      if (conversionFiles.length > 0) {
+        console.log(`🔄 Conversion gerekli: ${conversionFiles.length} adet (${conversionFiles.map(f => f.name).join(', ')})`);
+      }
 
       const uploadResponse: MultipleUploadResponse =
         await apiService.uploadMultipleFiles(filesToUpload);
@@ -654,38 +791,50 @@ export const useFileUpload = () => {
           uploadResponse.upload_summary
         );
 
+        // ✅ NEW - Log conversion results
+        if (uploadResponse.conversion_results && uploadResponse.conversion_results.length > 0) {
+          console.log("🔄 CAD Conversion sonuçları:");
+          uploadResponse.conversion_results.forEach((result: any) => {
+            const status = result.conversion_successful ? "✅" : "❌";
+            console.log(`  ${status} ${result.original_file}: ${result.message} (${result.processing_time}s)`);
+          });
+        }
+
         // Process matched pairs BEFORE updating file statuses
         const matchedFileNames = new Set<string>();
         const newMatchedPairs: MatchedPair[] = [];
 
-        // Process PDF-STEP matches
-        uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
+        // ✅ ENHANCED - Process PDF-CAD matches (supports both formats)
+        const cadMatches = uploadResponse.matching_results?.pdf_cad_matches || 
+                          uploadResponse.matching_results?.pdf_step_matches || [];
+
+        cadMatches.forEach((match: any) => {
           const pdfFileIndex = pendingFiles.findIndex(
             (f) => f.file.name === match.pdf_file
           );
-          const stepFileIndex = pendingFiles.findIndex(
-            (f) => f.file.name === match.step_file
+          const cadFileIndex = pendingFiles.findIndex(
+            (f) => f.file.name === (match.cad_file || match.step_file)
           );
 
-          if (pdfFileIndex !== -1 && stepFileIndex !== -1) {
+          if (pdfFileIndex !== -1 && cadFileIndex !== -1) {
             const pairId = `pair_${Date.now()}_${Math.random()
               .toString(36)
               .substr(2, 9)}`;
 
             // Track matched file names
             matchedFileNames.add(match.pdf_file);
-            matchedFileNames.add(match.step_file);
+            matchedFileNames.add(match.cad_file || match.step_file);
 
             // Update the pending files with match info
             pendingFiles[pdfFileIndex].isPartOfMatch = true;
             pendingFiles[pdfFileIndex].matchPairId = pairId;
-            pendingFiles[stepFileIndex].isPartOfMatch = true;
-            pendingFiles[stepFileIndex].matchPairId = pairId;
+            pendingFiles[cadFileIndex].isPartOfMatch = true;
+            pendingFiles[cadFileIndex].matchPairId = pairId;
 
             const matchedPair: MatchedPair = {
               id: pairId,
               pdfFile: { ...pendingFiles[pdfFileIndex] },
-              stepFile: { ...pendingFiles[stepFileIndex] },
+              cadFile: { ...pendingFiles[cadFileIndex] },
               matchScore: match.match_score,
               matchQuality: match.match_quality,
               displayName: pendingFiles[pdfFileIndex].file.name.replace(
@@ -694,7 +843,15 @@ export const useFileUpload = () => {
               ),
               status: "pending",
               progress: 0,
+              // ✅ NEW - CAD format information
+              cadFormat: match.cad_format || (match.step_file ? 'STEP' : 'UNKNOWN'),
+              cadConverted: (match.cad_format || 'STEP') !== 'STEP',
             };
+
+            // ✅ BACKWARD COMPATIBILITY
+            if (getFileType(pendingFiles[cadFileIndex].file.name) === "step") {
+              matchedPair.stepFile = { ...pendingFiles[cadFileIndex] };
+            }
 
             newMatchedPairs.push(matchedPair);
           }
@@ -703,8 +860,17 @@ export const useFileUpload = () => {
         if (newMatchedPairs.length > 0) {
           setMatchedPairs((prev) => [...prev, ...newMatchedPairs]);
           console.log(
-            `🔗 ${newMatchedPairs.length} PDF-STEP eşleştirmesi oluşturuldu`
+            `🔗 ${newMatchedPairs.length} PDF-CAD eşleştirmesi oluşturuldu`
           );
+          
+          // ✅ NEW - Log CAD format distribution
+          const formatCounts = newMatchedPairs.reduce((acc, pair) => {
+            const format = pair.cadFormat || 'UNKNOWN';
+            acc[format] = (acc[format] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
+          
+          console.log(`📊 CAD format dağılımı:`, formatCounts);
         }
 
         // Create analysis map
@@ -729,7 +895,8 @@ export const useFileUpload = () => {
             const matchedPair = newMatchedPairs.find(
               (pair) =>
                 pair.pdfFile.file.name === file.file.name ||
-                pair.stepFile.file.name === file.file.name
+                pair.cadFile?.file.name === file.file.name ||
+                pair.stepFile?.file.name === file.file.name // ✅ BACKWARD COMPATIBILITY
             );
 
             if (analysis) {
@@ -792,7 +959,8 @@ export const useFileUpload = () => {
                     const matchedPair = newMatchedPairs.find(
                       (pair) =>
                         pair.pdfFile.file.name === file.file.name ||
-                        pair.stepFile.file.name === file.file.name
+                        pair.cadFile?.file.name === file.file.name ||
+                        pair.stepFile?.file.name === file.file.name // ✅ BACKWARD COMPATIBILITY
                     );
 
                     return {
@@ -880,7 +1048,7 @@ export const useFileUpload = () => {
     } finally {
       setIsUploading(false);
     }
-  }, [files, updateFileStatus, startRenderStatusMonitoring]);
+  }, [files, updateFileStatus, startRenderStatusMonitoring, getFileType, isCADFileType, needsCADConversion]);
 
   const retryFile = useCallback(
     async (index: number) => {
@@ -903,6 +1071,13 @@ export const useFileUpload = () => {
         result: undefined,
         isPartOfMatch: false,
         matchPairId: undefined,
+        // ✅ NEW - Reset conversion info
+        conversionInfo: {
+          ...file.conversionInfo,
+          converted: false,
+          conversionTime: undefined,
+          conversionError: undefined,
+        }
       });
 
       // Remove from matched pairs if it was part of one
@@ -1073,6 +1248,32 @@ export const useFileUpload = () => {
     return stats;
   }, [renderStatusMap]);
 
+  // ✅ NEW - Get CAD conversion statistics
+  const getConversionStatistics = useCallback(() => {
+    return {
+      ...conversionStats,
+      successRate: conversionStats.totalAttempted > 0 
+        ? (conversionStats.successful / conversionStats.totalAttempted) * 100 
+        : 0,
+    };
+  }, [conversionStats]);
+
+  // ✅ NEW - Get file type statistics
+  const getFileTypeStatistics = useCallback(() => {
+    const stats = files.reduce((acc, file) => {
+      const type = getFileType(file.file.name);
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      ...stats,
+      total: files.length,
+      cadFiles: (stats.step || 0) + (stats.cad_part || 0),
+      needsConversion: files.filter(f => f.conversionInfo?.needsConversion).length,
+    };
+  }, [files, getFileType]);
+
   useEffect(() => {
     return () => {
       console.log(
@@ -1095,6 +1296,11 @@ export const useFileUpload = () => {
     renderProgressMap,
     getRenderStatistics,
 
+    // ✅ NEW - CAD conversion features
+    conversionStats,
+    getConversionStatistics,
+    getFileTypeStatistics,
+
     addFiles,
     removeFile,
     removeGroup,
@@ -1111,6 +1317,10 @@ export const useFileUpload = () => {
     exportMultipleToExcel,
     exportAllCompletedToExcel,
 
+    // ✅ ENHANCED - File type detection with CAD support
     getFileType,
+    getFileTypeIcon,
+    isCADFile: isCADFileType,
+    needsConversion: needsCADConversion,
   };
 };

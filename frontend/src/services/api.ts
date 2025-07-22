@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || "http://188.132.220.35:5051";
+const API_BASE_URL = "http://localhost:5051";
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -14,16 +13,22 @@ export interface MultipleUploadResponse {
   upload_summary: {
     total_uploaded: number;
     pdf_files: number;
-    step_files: number;
+    cad_files: number;  // ✅ ENHANCED - now includes STEP + PRT + CATPART
     other_files: number;
     failed_uploads: number;
     matched_pairs: number;
     unmatched_pdfs: number;
-    unmatched_steps: number;
+    unmatched_cads: number;  // ✅ ENHANCED - CAD instead of just STEP
+    // ✅ NEW - Conversion statistics
+    cad_conversions: {
+      total_attempted: number;
+      successful: number;
+      failed: number;
+    };
   };
   analyses: Array<{
     analysis_id: string;
-    type: "pdf_with_step" | "pdf_only" | "step_only" | "document";
+    type: "pdf_with_cad" | "pdf_only" | "cad_only" | "step_only" | "document";  // ✅ ENHANCED
     primary_file: string;
     secondary_file?: string;
     match_score?: number;
@@ -34,28 +39,44 @@ export interface MultipleUploadResponse {
       file_type: string;
       file_size: number;
       analysis_status: string;
-      matched_step_file?: string;
-      matched_step_path?: string;
+      // ✅ ENHANCED - CAD matching and conversion fields
+      matched_cad_file?: string;
+      matched_cad_path?: string;
+      matched_cad_original_format?: string;
+      matched_cad_converted?: boolean;
+      matched_cad_conversion_time?: number;
+      cad_converted?: boolean;
+      original_cad_format?: string;
+      conversion_time?: number;
       match_score?: number;
       match_quality?: string;
       analysis_strategy?: string;
     };
   }>;
   matching_results: {
-    pdf_step_matches: Array<{
+    pdf_cad_matches: Array<{  // ✅ ENHANCED - CAD instead of just STEP
       pdf_file: string;
-      step_file: string;
+      cad_file: string;
+      cad_format: string;  // ✅ NEW - shows original format (PRT, CATPART, STEP)
       match_score: number;
       match_quality: string;
     }>;
     unmatched_files: {
       pdfs: string[];
-      steps: string[];
+      cads: string[];  // ✅ ENHANCED
     };
   };
   failed_uploads: Array<{
     filename: string;
     error: string;
+  }>;
+  // ✅ NEW - Conversion results
+  conversion_results: Array<{
+    original_file: string;
+    conversion_needed: boolean;
+    conversion_successful: boolean;
+    processing_time: number;
+    message: string;
   }>;
   next_steps: {
     analyze_all: string;
@@ -74,25 +95,180 @@ export interface FileUploadResponse {
     file_size: number;
     upload_time: string;
   };
+  // ✅ NEW - Conversion information
+  conversion_info?: {
+    converted: boolean;
+    original_format: string;
+    target_format: string;
+    processing_time: number;
+    message: string;
+    error?: string;
+  };
 }
 
-export interface AnalysisStatus {
+export interface AnalysisResult {
   success: boolean;
+  message: string;
+  render_status?: "none" | "pending" | "processing" | "completed" | "failed";
+
   analysis: {
     id: string;
-    status: string;
+    user_id: string;
     filename: string;
     original_filename: string;
     file_type: string;
-    processing_time?: number;
-    error_message?: string;
+    analysis_status: string;
+    material_matches: string[];
+
+    // STEP Analysis Data
+    step_analysis: {
+      "X (mm)": number;
+      "Y (mm)": number;
+      "Z (mm)": number;
+      "Prizma Hacmi (mm³)": number;
+      "Ürün Hacmi (mm³)": number;
+      "Talaş Hacmi (mm³)": number;
+      "Talaş Oranı (%)": number;
+      "Toplam Yüzey Alanı (mm²)": number;
+      "Silindirik Çap (mm)"?: number;
+      "Silindirik Yükseklik (mm)"?: number;
+      [key: string]: any;
+    };
+
+    // Material Calculations
+    all_material_calculations: Array<{
+      material: string;
+      density: number;
+      mass_kg: number;
+      price_per_kg: number;
+      material_cost: number;
+      volume_mm3: number;
+      original_text?: string;
+      category?: string;
+    }>;
+
+    material_options: Array<{
+      name: string;
+      category: string;
+      density: number;
+      mass_kg: number;
+      price_per_kg: number;
+      material_cost: number;
+    }>;
+
+    // ✅ ENHANCED - Render Information
+    enhanced_renders?: {
+      [key: string]: {
+        success: boolean;
+        view_type: string;
+        file_path: string;
+        excel_path?: string;
+        svg_path?: string;
+        dimensions?: {
+          width: number;
+          height: number;
+          depth: number;
+        };
+        quality?: string;
+        file_exists?: boolean;
+      };
+    };
+
+    // Quick access to isometric view
+    isometric_view?: string;
+
+    // STL Model
+    stl_generated?: boolean;
+    stl_path?: string;
+    stl_file_size?: number;
+
+    // Render Status & Details
+    render_status?: "none" | "pending" | "processing" | "completed" | "failed";
+    render_task_id?: string;
+    render_count?: number;
+    render_quality?: "high" | "medium" | "low";
+    render_strategy?: string;
+    render_error?: string;
+
+    // PDF Enhancement Details
+    pdf_step_extracted?: boolean;
+
+    // ✅ NEW - CAD Conversion Details
+    cad_converted?: boolean;
+    original_cad_format?: string;
+    original_cad_path?: string;
+    conversion_time?: number;
+    conversion_success?: boolean;
+
+    // ✅ ENHANCED - CAD Matching Details
+    matched_cad_file?: string;
+    matched_cad_path?: string;
+    matched_cad_original_format?: string;
+    matched_cad_converted?: boolean;
+    matched_cad_conversion_time?: number;
+
+    // Processing & Timing
+    processing_time: number;
     created_at: string;
-    updated_at: string;
-    has_step_analysis: boolean;
-    has_renders: boolean;
-    material_matches_count: number;
-    render_count: number;
   };
+
+  processing_time: number;
+
+  analysis_details: {
+    material_matches_count: number;
+    step_analysis_available: boolean;
+    cost_estimation_available: boolean;
+    enhanced_renders_count?: number;
+    render_types?: string[];
+    processing_steps?: number;
+    all_material_calculations_count?: number;
+    material_options_count?: number;
+    "3d_render_available"?: boolean;
+    render_in_progress?: boolean;
+    
+    // ✅ NEW - CAD conversion details
+    cad_conversion_performed?: boolean;
+    original_cad_format?: string;
+    conversion_successful?: boolean;
+    conversion_time?: number;
+  };
+
+  // ✅ ENHANCED - Enhancement Details (PDF-CAD matching info)
+  enhancement_details?: {
+    analysis_strategy: string;
+    step_source: string;
+    match_score?: number;
+    used_matched_cad: boolean;  // ✅ ENHANCED
+    cad_conversion_used?: boolean;  // ✅ NEW
+    original_cad_format?: string;  // ✅ NEW
+  };
+}
+
+// ✅ NEW - CAD Conversion Status Interface
+export interface CADConversionStatusResponse {
+  success: boolean;
+  cad_conversion: {
+    available: boolean;
+    freecad_path: string | null;
+    supported_formats: string[];
+    temp_directory: string;
+    temp_files_count: number;
+  };
+  system_requirements: {
+    freecad_required: boolean;
+    freecad_min_version: string;
+    python_modules: string[];
+  };
+  conversion_statistics: {
+    temp_directory_size_mb: number;
+  };
+}
+
+export interface CADCleanupResponse {
+  success: boolean;
+  message: string;
+  removed_files: number;
+  max_age_hours: number;
 }
 
 export interface AnalysisResult {
@@ -448,6 +624,35 @@ export interface BulkReanalysisResponse {
   };
 }
 
+
+// services/api.ts - UPDATED WITH PRT/CATPART SUPPORT
+
+// ✅ ENHANCED - File type detection with CAD support
+export const getFileTypeFromName = (fileName: string): string => {
+  const lowerName = fileName.toLowerCase();
+  
+  if (lowerName.endsWith(".pdf")) return "pdf";
+  if (lowerName.endsWith(".step") || lowerName.endsWith(".stp")) return "step";
+  if (lowerName.endsWith(".prt")) return "cad_part";  // ✅ NEW
+  if (lowerName.endsWith(".catpart")) return "cad_part";  // ✅ NEW
+  if (lowerName.endsWith(".doc") || lowerName.endsWith(".docx")) return "doc";
+  
+  return "other";
+};
+
+// ✅ NEW - CAD file detection
+export const isCADFile = (fileName: string): boolean => {
+  const fileType = getFileTypeFromName(fileName);
+  return fileType === "step" || fileType === "cad_part";
+};
+
+// ✅ NEW - Conversion requirement check
+export const needsConversion = (fileName: string): boolean => {
+  const lowerName = fileName.toLowerCase();
+  return lowerName.endsWith(".prt") || lowerName.endsWith(".catpart");
+};
+
+
 class ApiService {
   private getAuthHeaders(): HeadersInit {
     const token = localStorage.getItem("accessToken");
@@ -494,6 +699,62 @@ class ApiService {
     });
 
     return response.json();
+  }
+
+  async getCADConversionStatus(): Promise<CADConversionStatusResponse> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/upload/cad-conversion-status`,
+        {
+          method: "GET",
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ CAD conversion status error:", error);
+      return {
+        success: false,
+        cad_conversion: {
+          available: false,
+          freecad_path: null,
+          supported_formats: [],
+          temp_directory: "",
+          temp_files_count: 0,
+        },
+        system_requirements: {
+          freecad_required: true,
+          freecad_min_version: "0.19",
+          python_modules: [],
+        },
+        conversion_statistics: {
+          temp_directory_size_mb: 0,
+        },
+      };
+    }
+  }
+
+  async cleanupCADTempFiles(maxAgeHours = 24): Promise<CADCleanupResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/upload/cad-cleanup`, {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          max_age_hours: maxAgeHours,
+        }),
+      });
+
+      return response.json();
+    } catch (error: any) {
+      console.error("❌ CAD cleanup error:", error);
+      return {
+        success: false,
+        message: error.message || "CAD cleanup failed",
+        removed_files: 0,
+        max_age_hours: maxAgeHours,
+      };
+    }
   }
 
   // ============================================================================

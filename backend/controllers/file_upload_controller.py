@@ -3,6 +3,7 @@
 import os
 import time
 import uuid
+from pathlib import Path
 from flask import Blueprint, request, jsonify, send_file, Response, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
@@ -12,6 +13,7 @@ from models.user import User
 from models.file_analysis import FileAnalysis, FileAnalysisCreate
 from services.material_analysis import MaterialAnalysisService, CostEstimationService
 from services.step_renderer import StepRendererEnhanced
+from services.cad_converter import cad_converter, get_file_type_enhanced, needs_step_conversion  # ✅ YENİ
 import numpy as np
 import math
 import threading
@@ -24,13 +26,14 @@ upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
 
 # Konfigürasyon
 UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'step', 'stp'}
+ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'step', 'stp', 'prt', 'catpart'}  # ✅ YENİ: PRT ve CATPART eklendi
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILES_PER_REQUEST = 100
 
 # Upload klasörünü oluştur
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("static", exist_ok=True)
+
 
 class OptimizedBackgroundProcessor:
     def __init__(self):
@@ -61,7 +64,7 @@ class OptimizedBackgroundProcessor:
         
     def get_result(self, task_id):
         return self.results.get(task_id)
-
+    
 # Global background processor
 bg_processor = OptimizedBackgroundProcessor()
 
@@ -103,6 +106,44 @@ def calculate_filename_similarity(name1: str, name2: str) -> float:
                 similarity += 0.3  # Bonus
     
     return min(similarity, 1.0)  # 1.0'ı geçmesin
+
+def match_pdf_to_cad_files(pdf_files: List[Dict], cad_files: List[Dict]) -> List[Dict]:
+    """✅ ENHANCED - PDF dosyalarını CAD dosyalarıyla (STEP/PRT/CATPART) eşleştir"""
+    matches = []
+    
+    for pdf_info in pdf_files:
+        pdf_filename = pdf_info['original_filename']
+        best_match = None
+        best_score = 0.0
+        
+        # Her CAD dosyası ile karşılaştır
+        for cad_info in cad_files:
+            cad_filename = cad_info['original_filename']
+            score = calculate_filename_similarity(pdf_filename, cad_filename)
+            
+            if score > best_score:
+                best_score = score
+                best_match = cad_info
+        
+        # Eşleştirme sonucunu kaydet
+        match_result = {
+            "pdf_file": pdf_info,
+            "cad_file": best_match,  # ✅ STEP yerine CAD
+            "match_score": round(best_score * 100, 1),
+            "match_quality": get_match_quality(best_score),
+            "analysis_strategy": determine_analysis_strategy(pdf_info, best_match, best_score)
+        }
+        
+        matches.append(match_result)
+        
+        cad_type = "UNKNOWN"
+        if best_match:
+            cad_type = best_match.get('conversion_info', {}).get('original_format', 'STEP').upper()
+        
+        print(f"[MATCH] 📄 {pdf_filename} ↔ {best_match['original_filename'] if best_match else 'None'} "
+              f"({cad_type}) (Score: {match_result['match_score']}% - {match_result['match_quality']})")
+    
+    return matches
 
 def match_pdf_to_step_files(pdf_files: List[Dict], step_files: List[Dict]) -> List[Dict]:
     """PDF dosyalarını STEP dosyalarıyla eşleştir"""
@@ -151,12 +192,12 @@ def get_match_quality(score: float) -> str:
     else:
         return "None"
 
-def determine_analysis_strategy(pdf_info: Dict, step_info: Dict, score: float) -> str:
-    """Analiz stratejisini belirle"""
-    if step_info and score >= 0.6:
-        return "pdf_with_matched_step"
-    elif step_info and score >= 0.3:
-        return "pdf_with_possible_step"
+def determine_analysis_strategy(pdf_info: Dict, cad_info: Dict, score: float) -> str:
+    """✅ ENHANCED - Analiz stratejisini belirle (CAD desteği ile)"""
+    if cad_info and score >= 0.6:
+        return "pdf_with_matched_cad"  # ✅ CAD desteği
+    elif cad_info and score >= 0.3:
+        return "pdf_with_possible_cad"  # ✅ CAD desteği
     else:
         return "pdf_only_extract_step"
 
@@ -168,24 +209,16 @@ def get_current_user():
     return User.find_by_id(current_user_id)
 
 def allowed_file(filename: str) -> bool:
-    """Dosya uzantısı kontrolü"""
+    """✅ ENHANCED - PRT/CATPART desteği ile dosya uzantısı kontrolü"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_file_type(filename: str) -> str:
-    """Dosya tipini belirle"""
-    if '.' in filename:
-        extension = filename.rsplit('.', 1)[1].lower()
-        if extension == 'pdf':
-            return 'pdf'
-        elif extension in ['doc', 'docx']:
-            return 'document'
-        elif extension in ['step', 'stp']:
-            return 'step'
-    return 'unknown'
+    """✅ ENHANCED - PRT/CATPART desteği ile dosya tipini belirle"""
+    return get_file_type_enhanced(filename)
 
 def save_uploaded_file(file: FileStorage, upload_folder: str) -> Dict[str, Any]:
-    """Yüklenen dosyayı güvenli şekilde kaydet"""
+    """✅ ENHANCED - Yüklenen dosyayı güvenli şekilde kaydet + CAD conversion info"""
     # Dosya boyutu kontrolü
     file.stream.seek(0, 2)
     file_size = file.stream.tell()
@@ -203,13 +236,118 @@ def save_uploaded_file(file: FileStorage, upload_folder: str) -> Dict[str, Any]:
     file_path = os.path.join(upload_folder, unique_filename)
     file.save(file_path)
     
+    file_type = get_file_type(original_filename)
+    
+    # ✅ YENİ - CAD conversion bilgisi ekle
+    conversion_info = {
+        "needs_conversion": needs_step_conversion(original_filename),
+        "is_cad_file": file_type in ['step', 'cad_part'],
+        "original_format": original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'unknown'
+    }
+    
     return {
         "original_filename": original_filename,
         "saved_filename": unique_filename,
         "file_path": file_path,
         "file_size": file_size,
-        "file_type": get_file_type(original_filename)
+        "file_type": file_type,
+        "conversion_info": conversion_info  # ✅ YENİ
     }
+
+def convert_cad_to_step_if_needed(file_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ YENİ - CAD dosyasını gerekirse STEP'e çevirir
+    
+    Args:
+        file_info: save_uploaded_file'dan dönen dosya bilgisi
+        
+    Returns:
+        Dict: Çevirme sonucu ve güncellenmiş dosya bilgisi
+    """
+    try:
+        if not file_info.get("conversion_info", {}).get("needs_conversion", False):
+            # Çevirmeye gerek yok
+            return {
+                "success": True,
+                "conversion_needed": False,
+                "step_file_path": file_info["file_path"],
+                "step_file_info": file_info,
+                "message": "No conversion needed"
+            }
+        
+        print(f"[CAD-CONVERT] 🔄 Converting {file_info['original_filename']} to STEP...")
+        
+        # Çevirme işlemi
+        original_path = file_info["file_path"]
+        
+        # STEP dosyası için hedef yol oluştur
+        step_filename = file_info["saved_filename"].rsplit('.', 1)[0] + "_converted.step"
+        step_file_path = os.path.join(os.path.dirname(original_path), step_filename)
+        
+        # CAD Converter kullanarak çevir
+        conversion_result = cad_converter.convert_to_step(original_path, step_file_path)
+        
+        if conversion_result["success"]:
+            # Çevirme başarılı
+            step_file_size = os.path.getsize(step_file_path) if os.path.exists(step_file_path) else 0
+            
+            # STEP dosyası için yeni file_info oluştur
+            step_file_info = {
+                "original_filename": file_info["original_filename"],  # Orijinal adı koru
+                "saved_filename": step_filename,
+                "file_path": step_file_path,
+                "file_size": step_file_size,
+                "file_type": "step",  # Artık STEP
+                "conversion_info": {
+                    "needs_conversion": False,
+                    "is_cad_file": True,
+                    "original_format": file_info["conversion_info"]["original_format"],
+                    "converted_from": file_info["conversion_info"]["original_format"],
+                    "conversion_time": conversion_result.get("processing_time", 0)
+                },
+                "source_file_info": file_info  # Orijinal dosya bilgisini sakla
+            }
+            
+            print(f"[CAD-CONVERT] ✅ Conversion successful: {original_path} -> {step_file_path}")
+            
+            return {
+                "success": True,
+                "conversion_needed": True,
+                "step_file_path": step_file_path,
+                "step_file_info": step_file_info,
+                "original_file_path": original_path,
+                "original_file_info": file_info,
+                "processing_time": conversion_result.get("processing_time", 0),
+                "message": f"Successfully converted {file_info['conversion_info']['original_format']} to STEP"
+            }
+        else:
+            # Çevirme başarısız
+            error_msg = conversion_result.get("error", "Unknown conversion error")
+            print(f"[CAD-CONVERT] ❌ Conversion failed: {error_msg}")
+            
+            return {
+                "success": False,
+                "conversion_needed": True,
+                "error": error_msg,
+                "step_file_path": None,
+                "step_file_info": None,
+                "original_file_path": original_path,
+                "original_file_info": file_info,
+                "message": f"Conversion failed: {error_msg}"
+            }
+            
+    except Exception as e:
+        print(f"[CAD-CONVERT] ❌ Conversion exception: {str(e)}")
+        return {
+            "success": False,
+            "conversion_needed": True,
+            "error": f"Conversion exception: {str(e)}",
+            "step_file_path": None,
+            "step_file_info": None,
+            "original_file_path": file_info.get("file_path"),
+            "original_file_info": file_info,
+            "message": f"Conversion failed with exception: {str(e)}"
+        }
 
 # ===== UPLOAD ENDPOINTS =====
 
@@ -269,8 +407,8 @@ def upload_single_file():
 
 @upload_bp.route('/multiple', methods=['POST'])
 @jwt_required()
-def upload_multiple_files_with_matching():
-    """✅ ENHANCED - Çoklu dosya yükleme ve PDF-STEP eşleştirme"""
+def upload_multiple_files_with_physical_cad_conversion():
+    """✅ ENHANCED - Çoklu dosya yükleme + PDF-CAD eşleştirme + Fiziksel CAD conversion"""
     try:
         current_user = get_current_user()
         
@@ -288,13 +426,15 @@ def upload_multiple_files_with_matching():
                 "message": f"Çok fazla dosya. Maksimum: {MAX_FILES_PER_REQUEST}"
             }), 400
         
-        print(f"[MULTIPLE-UPLOAD] 📁 {len(files)} dosya yükleniyor")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📁 {len(files)} dosya yükleniyor (Fiziksel CAD conversion aktif)")
         
-        # ✅ DOSYALARI TÜRE GÖRE AYIR
+        # ✅ ENHANCED - DOSYALARI TÜRE GÖRE AYIR (CAD desteği ile)
         pdf_files = []
-        step_files = []
+        cad_files = []  # ✅ STEP + Converted PRT + Converted CATPART
         other_files = []
         failed_uploads = []
+        conversion_results = []
+        physical_conversion_log = []
         
         for file in files:
             try:
@@ -315,72 +455,322 @@ def upload_multiple_files_with_matching():
                 # Dosyayı kaydet
                 file_info = save_uploaded_file(file, UPLOAD_FOLDER)
                 
-                # Türe göre kategorilere ayır
-                file_type = file_info['file_type']
-                if file_type == 'pdf':
-                    pdf_files.append(file_info)
-                elif file_type == 'step':
-                    step_files.append(file_info)
-                else:
-                    other_files.append(file_info)
+                # ✅ YENİ - Fiziksel CAD conversion kontrolü
+                if file_info.get("conversion_info", {}).get("needs_conversion", False):
+                    print(f"[MULTIPLE-UPLOAD-PHYSICAL] 🔄 Fiziksel conversion başlıyor: {file_info['original_filename']}")
+                    print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📂 Input file path: {file_info['file_path']}")
+                    print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📋 File exists: {os.path.exists(file_info['file_path'])}")
+                    
+                    # Dosya varlık kontrolü
+                    if not os.path.exists(file_info["file_path"]):
+                        failed_uploads.append({
+                            "filename": file_info['original_filename'],
+                            "error": f"Input file not found: {file_info['file_path']}"
+                        })
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Input file not found: {file_info['file_path']}")
+                        continue
+                    
+                    # Fiziksel CAD converter kullan
+                    try:
+                        physical_conversion_result = cad_converter.convert_to_step_with_save(
+                            file_info["file_path"],
+                            custom_output_name=f"converted_{Path(file_info['original_filename']).stem}",
+                            save_original=True
+                        )
+                    except Exception as conv_error:
+                        physical_conversion_result = {
+                            "success": False,
+                            "error": f"Conversion exception: {str(conv_error)}",
+                            "input_path": file_info["file_path"]
+                        }
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Conversion exception: {conv_error}")
+                        import traceback
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📋 Traceback: {traceback.format_exc()}")
+                    
+                    conversion_results.append(physical_conversion_result)
+                    
+                    # Debug logging for conversion result
+                    print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📊 Conversion result keys: {list(physical_conversion_result.keys())}")
+                    if not physical_conversion_result.get("success", False):
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Conversion error details: {physical_conversion_result.get('error', 'Unknown')}")
+                        if "traceback" in physical_conversion_result:
+                            print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📋 Conversion traceback: {physical_conversion_result['traceback'][:500]}...")
+                    
+                    # Fiziksel conversion log'u
+                    physical_conversion_log.append({
+                        "original_file": file_info['original_filename'],
+                        "original_format": file_info.get('conversion_info', {}).get('original_format', 'unknown'),
+                        "detected_format": physical_conversion_result.get('detected_format', 'Unknown'),
+                        "format_confidence": physical_conversion_result.get('format_confidence', 0),
+                        "conversion_successful": physical_conversion_result.get("success", False),
+                        "output_path": physical_conversion_result.get("output_path"),
+                        "original_saved_path": physical_conversion_result.get("original_saved_path"),
+                        "log_file": physical_conversion_result.get("log_file"),
+                        "processing_time": physical_conversion_result.get("processing_time", 0),
+                        "message": physical_conversion_result.get("message", ""),
+                        "error": physical_conversion_result.get("error") if not physical_conversion_result.get("success") else None,
+                        "recommendations": physical_conversion_result.get("recommendations", [])
+                    })
+                    
+                    if physical_conversion_result.get("success", False):
+                        # Fiziksel conversion başarılı - converted STEP dosyasını kullan
+                        converted_step_path = physical_conversion_result["output_path"]
+                        original_saved_path = physical_conversion_result["original_saved_path"]
+                        
+                        # Analysis için STEP dosya bilgisini oluştur
+                        analysis_file_info = {
+                            "original_filename": file_info["original_filename"],  # Orijinal adı koru
+                            "saved_filename": os.path.basename(converted_step_path),
+                            "file_path": converted_step_path,  # Converted STEP path
+                            "file_size": os.path.getsize(converted_step_path) if os.path.exists(converted_step_path) else 0,
+                            "file_type": "step",  # Artık STEP
+                            "conversion_info": {
+                                "needs_conversion": False,
+                                "is_cad_file": True,
+                                "original_format": file_info["conversion_info"]["original_format"],
+                                "converted_from": file_info["conversion_info"]["original_format"],
+                                "physical_conversion": True,
+                                "original_file_path": file_info["file_path"],
+                                "original_saved_path": original_saved_path,
+                                "conversion_log_file": physical_conversion_result.get("log_file"),
+                                "conversion_time": physical_conversion_result.get("processing_time", 0)
+                            }
+                        }
+                        
+                        cad_files.append(analysis_file_info)
+                        
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ✅ Fiziksel conversion başarılı: {file_info['original_filename']} -> {converted_step_path}")
+                        
+                    else:
+                        # Conversion başarısız - detaylı hata bilgisi ile kaydet
+                        error_msg = physical_conversion_result.get('error', 'Unknown error')
+                        
+                        # Extract format info from the conversion result
+                        detected_format = physical_conversion_result.get('detected_format', 'Unknown')
+                        format_confidence = physical_conversion_result.get('format_confidence', 0)
+                        recommendations = physical_conversion_result.get('recommendations', [])
+                        
+                        # If format not in direct result, try to extract from error message
+                        if detected_format == 'Unknown' and 'NX/Unigraphics' in error_msg:
+                            detected_format = 'NX/Unigraphics'
+                            format_confidence = 90
+                        nx_help = physical_conversion_result.get('nx_help')
+                        support_contact = physical_conversion_result.get('support_contact')
+                        
+                        # Build user-friendly error message
+                        if detected_format == "NX/Unigraphics":
+                            user_error = "Bu dosya NX CAD yazılımında oluşturulmuş. Otomatik dönüştürme için lisanslı NX yazılımı gerekli."
+                            
+                            # Get NX help if available
+                            nx_help = physical_conversion_result.get('nx_help')
+                            support_contact = physical_conversion_result.get('support_contact')
+                            
+                            # Add default recommendations for NX
+                            if not recommendations or len(recommendations) == 0:
+                                recommendations = [
+                                    "NX yazılımında: File → Export → STEP 214",
+                                    "CAD desteğe başvurun: cad-support@company.com", 
+                                    "Alternatif: Teknik çizim PDF'ini yükleyin"
+                                ]
+                            
+                            # Add NX-specific immediate solutions
+                            immediate_solutions = []
+                            if nx_help:
+                                manual_steps = nx_help.get('conversion_options', {}).get('manual_conversion', {}).get('NX_Native', [])
+                                if manual_steps:
+                                    immediate_solutions.append({
+                                        "title": "NX'den Export",
+                                        "steps": manual_steps,
+                                        "estimated_time": "5 dakika"
+                                    })
+                                else:
+                                    # Default NX steps
+                                    immediate_solutions.append({
+                                        "title": "NX Yazılımı ile Dönüştürme",
+                                        "steps": [
+                                            "1. NX yazılımını açın",
+                                            "2. File → Open ile PRT dosyasını açın",
+                                            "3. File → Export → STEP seçin",
+                                            "4. Export Options'da STEP 214 seçin",
+                                            "5. Export butonuna tıklayın"
+                                        ],
+                                        "estimated_time": "5 dakika"
+                                    })
+                                
+                                # Add support option
+                                if support_contact:
+                                    immediate_solutions.append({
+                                        "title": "CAD Destek Ekibi",
+                                        "steps": [
+                                            f"Dosyayı {support_contact.get('email', 'cad-support@company.com')} adresine gönderin",
+                                            "Konu: PRT to STEP Dönüştürme Talebi",
+                                            f"Dosya adı: {file_info['original_filename']}",
+                                            "24 saat içinde dönüştürülmüş dosyayı alacaksınız"
+                                        ],
+                                        "estimated_time": "1 iş günü"
+                                    })
+                            else:
+                                # Default solutions
+                                immediate_solutions = [
+                                    {
+                                        "title": "NX Yazılımı ile Dönüştürme",
+                                        "steps": [
+                                            "1. NX yazılımını açın",
+                                            "2. File → Open ile PRT dosyasını açın",
+                                            "3. File → Export → STEP seçin",
+                                            "4. STEP 214 formatını seçin",
+                                            "5. Export yapın"
+                                        ],
+                                        "estimated_time": "5 dakika"
+                                    },
+                                    {
+                                        "title": "CAD Destek Ekibi",
+                                        "steps": [
+                                            "Dosyayı cad-support@company.com adresine gönderin",
+                                            "Konu: PRT to STEP Dönüştürme",
+                                            f"Dosya: {file_info['original_filename']}",
+                                            "1 iş günü içinde dönüş alacaksınız"
+                                        ],
+                                        "estimated_time": "1 iş günü"
+                                    }
+                                ]
+                        
+                        elif detected_format == "Creo/Pro-E":
+                            user_error = "Creo/Pro-E formatı desteklenmiyor. Lütfen Creo'dan STEP olarak kaydedin."
+                        elif detected_format == "STEP":
+                            user_error = "Dosya aslında STEP formatında. Uzantıyı .step olarak değiştirip tekrar yükleyin."
+                        elif detected_format == "IGES":
+                            user_error = "Dosya aslında IGES formatında. Uzantıyı .iges olarak değiştirip tekrar yükleyin."
+                        elif detected_format == "Parasolid":
+                            user_error = "Parasolid formatı sınırlı desteğe sahip. STEP formatında export önerilir."
+                        else:
+                            user_error = "PRT dosya formatı tanımlanamadı. Lütfen STEP formatında yeniden export yapın."
+                        
+                        # Create failed upload info
+                        failed_upload_info = {
+                            "filename": file_info['original_filename'],
+                            "error": user_error,
+                            "format_detected": detected_format,
+                            "format_confidence": format_confidence,
+                            "technical_details": {
+                                "original_error": error_msg,
+                                "detected_format": detected_format,
+                                "format_confidence": format_confidence,
+                                "file_size": file_info.get('file_size', 0),
+                                "file_size_mb": round(file_info.get('file_size', 0) / (1024 * 1024), 2)
+                            },
+                            "recommendations": recommendations
+                        }
+                        
+                        # Add NX-specific fields if available
+                        if detected_format == "NX/Unigraphics" and nx_help:
+                            failed_upload_info["immediate_solutions"] = immediate_solutions if 'immediate_solutions' in locals() else []
+                            failed_upload_info["alternative_workflow"] = nx_help.get('alternative_workflow', {})
+                            failed_upload_info["support_contact"] = support_contact
+                            failed_upload_info["help_resources"] = {
+                                "conversion_options": nx_help.get('conversion_options', {}),
+                                "format_info": nx_help.get('format_info', {})
+                            }
+                        
+                        failed_uploads.append(failed_upload_info)
+                        
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Fiziksel conversion başarısız: {file_info['original_filename']}")
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📋 Detected format: {detected_format} (confidence: {format_confidence}%)")
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 💡 User message: {user_error}")
+                        
+                        if detected_format == "NX/Unigraphics" and support_contact:
+                            print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📧 Support contact: {support_contact.get('email', 'N/A')}")
+                        
+                        continue# Update for file_upload_controller.py - PRT conversion error handling
                 
-                print(f"[MULTIPLE-UPLOAD] ✅ Kaydedildi: {file_info['original_filename']} ({file_type})")
+                else:
+                    # Conversion gerekmez - direkt analiz için hazırla
+                    analysis_file_info = file_info
+                    analysis_file_info["conversion_info"]["physical_conversion"] = False
+                    
+                    conversion_results.append({
+                        "success": True,
+                        "conversion_needed": False,
+                        "message": "No conversion needed"
+                    })
+                
+                # Türe göre kategorilere ayır
+                file_type = analysis_file_info['file_type']
+                if file_type == 'pdf':
+                    pdf_files.append(analysis_file_info)
+                elif file_type in ['step', 'cad_part']:  # ✅ CAD dosyaları (converted dahil)
+                    cad_files.append(analysis_file_info)
+                else:
+                    other_files.append(analysis_file_info)
+                
+                original_format = file_info.get('conversion_info', {}).get('original_format', file_type)
+                conversion_info = ""
+                if analysis_file_info.get('conversion_info', {}).get('physical_conversion', False):
+                    conversion_info = f" (physically converted from {original_format.upper()})"
+                elif file_type != original_format:
+                    conversion_info = f" (memory converted from {original_format.upper()})"
+                
+                print(f"[MULTIPLE-UPLOAD-PHYSICAL] ✅ Kaydedildi: {file_info['original_filename']} ({file_type}){conversion_info}")
                 
             except Exception as e:
                 failed_uploads.append({
                     "filename": file.filename,
                     "error": str(e)
                 })
+                print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Dosya işleme hatası: {file.filename} - {str(e)}")
         
-        print(f"[MULTIPLE-UPLOAD] 📊 PDF: {len(pdf_files)}, STEP: {len(step_files)}, Other: {len(other_files)}, Failed: {len(failed_uploads)}")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📊 PDF: {len(pdf_files)}, CAD: {len(cad_files)}, Other: {len(other_files)}, Failed: {len(failed_uploads)}")
         
-        # ✅ PDF-STEP EŞLEŞTİRME (eğer her ikisi de varsa)
+        # ✅ ENHANCED - PDF-CAD EŞLEŞTİRME (Fiziksel conversion desteği)
         matched_pairs = []
         unmatched_pdfs = []
-        unmatched_steps = []
+        unmatched_cads = []
         
-        if pdf_files and step_files:
-            print(f"[MULTIPLE-UPLOAD] 🔄 PDF-STEP eşleştirme başlıyor...")
+        if pdf_files and cad_files:
+            print(f"[MULTIPLE-UPLOAD-PHYSICAL] 🔄 PDF-CAD eşleştirme başlıyor (fiziksel dosyalar dahil)...")
             
             # Eşleştirmeleri hesapla
-            matches = match_pdf_to_step_files(pdf_files, step_files)
+            matches = match_pdf_to_cad_files(pdf_files, cad_files)
             
-            used_step_files = set()
+            used_cad_files = set()
             
             for match in matches:
                 pdf_info = match['pdf_file']
-                step_info = match['step_file']
+                cad_info = match['cad_file']
                 score = match['match_score']
                 
                 # Minimum eşleştirme skoru kontrolü
-                if step_info and score >= 30.0 and step_info['saved_filename'] not in used_step_files:
+                if cad_info and score >= 30.0 and cad_info['saved_filename'] not in used_cad_files:
                     matched_pairs.append(match)
-                    used_step_files.add(step_info['saved_filename'])
-                    print(f"[MULTIPLE-UPLOAD] ✅ Eşleşti: {pdf_info['original_filename']} ↔ {step_info['original_filename']} ({score}%)")
+                    used_cad_files.add(cad_info['saved_filename'])
+                    
+                    cad_format = cad_info.get('conversion_info', {}).get('original_format', 'STEP').upper()
+                    conversion_type = "Physical" if cad_info.get('conversion_info', {}).get('physical_conversion', False) else "Direct"
+                    print(f"[MULTIPLE-UPLOAD-PHYSICAL] ✅ Eşleşti: {pdf_info['original_filename']} ↔ {cad_info['original_filename']} ({cad_format}-{conversion_type}) ({score}%)")
                 else:
                     unmatched_pdfs.append(pdf_info)
                     if score < 30.0:
-                        print(f"[MULTIPLE-UPLOAD] ❌ Düşük skor: {pdf_info['original_filename']} ({score}%)")
+                        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Düşük skor: {pdf_info['original_filename']} ({score}%)")
             
-            # Kullanılmayan STEP dosyalarını bul
-            for step_info in step_files:
-                if step_info['saved_filename'] not in used_step_files:
-                    unmatched_steps.append(step_info)
+            # Kullanılmayan CAD dosyalarını bul
+            for cad_info in cad_files:
+                if cad_info['saved_filename'] not in used_cad_files:
+                    unmatched_cads.append(cad_info)
         else:
             # Eşleştirme yapılamaz
             unmatched_pdfs = pdf_files
-            unmatched_steps = step_files
+            unmatched_cads = cad_files
         
-        # ✅ ANALİZ KAYITLARI OLUŞTUR
+        # ✅ ENHANCED - ANALİZ KAYITLARI OLUŞTUR (Fiziksel conversion bilgisi ile)
         created_analyses = []
         
         # 1. Eşleşmiş çiftler için
         for match in matched_pairs:
             pdf_info = match['pdf_file']
-            step_info = match['step_file']
+            cad_info = match['cad_file']
             
-            # PDF analizi oluştur
-            pdf_analysis = FileAnalysis.create_analysis({
+            # PDF analizi oluştur (Fiziksel CAD conversion bilgisi ile)
+            analysis_data = {
                 "user_id": current_user['id'],
                 "filename": pdf_info['saved_filename'],
                 "original_filename": pdf_info['original_filename'],
@@ -388,20 +778,36 @@ def upload_multiple_files_with_matching():
                 "file_size": pdf_info['file_size'],
                 "file_path": pdf_info['file_path'],
                 "analysis_status": "uploaded",
-                # PDF-STEP eşleştirme bilgileri
-                "matched_step_file": step_info['saved_filename'],
-                "matched_step_path": step_info['file_path'],
+                # ✅ ENHANCED - PDF-CAD eşleştirme bilgileri
+                "matched_cad_file": cad_info['saved_filename'],
+                "matched_cad_path": cad_info['file_path'],
                 "match_score": match['match_score'],
                 "match_quality": match['match_quality'],
                 "analysis_strategy": match['analysis_strategy']
-            })
+            }
+            
+            # ✅ YENİ - Fiziksel CAD conversion bilgilerini ekle
+            cad_conversion_info = cad_info.get('conversion_info', {})
+            if cad_conversion_info.get('physical_conversion', False):
+                analysis_data.update({
+                    "matched_cad_original_format": cad_conversion_info['original_format'],
+                    "matched_cad_converted": True,
+                    "matched_cad_physical_conversion": True,
+                    "matched_cad_conversion_time": cad_conversion_info.get('conversion_time', 0),
+                    "matched_cad_original_file_path": cad_conversion_info.get('original_file_path'),
+                    "matched_cad_original_saved_path": cad_conversion_info.get('original_saved_path'),
+                    "matched_cad_conversion_log": cad_conversion_info.get('conversion_log_file')
+                })
+            
+            pdf_analysis = FileAnalysis.create_analysis(analysis_data)
             
             created_analyses.append({
                 "analysis_id": pdf_analysis['id'],
-                "type": "pdf_with_step",
+                "type": "pdf_with_cad",  # ✅ ENHANCED
                 "primary_file": pdf_info['original_filename'],
-                "secondary_file": step_info['original_filename'],
+                "secondary_file": cad_info['original_filename'],
                 "match_score": match['match_score'],
+                "cad_physically_converted": cad_conversion_info.get('physical_conversion', False),
                 "file_info": pdf_analysis
             })
         
@@ -425,23 +831,46 @@ def upload_multiple_files_with_matching():
                 "file_info": pdf_analysis
             })
         
-        # 3. Eşleşmemiş STEP'ler için
-        for step_info in unmatched_steps:
-            step_analysis = FileAnalysis.create_analysis({
+        # 3. Eşleşmemiş CAD'ler için
+        for cad_info in unmatched_cads:
+            analysis_data = {
                 "user_id": current_user['id'],
-                "filename": step_info['saved_filename'],
-                "original_filename": step_info['original_filename'],
-                "file_type": step_info['file_type'],
-                "file_size": step_info['file_size'],
-                "file_path": step_info['file_path'],
+                "filename": cad_info['saved_filename'],
+                "original_filename": cad_info['original_filename'],
+                "file_type": cad_info['file_type'],
+                "file_size": cad_info['file_size'],
+                "file_path": cad_info['file_path'],
                 "analysis_status": "uploaded"
-            })
+            }
+            
+            # ✅ YENİ - Fiziksel CAD conversion bilgilerini ekle
+            cad_conversion_info = cad_info.get('conversion_info', {})
+            if cad_conversion_info.get('physical_conversion', False):
+                analysis_data.update({
+                    "cad_converted": True,
+                    "cad_physical_conversion": True,
+                    "original_cad_format": cad_conversion_info['original_format'],
+                    "conversion_time": cad_conversion_info.get('conversion_time', 0),
+                    "original_file_path": cad_conversion_info.get('original_file_path'),
+                    "original_saved_path": cad_conversion_info.get('original_saved_path'),
+                    "conversion_log_file": cad_conversion_info.get('conversion_log_file')
+                })
+            
+            cad_analysis = FileAnalysis.create_analysis(analysis_data)
+            
+            cad_type = "cad_only"
+            if cad_info['file_type'] == 'step':
+                if cad_conversion_info.get('physical_conversion', False):
+                    cad_type = "step_converted"
+                else:
+                    cad_type = "step_only"
             
             created_analyses.append({
-                "analysis_id": step_analysis['id'],
-                "type": "step_only",
-                "primary_file": step_info['original_filename'],
-                "file_info": step_analysis
+                "analysis_id": cad_analysis['id'],
+                "type": cad_type,  # ✅ ENHANCED
+                "primary_file": cad_info['original_filename'],
+                "physically_converted": cad_conversion_info.get('physical_conversion', False),
+                "file_info": cad_analysis
             })
         
         # 4. Diğer dosyalar için
@@ -463,26 +892,40 @@ def upload_multiple_files_with_matching():
                 "file_info": other_analysis
             })
         
-        # ✅ SONUÇ HAZIRLA
+        # ✅ ENHANCED - SONUÇ HAZIRLA (Fiziksel CAD conversion desteği bilgileri ile)
+        successful_physical_conversions = len([r for r in conversion_results if r.get("success", False) and r.get("conversion_needed", False)])
+        failed_physical_conversions = len([r for r in conversion_results if not r.get("success", False) and r.get("conversion_needed", False)])
+        
         response_data = {
             "success": True,
-            "message": f"{len(created_analyses)} dosya başarıyla yüklendi ve analiz için hazırlandı",
+            "message": f"{len(created_analyses)} dosya başarıyla yüklendi ve analiz için hazırlandı (Fiziksel CAD conversion aktif)",
             "upload_summary": {
                 "total_uploaded": len(created_analyses),
                 "pdf_files": len(pdf_files),
-                "step_files": len(step_files),
+                "cad_files": len(cad_files),  # ✅ STEP + Converted PRT + Converted CATPART
                 "other_files": len(other_files),
                 "failed_uploads": len(failed_uploads),
                 "matched_pairs": len(matched_pairs),
                 "unmatched_pdfs": len(unmatched_pdfs),
-                "unmatched_steps": len(unmatched_steps)
+                "unmatched_cads": len(unmatched_cads),  # ✅ CAD
+                # ✅ YENİ - Fiziksel Conversion istatistikleri
+                "physical_cad_conversions": {
+                    "total_attempted": len([r for r in conversion_results if r.get("conversion_needed", False)]),
+                    "successful": successful_physical_conversions,
+                    "failed": failed_physical_conversions,
+                    "conversion_engine": "CADConverterService",
+                    "output_directory": cad_converter.step_files_dir,
+                    "original_files_directory": cad_converter.original_files_dir
+                }
             },
             "analyses": created_analyses,
             "matching_results": {
-                "pdf_step_matches": [
+                "pdf_cad_matches": [  # ✅ CAD
                     {
                         "pdf_file": match['pdf_file']['original_filename'],
-                        "step_file": match['step_file']['original_filename'],
+                        "cad_file": match['cad_file']['original_filename'],
+                        "cad_format": match['cad_file'].get('conversion_info', {}).get('original_format', 'STEP').upper(),
+                        "physically_converted": match['cad_file'].get('conversion_info', {}).get('physical_conversion', False),
                         "match_score": match['match_score'],
                         "match_quality": match['match_quality']
                     }
@@ -490,22 +933,33 @@ def upload_multiple_files_with_matching():
                 ],
                 "unmatched_files": {
                     "pdfs": [f['original_filename'] for f in unmatched_pdfs],
-                    "steps": [f['original_filename'] for f in unmatched_steps]
+                    "cads": [f['original_filename'] for f in unmatched_cads]  # ✅ CAD
                 }
             },
             "failed_uploads": failed_uploads,
+            "physical_conversion_results": physical_conversion_log,  # ✅ YENİ - Detaylı conversion log
+            "physical_conversion_summary": {  # ✅ YENİ - Conversion özeti
+                "total_attempted": len([log for log in physical_conversion_log if log.get("conversion_successful") is not None]),
+                "successful": len([log for log in physical_conversion_log if log.get("conversion_successful", False)]),
+                "failed": len([log for log in physical_conversion_log if not log.get("conversion_successful", True)]),
+                "total_processing_time": sum([log.get("processing_time", 0) for log in physical_conversion_log]),
+                "output_directory_info": cad_converter.get_output_directory_info()
+            },
             "next_steps": {
                 "analyze_all": f"/api/upload/batch-analyze",
-                "analyze_individual": f"/api/upload/analyze/{{analysis_id}}"
+                "analyze_individual": f"/api/upload/analyze/{{analysis_id}}",
+                "view_conversion_results": f"/api/upload/conversion-directory-info"
             }
         }
         
-        print(f"[MULTIPLE-UPLOAD] ✅ Tamamlandı: {len(created_analyses)} analiz oluşturuldu")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ✅ Tamamlandı: {len(created_analyses)} analiz oluşturuldu")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 🔧 Fiziksel conversions: {successful_physical_conversions} başarılı, {failed_physical_conversions} başarısız")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] 📁 Output directory: {cad_converter.step_files_dir}")
         
         return jsonify(response_data), 201
         
     except Exception as e:
-        print(f"[MULTIPLE-UPLOAD] ❌ Hata: {str(e)}")
+        print(f"[MULTIPLE-UPLOAD-PHYSICAL] ❌ Hata: {str(e)}")
         import traceback
         traceback.print_exc()
         
@@ -514,12 +968,84 @@ def upload_multiple_files_with_matching():
             "message": f"Çoklu dosya yükleme hatası: {str(e)}"
         }), 500
 
-# ===== ANALYSIS ENDPOINTS =====
+
+# ===== YENİ ENDPOINT - CONVERSION DIRECTORY INFO =====
+
+@upload_bp.route('/conversion-directory-info', methods=['GET'])
+@jwt_required()
+def get_conversion_directory_info():
+    """Fiziksel CAD conversion output directory bilgileri"""
+    try:
+        current_user = get_current_user()
+        
+        # Directory bilgilerini al
+        dir_info = cad_converter.get_output_directory_info()
+        
+        # CAD converter status
+        converter_status = cad_converter.get_status()
+        
+        return jsonify({
+            "success": True,
+            "conversion_directories": dir_info,
+            "converter_status": converter_status,
+            "access_info": {
+                "step_files_url": f"/static/cad_conversions/",  # Web erişim için
+                "download_endpoint": "/api/upload/download-converted-file/"
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Directory info error: {str(e)}"
+        }), 500
+
+@upload_bp.route('/download-converted-file/<path:file_path>', methods=['GET'])
+@jwt_required()
+def download_converted_file(file_path):
+    """Fiziksel olarak convert edilmiş dosyayı indir"""
+    try:
+        current_user = get_current_user()
+        
+        # Güvenlik: sadece conversion directory altındaki dosyalara erişim
+        if not file_path.startswith(cad_converter.output_base_dir):
+            full_path = os.path.join(cad_converter.output_base_dir, file_path)
+        else:
+            full_path = file_path
+        
+        # Path traversal güvenliği
+        full_path = os.path.abspath(full_path)
+        base_path = os.path.abspath(cad_converter.output_base_dir)
+        
+        if not full_path.startswith(base_path):
+            return jsonify({
+                "success": False,
+                "message": "Geçersiz dosya yolu"
+            }), 403
+        
+        if not os.path.exists(full_path):
+            return jsonify({
+                "success": False,
+                "message": "Dosya bulunamadı"
+            }), 404
+        
+        # Dosyayı indir
+        return send_file(
+            full_path,
+            as_attachment=True,
+            download_name=os.path.basename(full_path)
+        )
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Download error: {str(e)}"
+        }), 500
 
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file_enhanced(analysis_id):
-    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + Instant Response"""
+    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + FIXED CAD FILE HANDLING"""
     try:
         current_user = get_current_user()
         
@@ -531,46 +1057,195 @@ def analyze_uploaded_file_enhanced(analysis_id):
         if analysis['user_id'] != current_user['id']:
             return jsonify({"success": False, "message": "Bu dosyaya erişim yetkiniz yok"}), 403
         
-        if not os.path.exists(analysis['file_path']):
-            return jsonify({"success": False, "message": "Dosya sistemde bulunamadı"}), 404
-        
         if analysis['analysis_status'] == 'analyzing':
             return jsonify({"success": False, "message": "Dosya zaten analiz ediliyor"}), 409
         
-        # ✅ 2. IMMEDIATE STATUS UPDATE
+        # ✅ 2. ENHANCED FILE PATH DETECTION - CAD CONVERSION DESTEĞİ
+        analysis_file_path = None
+        file_source = "original"
+        
+        print(f"[ANALYZE-ENHANCED] 🔍 Dosya yolu tespiti başlıyor: {analysis.get('original_filename')}")
+        print(f"[ANALYZE-ENHANCED] 📋 Database paths:")
+        print(f"   - file_path: {analysis.get('file_path')}")
+        print(f"   - converted_step_path: {analysis.get('converted_step_path')}")
+        print(f"   - matched_cad_path: {analysis.get('matched_cad_path')}")
+        print(f"   - matched_step_path: {analysis.get('matched_step_path')}")
+        
+        # Öncelik sırası: converted_step_path > matched_cad_path > matched_step_path > original_file_path
+        if analysis.get('converted_step_path') and os.path.exists(analysis['converted_step_path']):
+            analysis_file_path = analysis['converted_step_path']
+            file_source = "converted_step"
+            print(f"[ANALYZE-ENHANCED] ✅ Using converted STEP: {analysis_file_path}")
+            
+        elif analysis.get('matched_cad_path') and os.path.exists(analysis['matched_cad_path']):
+            analysis_file_path = analysis['matched_cad_path']
+            file_source = "matched_cad"
+            print(f"[ANALYZE-ENHANCED] ✅ Using matched CAD: {analysis_file_path}")
+            
+        elif analysis.get('matched_step_path') and os.path.exists(analysis['matched_step_path']):
+            analysis_file_path = analysis['matched_step_path']
+            file_source = "matched_step"
+            print(f"[ANALYZE-ENHANCED] ✅ Using matched STEP: {analysis_file_path}")
+            
+        elif analysis.get('file_path') and os.path.exists(analysis['file_path']):
+            analysis_file_path = analysis['file_path']
+            file_source = "original"
+            print(f"[ANALYZE-ENHANCED] ✅ Using original file: {analysis_file_path}")
+            
+        else:
+            # ✅ FALLBACK: Tüm olası konumları kontrol et
+            print(f"[ANALYZE-ENHANCED] 🔍 Database paths bulunamadı, fallback araması başlıyor...")
+            
+            possible_paths = []
+            original_filename = analysis.get('original_filename', '')
+            
+            # 1. Database'deki tüm paths'leri ekle (var olmasalar bile)
+            for path_key in ['file_path', 'converted_step_path', 'matched_cad_path', 'matched_step_path']:
+                path_value = analysis.get(path_key)
+                if path_value:
+                    possible_paths.append(path_value)
+            
+            # 2. CAD conversion klasöründeki olası dosyalar
+            if original_filename:
+                base_name = os.path.splitext(original_filename)[0]
+                conversion_dir = "/app/temp/cad_conversion"
+                
+                print(f"[ANALYZE-ENHANCED] 🔍 Conversion klasörü kontrol ediliyor: {conversion_dir}")
+                
+                if os.path.exists(conversion_dir):
+                    try:
+                        for file in os.listdir(conversion_dir):
+                            # Base name veya tam filename ile eşleşen STEP dosyaları
+                            if (base_name.lower() in file.lower() or 
+                                original_filename.lower().replace('.prt', '').replace('.catpart', '') in file.lower()) and \
+                               file.endswith('.step'):
+                                possible_paths.append(os.path.join(conversion_dir, file))
+                                print(f"[ANALYZE-ENHANCED] 🔍 Conversion'da bulundu: {file}")
+                    except Exception as e:
+                        print(f"[ANALYZE-ENHANCED] ⚠️ Conversion klasör tarama hatası: {e}")
+            
+            # 3. Upload klasöründeki dosyalar
+            upload_dir = "/app/uploads"
+            if os.path.exists(upload_dir) and original_filename:
+                print(f"[ANALYZE-ENHANCED] 🔍 Upload klasörü kontrol ediliyor: {upload_dir}")
+                
+                try:
+                    for file in os.listdir(upload_dir):
+                        # Orijinal dosya adını içeren dosyalar
+                        if original_filename.lower() in file.lower():
+                            possible_paths.append(os.path.join(upload_dir, file))
+                            print(f"[ANALYZE-ENHANCED] 🔍 Upload'da bulundu: {file}")
+                except Exception as e:
+                    print(f"[ANALYZE-ENHANCED] ⚠️ Upload klasör tarama hatası: {e}")
+            
+            # 4. Analysis ID bazlı static klasör kontrol et
+            static_step_dir = f"/app/static/stepviews/{analysis_id}"
+            if os.path.exists(static_step_dir):
+                try:
+                    for file in os.listdir(static_step_dir):
+                        if file.endswith(('.step', '.stp')):
+                            possible_paths.append(os.path.join(static_step_dir, file))
+                            print(f"[ANALYZE-ENHANCED] 🔍 Static'te bulundu: {file}")
+                except Exception as e:
+                    print(f"[ANALYZE-ENHANCED] ⚠️ Static klasör tarama hatası: {e}")
+            
+            print(f"[ANALYZE-ENHANCED] 📋 Toplam {len(possible_paths)} olası path bulundu")
+            
+            # İlk var olan dosyayı kullan (STEP dosyalarına öncelik ver)
+            step_files = [p for p in possible_paths if p.endswith(('.step', '.stp'))]
+            other_files = [p for p in possible_paths if not p.endswith(('.step', '.stp'))]
+            
+            # STEP dosyaları önce dene
+            for path in step_files + other_files:
+                if os.path.exists(path):
+                    analysis_file_path = path
+                    file_source = "fallback_found"
+                    print(f"[ANALYZE-ENHANCED] ✅ Fallback ile bulundu: {analysis_file_path}")
+                    break
+        
+        # Hala dosya bulunamadıysa detaylı hata ver
+        if not analysis_file_path or not os.path.exists(analysis_file_path):
+            error_details = {
+                "analysis_id": analysis_id,
+                "original_filename": analysis.get('original_filename'),
+                "file_type": analysis.get('file_type'),
+                "database_paths": {
+                    "file_path": analysis.get('file_path'),
+                    "converted_step_path": analysis.get('converted_step_path'),
+                    "matched_cad_path": analysis.get('matched_cad_path'),
+                    "matched_step_path": analysis.get('matched_step_path')
+                },
+                "checked_paths": possible_paths if 'possible_paths' in locals() else [],
+                "directories_checked": [
+                    "/app/uploads",
+                    "/app/temp/cad_conversion",
+                    f"/app/static/stepviews/{analysis_id}"
+                ]
+            }
+            
+            print(f"[ANALYZE-ENHANCED] ❌ File not found anywhere:")
+            print(f"   Original filename: {analysis.get('original_filename')}")
+            print(f"   File type: {analysis.get('file_type')}")
+            print(f"   Checked paths: {error_details['checked_paths']}")
+            
+            return jsonify({
+                "success": False, 
+                "message": "Dosya sistemde bulunamadı",
+                "error_code": "FILE_NOT_FOUND",
+                "debug_info": error_details
+            }), 404
+        
+        # ✅ 3. IMMEDIATE STATUS UPDATE WITH CORRECT FILE PATH
         FileAnalysis.update_analysis(analysis_id, {
             "analysis_status": "analyzing",
             "processing_time": None,
-            "error_message": None
+            "error_message": None,
+            "actual_file_path": analysis_file_path,  # Gerçek kullanılan dosya yolu
+            "file_source": file_source  # Dosya kaynağı
         })
         
         print(f"[ANALYZE-ENHANCED] ⚡ Gelişmiş analiz başlatılıyor: {analysis['original_filename']}")
+        print(f"[ANALYZE-ENHANCED] 📂 File source: {file_source}")
+        print(f"[ANALYZE-ENHANCED] 📁 File path: {analysis_file_path}")
         start_time = time.time()
         
-        # ✅ 3. ENHANCED ANALYSIS WITH PDF-STEP MATCHING
+        # ✅ 4. ENHANCED ANALYSIS WITH PDF-STEP MATCHING
         try:
             material_service = MaterialAnalysisService()
             
             # Eşleşmiş STEP dosyası var mı kontrol et
-            matched_step_path = analysis.get('matched_step_path')
+            matched_step_path = analysis.get('matched_step_path') or analysis.get('matched_cad_path')
             analysis_strategy = analysis.get('analysis_strategy', 'default')
             
             print(f"[ANALYZE-ENHANCED] 📋 Analiz stratejisi: {analysis_strategy}")
             if matched_step_path:
                 print(f"[ANALYZE-ENHANCED] 🔗 Eşleşmiş STEP: {matched_step_path}")
             
-            # ✅ STANDARD ANALYSIS PARAMETERS (mevcut API ile uyumlu)
-            # Ultra-fast analiz çağır (sadece desteklenen parametrelerle)
+            # ✅ ANALYSIS: Doğru dosya yolu ve dosya tipi ile analiz et
+            # Dosya tipini dosya yolundan belirle
+            actual_file_type = analysis.get('file_type', 'unknown')
+            if analysis_file_path.endswith(('.step', '.stp')):
+                actual_file_type = 'step'
+            elif analysis_file_path.endswith('.pdf'):
+                actual_file_type = 'pdf'
+            elif analysis_file_path.endswith(('.doc', '.docx')):
+                actual_file_type = 'document'
+            
+            print(f"[ANALYZE-ENHANCED] 🔧 Analysis parameters:")
+            print(f"   - File path: {analysis_file_path}")
+            print(f"   - File type: {actual_file_type}")
+            print(f"   - User ID: {current_user['id']}")
+            
             result = material_service.analyze_document_ultra_fast(
-                analysis['file_path'], 
-                analysis['file_type'],
+                analysis_file_path,  # ✅ Doğru dosya yolu
+                actual_file_type,    # ✅ Doğru dosya tipi
                 current_user['id']
             )
             
             # ✅ ENHANCED POST-PROCESSING
             # Eğer eşleşmiş STEP dosyası varsa ve PDF'den STEP çıkarılamadıysa, 
             # eşleşmiş STEP'i kullan
-            if matched_step_path and os.path.exists(matched_step_path):
+            if matched_step_path and os.path.exists(matched_step_path) and actual_file_type == 'pdf':
                 if not result.get('step_analysis') or not result.get('step_file_hash'):
                     print(f"[ANALYZE-ENHANCED] 🔄 PDF'den STEP çıkarılamadı, eşleşmiş STEP kullanılıyor: {matched_step_path}")
                     
@@ -667,7 +1342,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             print(f"[ANALYZE-ENHANCED] ⏱️ Core analiz tamamlandı: {processing_time:.2f}s")
             
             if not result.get('error'):
-                # ✅ 4. INSTANT DATABASE UPDATE WITH ENHANCED DATA
+                # ✅ 5. INSTANT DATABASE UPDATE WITH ENHANCED DATA
                 update_data = {
                     "analysis_status": "completed",
                     "processing_time": processing_time,
@@ -683,6 +1358,10 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     "used_matched_step": bool(matched_step_path and result.get('matched_step_used', False)),
                     "step_source": result.get('step_source', 'none'),  # 'matched', 'extracted', 'none'
                     "material_confidence": result.get('material_confidence', 0),
+                    # File handling details
+                    "final_file_path": analysis_file_path,
+                    "final_file_source": file_source,
+                    "final_file_type": actual_file_type,
                     # Render fields
                     "render_status": "pending",
                     "enhanced_renders": {},
@@ -691,7 +1370,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 }
                 
                 # PDF specific fields
-                if analysis['file_type'] == 'pdf':
+                if actual_file_type == 'pdf':
                     update_data.update({
                         "pdf_step_extracted": bool(result.get('step_file_hash')),
                         "extracted_step_path": result.get('extracted_step_path'),
@@ -700,23 +1379,27 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 
                 FileAnalysis.update_analysis(analysis_id, update_data)
                 
-                # ✅ 5. BACKGROUND RENDERING DECISION
+                # ✅ 6. BACKGROUND RENDERING DECISION
                 should_render = False
                 render_path = None
                 
-                # Rendering priority: matched_step > extracted_step > direct_step
+                # Rendering priority: matched_step > extracted_step > direct_step > converted_step
                 if matched_step_path and os.path.exists(matched_step_path):
                     should_render = True
                     render_path = matched_step_path
                     print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Matched STEP - {matched_step_path}")
-                elif analysis['file_type'] in ['step', 'stp']:
+                elif actual_file_type in ['step', 'stp']:
                     should_render = True
-                    render_path = analysis['file_path']
+                    render_path = analysis_file_path
                     print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Direct STEP - {render_path}")
                 elif result.get('extracted_step_path') and os.path.exists(result['extracted_step_path']):
                     should_render = True
                     render_path = result['extracted_step_path']
                     print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Extracted STEP - {render_path}")
+                elif file_source == "converted_step" and analysis_file_path.endswith('.step'):
+                    should_render = True
+                    render_path = analysis_file_path
+                    print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Converted STEP - {render_path}")
                 
                 if should_render and render_path:
                     # Queue background rendering task
@@ -734,7 +1417,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     
                     print(f"[ANALYZE-ENHANCED] 🎨 Background render queued: {task_id}")
                 
-                # ✅ 6. ENHANCED INSTANT RESPONSE
+                # ✅ 7. ENHANCED INSTANT RESPONSE
                 updated_analysis = FileAnalysis.find_by_id(analysis_id)
                 
                 response_data = {
@@ -743,13 +1426,19 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     "analysis": updated_analysis,
                     "processing_time": processing_time,
                     "render_status": "processing" if should_render else "not_applicable",
+                    "file_handling": {
+                        "file_path_used": analysis_file_path,
+                        "file_source": file_source,
+                        "file_type_detected": actual_file_type,
+                        "file_exists": os.path.exists(analysis_file_path)
+                    },
                     "enhancement_details": {
                         "used_matched_step": bool(matched_step_path and result.get('matched_step_used', False)),
                         "step_source": result.get('step_source', 'none'),
                         "material_confidence": result.get('material_confidence', 0),
                         "analysis_strategy": analysis_strategy,
                         "match_score": analysis.get('match_score'),
-                        "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash'))
+                        "pdf_step_extracted": actual_file_type == 'pdf' and bool(result.get('step_file_hash'))
                     },
                     "analysis_details": {
                         "material_matches_count": len(result.get('material_matches', [])),
@@ -770,12 +1459,18 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 FileAnalysis.update_analysis(analysis_id, {
                     "analysis_status": "failed",
                     "error_message": error_msg,
-                    "processing_time": time.time() - start_time
+                    "processing_time": time.time() - start_time,
+                    "failed_file_path": analysis_file_path,
+                    "failed_file_source": file_source
                 })
                 
                 return jsonify({
                     "success": False,
-                    "message": f"Analiz hatası: {error_msg}"
+                    "message": f"Analiz hatası: {error_msg}",
+                    "file_info": {
+                        "file_path": analysis_file_path,
+                        "file_source": file_source
+                    }
                 }), 500
                 
         except Exception as analysis_error:
@@ -783,13 +1478,22 @@ def analyze_uploaded_file_enhanced(analysis_id):
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
                 "error_message": error_message,
-                "processing_time": time.time() - start_time
+                "processing_time": time.time() - start_time,
+                "failed_file_path": analysis_file_path if 'analysis_file_path' in locals() else None,
+                "failed_file_source": file_source if 'file_source' in locals() else None
             })
             
             print(f"[ANALYZE-ENHANCED] ❌ Analysis error: {error_message}")
+            import traceback
+            print(f"[ANALYZE-ENHANCED] 📋 Traceback: {traceback.format_exc()}")
+            
             return jsonify({
                 "success": False,
-                "message": error_message
+                "message": error_message,
+                "file_info": {
+                    "file_path": analysis_file_path if 'analysis_file_path' in locals() else None,
+                    "file_source": file_source if 'file_source' in locals() else None
+                }
             }), 500
         
     except Exception as e:
@@ -802,11 +1506,13 @@ def analyze_uploaded_file_enhanced(analysis_id):
             pass
             
         print(f"[ANALYZE-ENHANCED] ❌ Unexpected error: {str(e)}")
+        import traceback
+        print(f"[ANALYZE-ENHANCED] 📋 Traceback: {traceback.format_exc()}")
+        
         return jsonify({
             "success": False,
             "message": f"Beklenmeyen hata: {str(e)}"
         }), 500
-
 # ===== RENDER ENDPOINTS =====
 
 @upload_bp.route('/render/<analysis_id>', methods=['POST'])
@@ -3005,7 +3711,7 @@ def get_batch_status():
 
 @upload_bp.route('/supported-formats', methods=['GET'])
 def get_supported_formats():
-    """Desteklenen dosya formatları"""
+    """✅ ENHANCED - Desteklenen dosya formatları (CAD desteği ile)"""
     return jsonify({
         "success": True,
         "supported_formats": {
@@ -3015,7 +3721,9 @@ def get_supported_formats():
                 "doc": "Word doküman analizi",
                 "docx": "Word doküman analizi", 
                 "step": "3D STEP dosya analizi ve rendering",
-                "stp": "3D STEP dosya analizi ve rendering"
+                "stp": "3D STEP dosya analizi ve rendering",
+                "prt": "NX Part dosya analizi (STEP'e çevrilerek)",  # ✅ YENİ
+                "catpart": "CATIA Part dosya analizi (STEP'e çevrilerek)"  # ✅ YENİ
             }
         },
         "limits": {
@@ -3029,8 +3737,22 @@ def get_supported_formats():
             "wireframe_generation": True,
             "technical_drawings": True,
             "excel_export": True,
-            "pdf_step_matching": True,  # Enhanced feature
-            "batch_processing": True
+            "pdf_cad_matching": True,  # ✅ ENHANCED
+            "batch_processing": True,
+            "cad_conversion": {  # ✅ YENİ
+                "prt_to_step": True,
+                "catpart_to_step": True,
+                "auto_conversion": True,
+                "conversion_engine": "FreeCAD"
+            }
+        },
+        "cad_conversion_info": {  # ✅ YENİ
+            "supported_input_formats": ["prt", "catpart"],
+            "output_format": "step",
+            "conversion_engine": "FreeCAD",
+            "freecad_available": cad_converter.freecad_path is not None,
+            "freecad_path": cad_converter.freecad_path,
+            "estimated_conversion_time": "30-120 seconds per file"
         }
     }), 200
 
@@ -3497,3 +4219,62 @@ def calculate_mass_and_cost_for_analysis(analysis):
             'material_used': 'Unknown'
         }
                 
+@upload_bp.route('/cad-conversion-status', methods=['GET'])
+@jwt_required()
+def get_cad_conversion_status():
+    """✅ YENİ - CAD conversion sisteminin durumunu kontrol et"""
+    try:
+        return jsonify({
+            "success": True,
+            "cad_conversion": {
+                "available": cad_converter.freecad_path is not None,
+                "freecad_path": cad_converter.freecad_path,
+                "supported_formats": list(cad_converter.supported_formats.keys()),
+                "temp_directory": cad_converter.temp_dir,
+                "temp_files_count": len(list(Path(cad_converter.temp_dir).glob("*"))) if os.path.exists(cad_converter.temp_dir) else 0
+            },
+            "system_requirements": {
+                "freecad_required": True,
+                "freecad_min_version": "0.19",
+                "python_modules": ["subprocess", "tempfile", "pathlib"]
+            },
+            "conversion_statistics": {
+                "temp_directory_size_mb": sum(f.stat().st_size for f in Path(cad_converter.temp_dir).glob("**/*") if f.is_file()) / (1024*1024) if os.path.exists(cad_converter.temp_dir) else 0
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"CAD conversion status error: {str(e)}"
+        }), 500
+
+# ===== CAD CONVERSION CLEANUP ENDPOINT =====
+
+@upload_bp.route('/cad-cleanup', methods=['POST'])
+@jwt_required()
+def cleanup_cad_temp_files():
+    """✅ YENİ - CAD conversion geçici dosyalarını temizle"""
+    try:
+        current_user = get_current_user()
+        
+        # Admin yetkisi kontrol et (opsiyonel)
+        # if current_user.get('role') != 'admin':
+        #     return jsonify({"success": False, "message": "Admin yetkisi gerekli"}), 403
+        
+        max_age_hours = request.json.get('max_age_hours', 24) if request.json else 24
+        
+        removed_count = cad_converter.cleanup_temp_files(max_age_hours)
+        
+        return jsonify({
+            "success": True,
+            "message": f"{removed_count} geçici dosya temizlendi",
+            "removed_files": removed_count,
+            "max_age_hours": max_age_hours
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Cleanup error: {str(e)}"
+        }), 500

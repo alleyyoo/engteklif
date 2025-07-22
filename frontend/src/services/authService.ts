@@ -1,6 +1,5 @@
 // src/services/authService.ts
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || "http://188.132.220.35:5051";
+const API_BASE_URL = "http://localhost:5051";
 
 export interface LoginRequest {
   username: string;

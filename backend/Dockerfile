@@ -3,6 +3,10 @@ FROM --platform=linux/amd64 python:3.11-slim
 
 # Install system dependencies for CadQuery and Material Analysis
 RUN apt-get update && apt-get install -y \
+    # FreeCAD için gerekli
+    freecad \
+    freecad-python3 \
+    libfreecad-python3-0.20 \
     # OpenGL and rendering libraries for CadQuery
     libgl1-mesa-glx \
     libgl1-mesa-dri \
@@ -37,6 +41,8 @@ ENV CADQUERY_DISABLE_JUPYTER=1
 ENV TESSERACT_CMD=/usr/bin/tesseract
 ENV LIBREOFFICE_PATH=/usr/bin/libreoffice
 ENV OPENCV_LOG_LEVEL=ERROR
+ENV FREECAD_USER_HOME=/app/freecad_home
+ENV PYTHONPATH=/usr/lib/freecad-python3/lib:$PYTHONPATH
 
 # Create working directory
 WORKDIR /app
