@@ -30,7 +30,7 @@ export const DefaultLayoutStyles = createUseStyles({
   },
 
   sidebarWrapper: {
-    flex: '0 0 250px',
+    flex: '0 0 100px',
     transition: 'transform 0.3s ease-in-out',
 
     '@media (max-width: 768px)': {
