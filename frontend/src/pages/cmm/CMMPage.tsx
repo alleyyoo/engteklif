@@ -1,18 +1,18 @@
 // frontend/src/pages/cmm/CMMPage.tsx
-import React, { useState, useRef, useEffect } from "react";
-import { Button } from "primereact/button";
-import { DataTable } from "primereact/datatable";
-import { Column } from "primereact/column";
-import { Toast } from "primereact/toast";
-import { Card } from "primereact/card";
-import { Badge } from "primereact/badge";
-import { ConfirmDialog, confirmDialog } from "primereact/confirmdialog";
-import { ProgressBar } from "primereact/progressbar";
-import { Divider } from "primereact/divider";
-import { Panel } from "primereact/panel";
-import { Chip } from "primereact/chip";
-import { CMMPageStyles } from "./CMMPage.styles";
-import { cmmService, CMMAnalysis } from "../../services/cmmService";
+import React, { useState, useRef, useEffect } from 'react';
+import { Button } from 'primereact/button';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
+import { Toast } from 'primereact/toast';
+import { Card } from 'primereact/card';
+import { Badge } from 'primereact/badge';
+import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
+import { ProgressBar } from 'primereact/progressbar';
+import { Divider } from 'primereact/divider';
+import { Panel } from 'primereact/panel';
+import { Chip } from 'primereact/chip';
+import { CMMPageStyles } from './CMMPage.styles';
+import { cmmService, CMMAnalysis } from '../../services/cmmService';
 
 export const CMMPage = () => {
   const classes = CMMPageStyles();
@@ -26,6 +26,7 @@ export const CMMPage = () => {
   const [analyses, setAnalyses] = useState<CMMAnalysis[]>([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -45,16 +46,16 @@ export const CMMPage = () => {
     try {
       setLoading(true);
       const result = await cmmService.getMyCMMAnalyses(currentPage, pageSize);
-      
+
       if (result.success) {
         setAnalyses(result.analyses);
         setTotalRecords(result.pagination.total);
       } else {
-        showError("CMM analizleri yüklenemedi");
+        showError('CMM analizleri yüklenemedi');
       }
     } catch (error: any) {
-      console.error("❌ CMM analiz yükleme hatası:", error);
-      showError(error.message || "CMM analizleri yüklenirken hata oluştu");
+      console.error('❌ CMM analiz yükleme hatası:', error);
+      showError(error.message || 'CMM analizleri yüklenirken hata oluştu');
     } finally {
       setLoading(false);
     }
@@ -67,7 +68,52 @@ export const CMMPage = () => {
         setStats(result.stats);
       }
     } catch (error) {
-      console.error("❌ CMM istatistik hatası:", error);
+      console.error('❌ CMM istatistik hatası:', error);
+    }
+  };
+
+  // ============================================================================
+  // DRAG & DROP HANDLERS
+  // ============================================================================
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const { valid, invalid } = cmmService.validateCMMFiles(droppedFiles);
+
+    if (invalid.length > 0) {
+      const invalidMessages = invalid
+        .map((item) => `${item.file.name}: ${item.reason}`)
+        .join('\n');
+
+      showError(`Geçersiz dosyalar:\n${invalidMessages}`);
+    }
+
+    if (valid.length > 0) {
+      setSelectedFiles(valid);
+      showSuccess(`${valid.length} RTF dosyası seçildi`);
     }
   };
 
@@ -81,17 +127,17 @@ export const CMMPage = () => {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    
+
     if (files.length === 0) return;
 
     // Dosya validasyonu
     const { valid, invalid } = cmmService.validateCMMFiles(files);
-    
+
     if (invalid.length > 0) {
-      const invalidMessages = invalid.map(item => 
-        `${item.file.name}: ${item.reason}`
-      ).join('\n');
-      
+      const invalidMessages = invalid
+        .map((item) => `${item.file.name}: ${item.reason}`)
+        .join('\n');
+
       showError(`Geçersiz dosyalar:\n${invalidMessages}`);
     }
 
@@ -101,7 +147,7 @@ export const CMMPage = () => {
     }
 
     // Input'u temizle
-    event.target.value = "";
+    event.target.value = '';
   };
 
   const removeFile = (index: number) => {
@@ -119,7 +165,7 @@ export const CMMPage = () => {
 
   const handleUploadAndProcess = async () => {
     if (selectedFiles.length === 0) {
-      showError("Lütfen en az bir RTF dosyası seçin");
+      showError('Lütfen en az bir RTF dosyası seçin');
       return;
     }
 
@@ -127,9 +173,9 @@ export const CMMPage = () => {
       setIsUploading(true);
       setUploadProgress(10);
 
-      console.log("📄 CMM dosyaları işleniyor...", {
+      console.log('📄 CMM dosyaları işleniyor...', {
         fileCount: selectedFiles.length,
-        files: selectedFiles.map(f => f.name)
+        files: selectedFiles.map((f) => f.name)
       });
 
       setUploadProgress(30);
@@ -140,7 +186,7 @@ export const CMMPage = () => {
       setUploadProgress(80);
 
       if (result.success) {
-        console.log("✅ CMM işleme başarılı:", {
+        console.log('✅ CMM işleme başarılı:', {
           analysisId: result.analysis_id,
           measurementCount: result.data.measurement_count,
           operations: result.data.operations
@@ -151,18 +197,20 @@ export const CMMPage = () => {
         // Başarı mesajı
         showSuccess(
           `✅ ${result.data.file_count} RTF dosyası başarıyla işlendi!\n` +
-          `📊 ${result.data.measurement_count} ölçüm verisi çıkarıldı\n` +
-          `🏭 Operasyonlar: ${result.data.operations.join(', ')}\n` +
-          `📋 Excel raporu hazır`
+            `📊 ${result.data.measurement_count} ölçüm verisi çıkarıldı\n` +
+            `🏭 Operasyonlar: ${result.data.operations.join(', ')}\n` +
+            `📋 Excel raporu hazır`
         );
 
         // Otomatik Excel indirme
         try {
-          const filename = await cmmService.downloadAndSaveCMMExcel(result.analysis_id);
+          const filename = await cmmService.downloadAndSaveCMMExcel(
+            result.analysis_id
+          );
           showSuccess(`📁 Excel raporu indirildi: ${filename}`);
         } catch (downloadError) {
-          console.error("❌ Otomatik Excel indirme hatası:", downloadError);
-          showError("Excel indirme başarısız. Manuel olarak indirin.");
+          console.error('❌ Otomatik Excel indirme hatası:', downloadError);
+          showError('Excel indirme başarısız. Manuel olarak indirin.');
         }
 
         // Dosyaları temizle ve listeyi yenile
@@ -174,13 +222,11 @@ export const CMMPage = () => {
           setUploadProgress(0);
           setIsUploading(false);
         }, 1000);
-
       } else {
-        throw new Error(result.message || "CMM işleme başarısız");
+        throw new Error(result.message || 'CMM işleme başarısız');
       }
-
     } catch (error: any) {
-      console.error("❌ CMM upload hatası:", error);
+      console.error('❌ CMM upload hatası:', error);
       showError(`CMM işleme hatası: ${error.message}`);
       setUploadProgress(0);
       setIsUploading(false);
@@ -203,18 +249,18 @@ export const CMMPage = () => {
   const handleDeleteAnalysis = (analysis: CMMAnalysis) => {
     confirmDialog({
       message: `"${analysis.analysis_id}" CMM analizini silmek istediğinize emin misiniz?`,
-      header: "CMM Analizi Sil",
-      icon: "pi pi-exclamation-triangle",
+      header: 'CMM Analizi Sil',
+      icon: 'pi pi-exclamation-triangle',
       accept: async () => {
         try {
           await cmmService.deleteCMMAnalysis(analysis._id);
-          showSuccess("CMM analizi silindi");
+          showSuccess('CMM analizi silindi');
           await loadCMMAnalyses();
           await loadStats();
         } catch (error: any) {
           showError(`Silme hatası: ${error.message}`);
         }
-      },
+      }
     });
   };
 
@@ -224,19 +270,19 @@ export const CMMPage = () => {
 
   const showSuccess = (message: string) => {
     toast.current?.show({
-      severity: "success",
-      summary: "Başarılı",
+      severity: 'success',
+      summary: 'Başarılı',
       detail: message,
-      life: 4000,
+      life: 4000
     });
   };
 
   const showError = (message: string) => {
     toast.current?.show({
-      severity: "error",
-      summary: "Hata",
+      severity: 'error',
+      summary: 'Hata',
       detail: message,
-      life: 5000,
+      life: 5000
     });
   };
 
@@ -258,16 +304,23 @@ export const CMMPage = () => {
 
   const renderOperationsBadges = (operations: string[]) => {
     if (!operations || operations.length === 0) {
-      return <Badge value="Operasyon Yok" severity="secondary" />;
+      return (
+        <Badge
+          value='Operasyon Yok'
+          severity='secondary'
+        />
+      );
     }
 
     return (
       <div className={classes.badgeContainer}>
         {operations.map((op, index) => (
-          <Badge 
-            key={index} 
-            value={op} 
-            severity={op === '1OP' ? 'success' : op === '2OP' ? 'info' : 'secondary'} 
+          <Badge
+            key={index}
+            value={op}
+            severity={
+              op === '1OP' ? 'success' : op === '2OP' ? 'info' : 'secondary'
+            }
           />
         ))}
       </div>
@@ -278,22 +331,22 @@ export const CMMPage = () => {
     return (
       <div className={classes.actionButtons}>
         <Button
-          icon="pi pi-download"
-          size="small"
-          severity="success"
+          icon='pi pi-download'
+          size='small'
+          severity='success'
           outlined
           onClick={() => handleDownloadExcel(analysis)}
-          tooltip="Excel İndir"
+          tooltip='Excel İndir'
           disabled={!analysis.excel_available}
           className={classes.responsiveButton}
         />
         <Button
-          icon="pi pi-trash"
-          size="small"
-          severity="danger"
+          icon='pi pi-trash'
+          size='small'
+          severity='danger'
           outlined
           onClick={() => handleDeleteAnalysis(analysis)}
-          tooltip="Sil"
+          tooltip='Sil'
           className={classes.responsiveButton}
         />
       </div>
@@ -301,30 +354,29 @@ export const CMMPage = () => {
   };
 
   const renderFileList = () => {
-    if (selectedFiles.length === 0) {
-      return (
-        <div className={classes.emptyState}>
-          📄 Seçilen RTF dosyası yok
-        </div>
-      );
-    }
+    if (selectedFiles.length === 0) return null;
 
     return (
       <div className={classes.fileList}>
         {selectedFiles.map((file, index) => (
-          <div key={index} className={classes.fileItem}>
+          <div
+            key={index}
+            className={classes.fileItem}>
             <div className={classes.fileInfo}>
-              <span className={classes.fileName}>📄 {file.name}</span>
-              <span className={classes.fileSize}>{formatFileSize(file.size)}</span>
+              <span className={classes.fileIcon}>📄</span>
+              <div className={classes.fileDetails}>
+                <span className={classes.fileName}>{file.name}</span>
+                <span className={classes.fileSize}>
+                  {formatFileSize(file.size)}
+                </span>
+              </div>
             </div>
-            <Button
-              icon="pi pi-times"
-              size="small"
-              severity="danger"
-              text
+            <button
+              className={classes.removeFileButton}
               onClick={() => removeFile(index)}
-              tooltip="Kaldır"
-            />
+              title='Kaldır'>
+              ✕
+            </button>
           </div>
         ))}
       </div>
@@ -340,205 +392,260 @@ export const CMMPage = () => {
       <Toast ref={toast} />
       <ConfirmDialog />
 
-      <h1 className={classes.pageTitle}>📏 CMM Ölçüm Raporu Analizi</h1>
+      {/* Header Section */}
+      <div className={classes.headerSection}>
+        <h1 className={classes.pageTitle}>📏 CMM Ölçüm Raporu Analizi</h1>
+        <p className={classes.pageDescription}>
+          RTF formatındaki CMM ölçüm raporlarınızı yükleyin, otomatik olarak
+          analiz edin ve Excel raporları oluşturun.
+        </p>
 
-      {/* Stats Cards */}
-      {stats && (
-        <div className={classes.statsContainer}>
-          <Card className={classes.statsCard}>
-            <div className={classes.statItem}>
-              <span className={classes.statNumber}>{stats.total_analyses}</span>
-              <span className={classes.statLabel}>Toplam Analiz</span>
+        {/* Stats Cards */}
+        {stats && (
+          <div className={classes.statsContainer}>
+            <div className={classes.statsCard}>
+              <div className={classes.statNumber}>{stats.total_analyses}</div>
+              <div className={classes.statLabel}>Toplam Analiz</div>
             </div>
-          </Card>
-          <Card className={classes.statsCard}>
-            <div className={classes.statItem}>
-              <span className={classes.statNumber}>{stats.total_measurements}</span>
-              <span className={classes.statLabel}>Toplam Ölçüm</span>
+            <div className={classes.statsCard}>
+              <div className={classes.statNumber}>
+                {stats.total_measurements}
+              </div>
+              <div className={classes.statLabel}>Toplam Ölçüm</div>
             </div>
-          </Card>
-          <Card className={classes.statsCard}>
-            <div className={classes.statItem}>
-              <span className={classes.statNumber}>{stats.this_month_analyses}</span>
-              <span className={classes.statLabel}>Bu Ay</span>
+            <div className={classes.statsCard}>
+              <div className={classes.statNumber}>
+                {stats.this_month_analyses}
+              </div>
+              <div className={classes.statLabel}>Bu Ay</div>
             </div>
-          </Card>
-          <Card className={classes.statsCard}>
-            <div className={classes.statItem}>
-              <span className={classes.statNumber}>{stats.avg_measurements_per_analysis}</span>
-              <span className={classes.statLabel}>Ort. Ölçüm/Analiz</span>
+            <div className={classes.statsCard}>
+              <div className={classes.statNumber}>
+                {stats.avg_measurements_per_analysis}
+              </div>
+              <div className={classes.statLabel}>Ort. Ölçüm/Analiz</div>
             </div>
-          </Card>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
-      {/* File Upload Section */}
-      <div className={classes.cardContainer}>
-        <Card title="📤 CMM RTF Dosyası Yükleme">
-          <div className={classes.uploadSection}>
-            <div className={classes.fileSelection}>
-              <Button
-                label="RTF Dosyaları Seç"
-                icon="pi pi-upload"
-                onClick={handleFileSelect}
-                className={classes.responsiveButton}
-              />
-              <span className={classes.fileCount}>
-                {selectedFiles.length === 0 
-                  ? "Dosya seçilmedi" 
-                  : `${selectedFiles.length} RTF dosyası seçildi`}
-              </span>
+      {/* Main Content - Split Layout */}
+      <div className={classes.mainContent}>
+        {/* Left Panel - File Upload */}
+        <div className={classes.leftPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📤 Dosya Yükleme</h3>
+            <p>RTF dosyalarınızı buraya sürükleyin veya seçin</p>
+          </div>
+
+          {/* Dropzone */}
+          <div
+            className={`${classes.dropzone} ${
+              isDragging ? classes.dropzoneActive : ''
+            }`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={handleFileSelect}>
+            <div className={classes.dropzoneContent}>
+              <span className={classes.dropzoneIcon}>📁</span>
+              <p className={classes.dropzoneText}>
+                {isDragging
+                  ? 'Dosyaları buraya bırakın'
+                  : 'RTF dosyalarını sürükleyin veya tıklayın'}
+              </p>
+              <p className={classes.dropzoneSubtext}>
+                Sadece .RTF formatı desteklenir
+              </p>
               {selectedFiles.length > 0 && (
-                <Button
-                  label="Temizle"
-                  icon="pi pi-times"
-                  severity="secondary"
-                  outlined
-                  size="small"
-                  onClick={clearFiles}
-                  className={classes.responsiveButton}
-                />
+                <p className={classes.dropzoneFileCount}>
+                  {selectedFiles.length} dosya seçildi
+                </p>
               )}
             </div>
+          </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".rtf,.RTF"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
+          <input
+            ref={fileInputRef}
+            type='file'
+            multiple
+            accept='.rtf,.RTF'
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
 
-            {/* Selected Files List */}
-            {renderFileList()}
+          {/* Selected Files List */}
+          {renderFileList()}
 
-            {/* Processing Info */}
-            <div className={classes.processingInfo}>
-              <Panel header="📋 CMM İşleme Özellikleri" toggleable collapsed>
-                <ul className={classes.featureList}>
-                  <li>✅ 1OP ve 2OP operasyon otomatik tanıma</li>
-                  <li>✅ Ölçüm numarası bazlı sıralama</li>
-                  <li>✅ Position ölçümü desteği (X, Y, TP, DF)</li>
-                  <li>✅ Duplikat veri temizleme</li>
-                  <li>✅ Tolerans dışı değer analizi</li>
-                  <li>✅ Excel raporu otomatik oluşturma</li>
-                  <li>✅ Boyut, tolerans ve sapma analizi</li>
-                </ul>
-              </Panel>
+          {/* Clear All Button */}
+          {selectedFiles.length > 0 && (
+            <button
+              className={classes.clearButton}
+              onClick={clearFiles}>
+              <i className='pi pi-times'></i> Tümünü Temizle
+            </button>
+          )}
+
+          {/* Upload Progress */}
+          {isUploading && (
+            <div className={classes.progressSection}>
+              <div className={classes.progressBar}>
+                <div
+                  className={classes.progressFill}
+                  style={{ width: `${uploadProgress}%` }}>
+                  {uploadProgress}%
+                </div>
+              </div>
+              <p className={classes.progressText}>
+                CMM dosyaları işleniyor, lütfen bekleyin...
+              </p>
             </div>
+          )}
 
-            {/* Upload Progress */}
-            {isUploading && (
-              <div className={classes.progressSection}>
-                <ProgressBar 
-                  value={uploadProgress} 
-                  displayValueTemplate={() => `${uploadProgress}%`}
-                />
-                <p className={classes.progressText}>
-                  CMM dosyaları işleniyor, lütfen bekleyin...
+          {/* Upload Button */}
+          <button
+            className={classes.uploadButton}
+            onClick={handleUploadAndProcess}
+            disabled={selectedFiles.length === 0 || isUploading}>
+            {isUploading ? (
+              <>
+                <i className='pi pi-spin pi-spinner'></i>
+                İşleniyor...
+              </>
+            ) : (
+              <>
+                <i className='pi pi-cog'></i>
+                RTF Dosyalarını İşle
+              </>
+            )}
+          </button>
+
+          {/* Features Panel */}
+          <div className={classes.featuresPanel}>
+            <h4>📋 CMM İşleme Özellikleri</h4>
+            <ul className={classes.featureList}>
+              <li>✅ 1OP ve 2OP operasyon otomatik tanıma</li>
+              <li>✅ Ölçüm numarası bazlı sıralama</li>
+              <li>✅ Position ölçümü desteği (X, Y, TP, DF)</li>
+              <li>✅ Duplikat veri temizleme</li>
+              <li>✅ Tolerans dışı değer analizi</li>
+              <li>✅ Excel raporu otomatik oluşturma</li>
+              <li>✅ Boyut, tolerans ve sapma analizi</li>
+            </ul>
+          </div>
+        </div>
+
+        {/* Right Panel - Analysis History */}
+        <div className={classes.rightPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📊 Analiz Geçmişi</h3>
+            <p>Tamamlanan CMM analizleriniz</p>
+          </div>
+
+          <div className={classes.analysisSection}>
+            {loading ? (
+              <div className={classes.loadingState}>
+                <i
+                  className='pi pi-spin pi-spinner'
+                  style={{ fontSize: '2rem' }}></i>
+                <p>Yükleniyor...</p>
+              </div>
+            ) : analyses.length === 0 ? (
+              <div className={classes.emptyState}>
+                <span className={classes.emptyIcon}>📋</span>
+                <p style={{ marginTop: 16 }}>Henüz CMM analizi yok</p>
+                <p className={classes.emptySubtext}>
+                  RTF dosyalarınızı yükleyerek ilk analizinizi başlatın
                 </p>
+              </div>
+            ) : (
+              <div className={classes.analysisGrid}>
+                {analyses.map((analysis) => (
+                  <div
+                    key={analysis._id}
+                    className={classes.analysisCard}>
+                    <div className={classes.analysisHeader}>
+                      <span className={classes.analysisId}>
+                        {analysis.analysis_id}
+                      </span>
+                      <div className={classes.analysisStats}>
+                        <Badge value={`${analysis.file_count} Dosya`} />
+                        <Badge
+                          value={`${analysis.measurement_count} Ölçüm`}
+                          severity='success'
+                        />
+                      </div>
+                    </div>
+
+                    <div className={classes.analysisBody}>
+                      <div className={classes.analysisInfo}>
+                        <div className={classes.infoItem}>
+                          <span className={classes.infoLabel}>
+                            Operasyonlar:
+                          </span>
+                          <div className={classes.operationBadges}>
+                            {renderOperationsBadges(analysis.operations)}
+                          </div>
+                        </div>
+                        <div className={classes.infoItem}>
+                          <span className={classes.infoLabel}>Tarih:</span>
+                          <span className={classes.infoValue}>
+                            {formatDate(analysis.created_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={classes.analysisActions}>
+                        <button
+                          className={`${classes.actionButton} ${classes.downloadButton}`}
+                          onClick={() => handleDownloadExcel(analysis)}
+                          disabled={!analysis.excel_available}
+                          title='Excel İndir'>
+                          <i className='pi pi-download'></i>
+                          Excel
+                        </button>
+                        <button
+                          className={`${classes.actionButton} ${classes.deleteButton}`}
+                          onClick={() => handleDeleteAnalysis(analysis)}
+                          title='Sil'>
+                          <i className='pi pi-trash'></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Upload Button */}
-            <Button
-              label={isUploading ? "İşleniyor..." : "RTF Dosyalarını İşle"}
-              icon={isUploading ? "pi pi-spin pi-spinner" : "pi pi-cog"}
-              onClick={handleUploadAndProcess}
-              disabled={selectedFiles.length === 0 || isUploading}
-              severity="success"
-              className={classes.uploadButton}
-            />
+            {/* Pagination */}
+            {totalRecords > pageSize && (
+              <div className={classes.pagination}>
+                <button
+                  className={classes.pageButton}
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }
+                  disabled={currentPage === 1}>
+                  <i className='pi pi-chevron-left'></i>
+                </button>
+                <span className={classes.pageInfo}>
+                  Sayfa {currentPage} / {Math.ceil(totalRecords / pageSize)}
+                </span>
+                <button
+                  className={classes.pageButton}
+                  onClick={() =>
+                    setCurrentPage((prev) =>
+                      Math.min(Math.ceil(totalRecords / pageSize), prev + 1)
+                    )
+                  }
+                  disabled={currentPage === Math.ceil(totalRecords / pageSize)}>
+                  <i className='pi pi-chevron-right'></i>
+                </button>
+              </div>
+            )}
           </div>
-        </Card>
-      </div>
-
-      <Divider />
-
-      {/* CMM Analyses List */}
-      <div className={classes.cardContainer}>
-        <Card title="📊 CMM Analiz Geçmişi">
-          <div className={classes.tableWrapper}>
-            <DataTable
-              value={analyses}
-              loading={loading}
-              paginator
-              rows={pageSize}
-              totalRecords={totalRecords}
-              lazy
-              first={(currentPage - 1) * pageSize}
-              onPage={(e) => setCurrentPage((e.first / pageSize) + 1)}
-              emptyMessage="Henüz CMM analizi yapılmamış."
-              responsiveLayout="scroll"
-            >
-              <Column 
-                field="analysis_id" 
-                header="Analiz ID" 
-                style={{ minWidth: '150px' }}
-                className={classes.hideOnMobile}
-              />
-              
-              <Column 
-                field="file_count" 
-                header="Dosya Sayısı" 
-                style={{ width: '100px' }}
-                body={(rowData: CMMAnalysis) => (
-                  <Chip label={rowData.file_count.toString()} />
-                )}
-              />
-              
-              <Column 
-                field="measurement_count" 
-                header="Ölçüm Sayısı" 
-                style={{ width: '120px' }}
-                body={(rowData: CMMAnalysis) => (
-                  <Badge 
-                    value={rowData.measurement_count.toString()} 
-                    severity="success" 
-                  />
-                )}
-              />
-              
-              <Column 
-                field="operations" 
-                header="Operasyonlar" 
-                style={{ minWidth: '150px' }}
-                body={(rowData: CMMAnalysis) => renderOperationsBadges(rowData.operations)}
-                className={classes.hideOnMobile}
-              />
-              
-              <Column 
-                field="created_at" 
-                header="Oluşturma Tarihi" 
-                style={{ minWidth: '180px' }}
-                body={(rowData: CMMAnalysis) => formatDate(rowData.created_at)}
-                className={classes.hideOnMobile}
-              />
-              
-              <Column 
-                field="excel_available" 
-                header="Excel" 
-                style={{ width: '80px' }}
-                body={(rowData: CMMAnalysis) => (
-                  rowData.excel_available ? 
-                    <Badge value="✓" severity="success" /> : 
-                    <Badge value="✗" severity="danger" />
-                )}
-              />
-              
-              <Column 
-                body={renderAnalysisActions} 
-                header="İşlemler" 
-                style={{ width: '120px' }}
-              />
-            </DataTable>
-            
-            <div className={classes.scrollHint}>
-              💡 Tabloda kaydırarak tüm sütunları görebilirsiniz
-            </div>
-          </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

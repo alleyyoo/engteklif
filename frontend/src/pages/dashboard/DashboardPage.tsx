@@ -1,14 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
-import { DashboardPageStyles } from "./DashboardPage.styles";
-import { useFileUpload } from "../../hooks/useFileUpload";
-import { Image } from "primereact/image";
-import { apiService } from "../../services/api";
+import React, { useState, useRef, useEffect } from 'react';
+import { DashboardPageStyles } from './DashboardPage.styles';
+import { useFileUpload } from '../../hooks/useFileUpload';
+import { Image } from 'primereact/image';
+import { apiService } from '../../services/api';
 
 export const DashboardPage = () => {
   const classes = DashboardPageStyles();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [isDragging, setIsDragging] = useState(false);
 
   // Excel merge state
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
@@ -39,13 +40,57 @@ export const DashboardPage = () => {
     exportAllCompletedToExcel,
     exportGroupToExcel,
     refreshRenderStatus,
-    getFileType,
+    getFileType
   } = useFileUpload();
 
   // Grup modunu başlangıçta aktif yap
   useEffect(() => {
     setGroupMode(true);
   }, [setGroupMode]);
+
+  // Drag & Drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const validFiles = droppedFiles.filter((file) => {
+      const ext = file.name.toLowerCase();
+      return (
+        ext.endsWith('.pdf') ||
+        ext.endsWith('.doc') ||
+        ext.endsWith('.docx') ||
+        ext.endsWith('.step') ||
+        ext.endsWith('.stp')
+      );
+    });
+
+    if (validFiles.length > 0) {
+      addFiles(validFiles);
+    } else if (droppedFiles.length > 0) {
+      alert('Lütfen sadece PDF, DOC, DOCX, STEP veya STP dosyaları yükleyin.');
+    }
+  };
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -56,7 +101,7 @@ export const DashboardPage = () => {
     if (selectedFiles.length > 0) {
       addFiles(selectedFiles);
     }
-    event.target.value = "";
+    event.target.value = '';
   };
 
   const handleExcelFileSelect = () => {
@@ -69,28 +114,28 @@ export const DashboardPage = () => {
     const file = event.target.files?.[0];
     if (file) {
       const validTypes = [
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel",
-        "application/excel",
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'application/excel'
       ];
 
       if (
         validTypes.includes(file.type) ||
-        file.name.toLowerCase().endsWith(".xlsx") ||
-        file.name.toLowerCase().endsWith(".xls")
+        file.name.toLowerCase().endsWith('.xlsx') ||
+        file.name.toLowerCase().endsWith('.xls')
       ) {
         setSelectedExcelFile(file);
-        console.log("✅ Excel dosyası seçildi:", file.name);
+        console.log('✅ Excel dosyası seçildi:', file.name);
       } else {
-        alert("Lütfen geçerli bir Excel dosyası (.xlsx, .xls) seçin.");
+        alert('Lütfen geçerli bir Excel dosyası (.xlsx, .xls) seçin.');
       }
     }
-    event.target.value = "";
+    event.target.value = '';
   };
 
   const handleExcelMerge = async () => {
     if (!selectedExcelFile) {
-      alert("Lütfen önce bir Excel dosyası seçin.");
+      alert('Lütfen önce bir Excel dosyası seçin.');
       return;
     }
 
@@ -98,9 +143,9 @@ export const DashboardPage = () => {
 
     // Tüm tamamlanmış analizleri topla (matchedPairs dahil)
     matchedPairs.forEach((pair) => {
-      if (pair.status === "completed" && pair.mergedResult?.analysis?.id) {
+      if (pair.status === 'completed' && pair.mergedResult?.analysis?.id) {
         completedAnalyses.push({
-          result: pair.mergedResult,
+          result: pair.mergedResult
         });
       }
     });
@@ -108,19 +153,19 @@ export const DashboardPage = () => {
     // Eşleşmeyen dosyaları da ekle
     files.forEach((file) => {
       if (
-        file.status === "completed" &&
+        file.status === 'completed' &&
         file.result?.analysis?.id &&
         !file.isPartOfMatch
       ) {
         completedAnalyses.push({
-          result: file.result,
+          result: file.result
         });
       }
     });
 
     if (completedAnalyses.length === 0) {
       alert(
-        "Birleştirilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin."
+        'Birleştirilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.'
       );
       return;
     }
@@ -129,9 +174,9 @@ export const DashboardPage = () => {
     setMergeProgress(10);
 
     try {
-      console.log("📊 Excel merge başlıyor...", {
+      console.log('📊 Excel merge başlıyor...', {
         excelFile: selectedExcelFile.name,
-        analysisCount: completedAnalyses.length,
+        analysisCount: completedAnalyses.length
       });
 
       const analysisIds = completedAnalyses.map(
@@ -148,11 +193,11 @@ export const DashboardPage = () => {
       setMergeProgress(80);
 
       if (result.success) {
-        console.log("✅ Excel merge başarılı");
+        console.log('✅ Excel merge başarılı');
 
         const url = window.URL.createObjectURL(result.blob);
-        const a = document.createElement("a");
-        a.style.display = "none";
+        const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = url;
         a.download = result.filename || `merged_excel_${Date.now()}.xlsx`;
         document.body.appendChild(a);
@@ -163,17 +208,17 @@ export const DashboardPage = () => {
         setMergeProgress(100);
 
         setTimeout(() => {
-          alert("✅ Excel dosyası başarıyla birleştirildi ve indirildi!");
+          alert('✅ Excel dosyası başarıyla birleştirildi ve indirildi!');
           setSelectedExcelFile(null);
           setMergeProgress(0);
           setIsMerging(false);
         }, 500);
       } else {
-        throw new Error(result.message || "Excel birleştirme başarısız");
+        throw new Error(result.message || 'Excel birleştirme başarısız');
       }
     } catch (error: any) {
-      console.error("❌ Excel merge hatası:", error);
-      alert(`Excel birleştirme hatası: ${error.message || "Bilinmeyen hata"}`);
+      console.error('❌ Excel merge hatası:', error);
+      alert(`Excel birleştirme hatası: ${error.message || 'Bilinmeyen hata'}`);
       setMergeProgress(0);
       setIsMerging(false);
     }
@@ -185,12 +230,12 @@ export const DashboardPage = () => {
 
   const handleMultipleExcelExport = async () => {
     const completedCount =
-      matchedPairs.filter((p) => p.status === "completed").length +
-      files.filter((f) => f.status === "completed" && !f.isPartOfMatch).length;
+      matchedPairs.filter((p) => p.status === 'completed').length +
+      files.filter((f) => f.status === 'completed' && !f.isPartOfMatch).length;
 
     if (completedCount === 0) {
       alert(
-        "Export edilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin."
+        'Export edilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.'
       );
       return;
     }
@@ -199,8 +244,8 @@ export const DashboardPage = () => {
     setExportProgress(10);
 
     try {
-      console.log("📊 Multiple Excel export başlıyor...", {
-        analysisCount: completedCount,
+      console.log('📊 Multiple Excel export başlıyor...', {
+        analysisCount: completedCount
       });
 
       setExportProgress(30);
@@ -210,7 +255,7 @@ export const DashboardPage = () => {
       setExportProgress(80);
 
       if (result.success) {
-        console.log("✅ Multiple Excel export başarılı:", result.filename);
+        console.log('✅ Multiple Excel export başarılı:', result.filename);
 
         setExportProgress(100);
 
@@ -222,11 +267,11 @@ export const DashboardPage = () => {
           setIsExporting(false);
         }, 500);
       } else {
-        throw new Error(result.error || "Excel export başarısız");
+        throw new Error(result.error || 'Excel export başarısız');
       }
     } catch (error: any) {
-      console.error("❌ Multiple Excel export hatası:", error);
-      alert(`Excel export hatası: ${error.message || "Bilinmeyen hata"}`);
+      console.error('❌ Multiple Excel export hatası:', error);
+      alert(`Excel export hatası: ${error.message || 'Bilinmeyen hata'}`);
       setExportProgress(0);
       setIsExporting(false);
     }
@@ -234,7 +279,7 @@ export const DashboardPage = () => {
 
   const handlePairExport = async (pair: any) => {
     if (!pair.mergedResult) {
-      alert("Bu eşleştirme için export edilecek veri bulunamadı.");
+      alert('Bu eşleştirme için export edilecek veri bulunamadı.');
       return;
     }
 
@@ -244,8 +289,8 @@ export const DashboardPage = () => {
         `✅ "${pair.displayName}" eşleştirmesi başarıyla Excel'e aktarıldı!`
       );
     } catch (error: any) {
-      console.error("❌ Eşleştirme Excel export hatası:", error);
-      alert(`Excel export hatası: ${error.message || "Bilinmeyen hata"}`);
+      console.error('❌ Eşleştirme Excel export hatası:', error);
+      alert(`Excel export hatası: ${error.message || 'Bilinmeyen hata'}`);
     }
   };
 
@@ -261,86 +306,86 @@ export const DashboardPage = () => {
 
   const getStatusClass = (status: string) => {
     switch (status) {
-      case "completed":
-        return "green";
-      case "failed":
-        return "red";
-      case "analyzing":
-      case "uploading":
-      case "processing":
-        return "blue";
+      case 'completed':
+        return 'green';
+      case 'failed':
+        return 'red';
+      case 'analyzing':
+      case 'uploading':
+      case 'processing':
+        return 'blue';
       default:
-        return "yellow";
+        return 'yellow';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "pending":
-        return "Bekliyor";
-      case "uploading":
-        return "Yükleniyor...";
-      case "uploaded":
-        return "Yüklendi";
-      case "analyzing":
-        return "Analiz ediliyor...";
-      case "processing":
-        return "İşleniyor...";
-      case "completed":
-        return "Tamamlandı";
-      case "failed":
-        return "Başarısız";
+      case 'pending':
+        return 'Bekliyor';
+      case 'uploading':
+        return 'Yükleniyor...';
+      case 'uploaded':
+        return 'Yüklendi';
+      case 'analyzing':
+        return 'Analiz ediliyor...';
+      case 'processing':
+        return 'İşleniyor...';
+      case 'completed':
+        return 'Tamamlandı';
+      case 'failed':
+        return 'Başarısız';
       default:
-        return "Bilinmiyor";
+        return 'Bilinmiyor';
     }
   };
 
   const getFileTypeIcon = (fileType: string) => {
     switch (fileType) {
-      case "pdf":
-        return "📄";
-      case "step":
-        return "📐";
-      case "doc":
-        return "📝";
+      case 'pdf':
+        return '📄';
+      case 'step':
+        return '📐';
+      case 'doc':
+        return '📝';
       default:
-        return "📎";
+        return '📎';
     }
   };
 
   const getMatchQualityColor = (quality: string) => {
     switch (quality?.toLowerCase()) {
-      case "excellent":
-        return "#28a745";
-      case "good":
-        return "#17a2b8";
-      case "fair":
-        return "#ffc107";
-      case "poor":
-        return "#dc3545";
+      case 'excellent':
+        return '#28a745';
+      case 'good':
+        return '#17a2b8';
+      case 'fair':
+        return '#ffc107';
+      case 'poor':
+        return '#dc3545';
       default:
-        return "#6c757d";
+        return '#6c757d';
     }
   };
 
-  const accessToken = localStorage.getItem("accessToken");
+  const accessToken = localStorage.getItem('accessToken');
 
   const open3DViewer = (analysisId: string, fileName: string) => {
     const viewerUrl = `${
-      process.env.REACT_APP_API_URL || "http://188.132.220.35:5051"
+      process.env.REACT_APP_API_URL || 'http://188.132.220.35:5051'
     }/3d-viewer/${analysisId}/${accessToken}`;
     window.open(
       viewerUrl,
-      "_blank",
-      "width=1600,height=1200,scrollbars=yes,resizable=yes"
+      '_blank',
+      'width=1600,height=1200,scrollbars=yes,resizable=yes'
     );
   };
 
   const fixImagePath = (path: string) => {
-    if (path.startsWith("../static/")) {
-      return path.replace("../static/", "/static/");
+    if (path.startsWith('../static/')) {
+      return path.replace('../static/', '/static/');
     }
-    if (!path.startsWith("/static/") && !path.startsWith("http")) {
+    if (!path.startsWith('/static/') && !path.startsWith('http')) {
       return `/static/${path}`;
     }
     return path;
@@ -357,17 +402,17 @@ export const DashboardPage = () => {
     // Render durumunu kontrol et
     const analysisId = analysis.id;
     const renderStatus =
-      renderStatusMap.get(analysisId) || analysis.render_status || "none";
+      renderStatusMap.get(analysisId) || analysis.render_status || 'none';
     const renderProgress = renderProgressMap.get(analysisId) || 0;
 
     const isRenderProcessing =
-      renderStatus === "processing" || renderStatus === "pending";
-    const isRenderCompleted = renderStatus === "completed";
+      renderStatus === 'processing' || renderStatus === 'pending';
+    const isRenderCompleted = renderStatus === 'completed';
     const hasEnhancedRenders =
       analysis.enhanced_renders &&
       Object.keys(analysis.enhanced_renders).length > 0;
 
-    const pendingCount = files.filter((f) => f.status === "pending").length;
+    const pendingCount = files.filter((f) => f.status === 'pending').length;
 
     return (
       <div className={classes.analyseItemInsideDiv}>
@@ -375,9 +420,9 @@ export const DashboardPage = () => {
           <p className={classes.analyseAlias}>
             {(() => {
               const match = analysis.material_matches?.[0];
-              return match && !match.includes("default")
+              return match && !match.includes('default')
                 ? match
-                : "Malzeme Eşleşmesi Yok";
+                : 'Malzeme Eşleşmesi Yok';
             })()}
           </p>
           <div className={classes.modelDiv}>
@@ -386,36 +431,34 @@ export const DashboardPage = () => {
               {isRenderProcessing ? (
                 <div
                   style={{
-                    color: "#007bff",
-                    textAlign: "center",
-                    padding: "20px",
-                    backgroundColor: "#f0f8ff",
-                    borderRadius: "8px",
-                  }}
-                >
-                  <div style={{ fontSize: "24px", marginBottom: "10px" }}>
+                    color: '#007bff',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#f0f8ff',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
                     ⏳
                   </div>
-                  <div style={{ fontWeight: "bold", marginBottom: "5px" }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
                     3D Model İşleniyor
                   </div>
-                  <div style={{ fontSize: "12px" }}>
+                  <div style={{ fontSize: '12px' }}>
                     {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
                     Lütfen bekleyin...
                   </div>
                   <button
                     onClick={() => refreshRenderStatus(analysisId)}
                     style={{
-                      marginTop: "8px",
-                      fontSize: "11px",
-                      padding: "4px 8px",
-                      border: "1px solid #007bff",
-                      borderRadius: "4px",
-                      backgroundColor: "white",
-                      color: "#007bff",
-                      cursor: "pointer",
-                    }}
-                  >
+                      marginTop: '8px',
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      border: '1px solid #007bff',
+                      borderRadius: '4px',
+                      backgroundColor: 'white',
+                      color: '#007bff',
+                      cursor: 'pointer'
+                    }}>
                     🔄 Durumu Kontrol Et
                   </button>
                 </div>
@@ -423,46 +466,45 @@ export const DashboardPage = () => {
                 <Image
                   src={`${
                     process.env.REACT_APP_API_URL ||
-                    "http://188.132.220.35:5051"
+                    'http://188.132.220.35:5051'
                   }${fixImagePath(
                     analysis.enhanced_renders.isometric.file_path
                   )}`}
                   zoomSrc={`${
                     process.env.REACT_APP_API_URL ||
-                    "http://188.132.220.35:5051"
+                    'http://188.132.220.35:5051'
                   }${fixImagePath(
                     analysis.enhanced_renders.isometric.file_path
                   )}`}
                   className={classes.modelImage}
-                  alt="3D Model"
-                  width="200"
-                  height="200"
+                  alt='3D Model'
+                  width='200'
+                  height='200'
                   preview
                 />
               ) : isRenderCompleted && !hasEnhancedRenders ? (
                 <div
                   style={{
-                    color: "#dc3545",
-                    textAlign: "center",
-                    padding: "20px",
-                    backgroundColor: "#fff5f5",
-                    borderRadius: "8px",
-                  }}
-                >
-                  <div style={{ fontSize: "24px", marginBottom: "10px" }}>
+                    color: '#dc3545',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#fff5f5',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
                     ⚠️
                   </div>
-                  <div style={{ fontWeight: "bold", marginBottom: "5px" }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
                     3D Model Güncel Değil
                   </div>
-                  <div style={{ fontSize: "12px" }}>
+                  <div style={{ fontSize: '12px' }}>
                     Render tamamlandı ancak
                     <br />
                     görüntü yüklenemedi
                   </div>
                 </div>
               ) : (
-                <div style={{ color: "#999", textAlign: "center" }}>
+                <div style={{ color: '#999', textAlign: 'center' }}>
                   3D Model
                   <br />
                   Mevcut Değil
@@ -473,19 +515,17 @@ export const DashboardPage = () => {
             {/* 3D Viewer Butonları */}
             <div
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-                marginTop: "12px",
-              }}
-            >
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                marginTop: '12px'
+              }}>
               <button
                 className={classes.modelShowButton}
                 onClick={() =>
-                  open3DViewer(analysis.id, analysis.original_filename || "")
+                  open3DViewer(analysis.id, analysis.original_filename || '')
                 }
-                title="Gelişmiş 3D Görüntüleyici'de aç"
-              >
+                title="Gelişmiş 3D Görüntüleyici'de aç">
                 🎯 3D Modeli Görüntüle
               </button>
             </div>
@@ -515,30 +555,30 @@ export const DashboardPage = () => {
             <div className={classes.tableRow}>
               <div className={classes.tableCell}>X</div>
               <div className={classes.tableCell}>
-                {Math.ceil(parseFloat(stepAnalysis?.["X (mm)"]) || 0)}
+                {Math.ceil(parseFloat(stepAnalysis?.['X (mm)']) || 0)}
               </div>
               <div className={classes.tableCell}>
-                {Math.ceil((parseFloat(stepAnalysis?.["X (mm)"]) || 0) + 10)}
+                {Math.ceil((parseFloat(stepAnalysis?.['X (mm)']) || 0) + 10)}
               </div>
             </div>
 
             <div className={classes.tableRow}>
               <div className={classes.tableCell}>Y</div>
               <div className={classes.tableCell}>
-                {Math.ceil(parseFloat(stepAnalysis?.["Y (mm)"]) || 0)}
+                {Math.ceil(parseFloat(stepAnalysis?.['Y (mm)']) || 0)}
               </div>
               <div className={classes.tableCell}>
-                {Math.ceil((parseFloat(stepAnalysis?.["Y (mm)"]) || 0) + 10)}
+                {Math.ceil((parseFloat(stepAnalysis?.['Y (mm)']) || 0) + 10)}
               </div>
             </div>
 
             <div className={classes.tableRow}>
               <div className={classes.tableCell}>Z</div>
               <div className={classes.tableCell}>
-                {Math.ceil(parseFloat(stepAnalysis?.["Z (mm)"]) || 0)}
+                {Math.ceil(parseFloat(stepAnalysis?.['Z (mm)']) || 0)}
               </div>
               <div className={classes.tableCell}>
-                {Math.ceil((parseFloat(stepAnalysis?.["Z (mm)"]) || 0) + 10)}
+                {Math.ceil((parseFloat(stepAnalysis?.['Z (mm)']) || 0) + 10)}
               </div>
             </div>
           </div>
@@ -554,7 +594,7 @@ export const DashboardPage = () => {
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Silindirik Çap(mm)</p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Silindirik Çap (mm)"] || "0.0"}
+              {stepAnalysis?.['Silindirik Çap (mm)'] || '0.0'}
             </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
@@ -562,7 +602,7 @@ export const DashboardPage = () => {
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Silindirik Yükseklik(mm)</p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Silindirik Yükseklik (mm)"] || "0.0"}
+              {stepAnalysis?.['Silindirik Yükseklik (mm)'] || '0.0'}
             </p>
           </div>
         </div>
@@ -579,7 +619,7 @@ export const DashboardPage = () => {
               Prizma Hacmi 10 mm Paylı(mm³)
             </p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Prizma Hacmi (mm³)"] || "0"}
+              {stepAnalysis?.['Prizma Hacmi (mm³)'] || '0'}
             </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
@@ -587,7 +627,7 @@ export const DashboardPage = () => {
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Ürün Hacmi(mm³)</p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Ürün Hacmi (mm³)"] || "0"}
+              {stepAnalysis?.['Ürün Hacmi (mm³)'] || '0'}
             </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
@@ -595,7 +635,7 @@ export const DashboardPage = () => {
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Talaş Hacmi(mm³)</p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Talaş Hacmi (mm³)"] || "0"}
+              {stepAnalysis?.['Talaş Hacmi (mm³)'] || '0'}
             </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
@@ -603,7 +643,7 @@ export const DashboardPage = () => {
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Talaş Oranı(%)</p>
             <p className={classes.analyseItemExp}>
-              {stepAnalysis?.["Talaş Oranı (%)"] || "0.0"}
+              {stepAnalysis?.['Talaş Oranı (%)'] || '0.0'}
             </p>
           </div>
         </div>
@@ -621,15 +661,14 @@ export const DashboardPage = () => {
                 <div
                   className={classes.analyseInsideItem}
                   style={{
-                    backgroundColor: "#f8f9fa",
-                    paddingTop: "20px",
-                    paddingBottom: "20px",
-                  }}
-                >
+                    backgroundColor: '#f8f9fa',
+                    paddingTop: '20px',
+                    paddingBottom: '20px'
+                  }}>
                   <p>
                     {materialCalculations[0].original_text
                       ? `Malzeme: ${materialCalculations[0].original_text}`
-                      : "Malzeme bilgisi mevcut değil."}
+                      : 'Malzeme bilgisi mevcut değil.'}
                   </p>
                 </div>
                 <div className={classes.analyseInsideItem}>
@@ -669,7 +708,7 @@ export const DashboardPage = () => {
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Toplam Yüzey Alanı</p>
                   <p className={classes.analyseItemExp}>
-                    {stepAnalysis?.["Toplam Yüzey Alanı (mm²)"] || "0"} mm²
+                    {stepAnalysis?.['Toplam Yüzey Alanı (mm²)'] || '0'} mm²
                   </p>
                 </div>
               </>
@@ -720,52 +759,58 @@ export const DashboardPage = () => {
       <>
         {/* Eşleşmiş PDF-STEP çiftleri */}
         {matchedPairs.map((pair) => (
-          <div key={pair.id} style={{ marginBottom: "16px" }}>
+          <div
+            key={pair.id}
+            style={{ marginBottom: '16px' }}>
             <div
               className={classes.uploadedItem}
-              style={{ backgroundColor: "#f0f8ff" }}
-            >
+              style={{ backgroundColor: '#f0f8ff' }}>
               <div className={classes.uploadedItemFirstSection}>
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
-                >
-                  <span style={{ fontSize: "18px" }}>🔗</span>
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                  <span style={{ fontSize: '18px' }}>🔗</span>
                   <div>
-                    <p className={classes.exp} style={{ fontWeight: "bold" }}>
+                    <p
+                      className={classes.exp}
+                      style={{ fontWeight: 'bold' }}>
                       {pair.displayName}
                     </p>
                     <p
                       style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginTop: "4px",
-                      }}
-                    >
+                        fontSize: '12px',
+                        color: '#666',
+                        marginTop: '4px'
+                      }}>
                       PDF + STEP Eşleştirmesi
                     </p>
                   </div>
                 </div>
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
-                >
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
                   {/* Match score badge */}
                   <div
                     style={{
-                      padding: "4px 8px",
-                      borderRadius: "12px",
-                      fontSize: "11px",
-                      fontWeight: "bold",
-                      backgroundColor: "#d4edda",
-                      color: getMatchQualityColor(pair.matchQuality),
-                    }}
-                  >
+                      padding: '4px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      backgroundColor: '#d4edda',
+                      color: getMatchQualityColor(pair.matchQuality)
+                    }}>
                     🎯 {pair.matchScore}% - {pair.matchQuality}
                   </div>
                   <div
                     className={`${classes.uploadedItemStatus} ${getStatusClass(
                       pair.status
-                    )}`}
-                  >
+                    )}`}>
                     <p className={classes.uploadedItemStatusText}>
                       {getStatusText(pair.status)}
                     </p>
@@ -776,33 +821,30 @@ export const DashboardPage = () => {
               <div className={classes.progressContainer}>
                 <div
                   className={classes.progressBar}
-                  style={{ width: `${pair.progress}%` }}
-                >
+                  style={{ width: `${pair.progress}%` }}>
                   <span className={classes.progressText}>{pair.progress}%</span>
                 </div>
               </div>
 
               {/* Eşleşen dosyalar */}
-              <div style={{ marginTop: "12px", paddingLeft: "20px" }}>
+              <div style={{ marginTop: '12px', paddingLeft: '20px' }}>
                 <div
                   style={{
-                    fontSize: "12px",
-                    color: "#666",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <div style={{ marginBottom: "4px" }}>
+                    fontSize: '12px',
+                    color: '#666',
+                    marginBottom: '8px'
+                  }}>
+                  <div style={{ marginBottom: '4px' }}>
                     📄 PDF: {pair.pdfFile.file.name}
                     <span
                       style={{
-                        marginLeft: "8px",
-                        fontSize: "11px",
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        backgroundColor: "#e8f5e8",
-                        color: "#2e7d32",
-                      }}
-                    >
+                        marginLeft: '8px',
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#e8f5e8',
+                        color: '#2e7d32'
+                      }}>
                       {getStatusText(pair.pdfFile.status)}
                     </span>
                   </div>
@@ -810,14 +852,13 @@ export const DashboardPage = () => {
                     📐 STEP: {pair.stepFile.file.name}
                     <span
                       style={{
-                        marginLeft: "8px",
-                        fontSize: "11px",
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        backgroundColor: "#e8f5e8",
-                        color: "#2e7d32",
-                      }}
-                    >
+                        marginLeft: '8px',
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#e8f5e8',
+                        color: '#2e7d32'
+                      }}>
                       {getStatusText(pair.stepFile.status)}
                     </span>
                   </div>
@@ -825,61 +866,57 @@ export const DashboardPage = () => {
               </div>
 
               {/* Kontroller */}
-              {pair.status === "pending" && (
-                <div style={{ marginTop: "8px", display: "flex", gap: "8px" }}>
+              {pair.status === 'pending' && (
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
                   <button
                     onClick={() => removeGroup(pair.id)}
                     style={{
-                      backgroundColor: "#6c757d",
-                      color: "white",
-                      border: "none",
-                      padding: "4px 12px",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                    }}
-                  >
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}>
                     Eşleştirmeyi Kaldır
                   </button>
                 </div>
               )}
 
-              {pair.status === "failed" && (
+              {pair.status === 'failed' && (
                 <div
                   style={{
-                    marginTop: "8px",
-                    color: "#dc3545",
-                    fontSize: "12px",
-                  }}
-                >
+                    marginTop: '8px',
+                    color: '#dc3545',
+                    fontSize: '12px'
+                  }}>
                   ⚠️ Eşleştirme analizi başarısız.
                 </div>
               )}
 
-              {pair.status === "completed" && pair.mergedResult && (
+              {pair.status === 'completed' && pair.mergedResult && (
                 <div
                   style={{
-                    marginTop: "8px",
-                    display: "flex",
-                    gap: "8px",
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ fontSize: "12px", color: "#28a745" }}>
+                    marginTop: '8px',
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center'
+                  }}>
+                  <span style={{ fontSize: '12px', color: '#28a745' }}>
                     ✓ Eşleştirme analizi tamamlandı!
                   </span>
                   <button
                     onClick={() => handlePairExport(pair)}
                     style={{
-                      backgroundColor: "#28a745",
-                      color: "white",
-                      border: "none",
-                      padding: "4px 12px",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                    }}
-                  >
+                      backgroundColor: '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}>
                     📊 Excel İndir
                   </button>
                 </div>
@@ -892,19 +929,19 @@ export const DashboardPage = () => {
         {files
           .filter((file) => !file.isPartOfMatch)
           .map((file, index) => (
-            <div key={`file-${index}`} className={classes.uploadedItem}>
+            <div
+              key={`file-${index}`}
+              className={classes.uploadedItem}>
               <div className={classes.uploadedItemFirstSection}>
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>{getFileTypeIcon(getFileType(file.file.name))}</span>
                   <p className={classes.exp}>{file.file.name}</p>
                 </div>
                 <div
                   className={`${classes.uploadedItemStatus} ${getStatusClass(
                     file.status
-                  )}`}
-                >
+                  )}`}>
                   <p className={classes.uploadedItemStatusText}>
                     {getStatusText(file.status)}
                   </p>
@@ -914,22 +951,20 @@ export const DashboardPage = () => {
               <div className={classes.progressContainer}>
                 <div
                   className={classes.progressBar}
-                  style={{ width: `${file.progress}%` }}
-                >
+                  style={{ width: `${file.progress}%` }}>
                   <span className={classes.progressText}>{file.progress}%</span>
                 </div>
               </div>
 
-              {file.status === "completed" &&
-                (file.renderStatus === "processing" ||
-                  file.renderStatus === "pending") && (
+              {file.status === 'completed' &&
+                (file.renderStatus === 'processing' ||
+                  file.renderStatus === 'pending') && (
                   <div
                     style={{
-                      fontSize: "12px",
-                      marginTop: "8px",
-                      color: "#007bff",
-                    }}
-                  >
+                      fontSize: '12px',
+                      marginTop: '8px',
+                      color: '#007bff'
+                    }}>
                     🎨 3D render işleniyor, lütfen bekleyin...
                   </div>
                 )}
@@ -937,75 +972,69 @@ export const DashboardPage = () => {
               {file.error && (
                 <div
                   style={{
-                    color: "#dc3545",
-                    fontSize: "12px",
-                    marginTop: "8px",
-                  }}
-                >
+                    color: '#dc3545',
+                    fontSize: '12px',
+                    marginTop: '8px'
+                  }}>
                   Hata: {file.error}
                   <button
                     className={classes.retryButton}
                     onClick={() => retryFile(files.indexOf(file))}
-                    style={{ marginLeft: "10px" }}
-                    disabled={isUploading}
-                  >
+                    style={{ marginLeft: '10px' }}
+                    disabled={isUploading}>
                     Tekrar Dene
                   </button>
                   <button
                     onClick={() => removeFile(files.indexOf(file))}
                     style={{
-                      marginLeft: "8px",
-                      backgroundColor: "#6c757d",
-                      color: "white",
-                      border: "none",
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "11px",
-                    }}
-                  >
+                      marginLeft: '8px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '11px'
+                    }}>
                     Kaldır
                   </button>
                 </div>
               )}
 
-              {file.status === "pending" && (
+              {file.status === 'pending' && (
                 <div
                   style={{
-                    fontSize: "12px",
-                    marginTop: "8px",
-                    color: "#6c757d",
-                  }}
-                >
+                    fontSize: '12px',
+                    marginTop: '8px',
+                    color: '#6c757d'
+                  }}>
                   Dosya analiz için hazır. "Yükle ve Tara" butonuna tıklayın.
                   <button
                     onClick={() => removeFile(files.indexOf(file))}
                     style={{
-                      marginLeft: "10px",
-                      backgroundColor: "#6c757d",
-                      color: "white",
-                      border: "none",
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "11px",
-                    }}
-                  >
+                      marginLeft: '10px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '11px'
+                    }}>
                     Kaldır
                   </button>
                 </div>
               )}
 
-              {file.status === "completed" && (
+              {file.status === 'completed' && (
                 <div
                   style={{
-                    fontSize: "12px",
-                    marginTop: "8px",
-                    color: "#28a745",
-                  }}
-                >
-                  ✓ Analiz tamamlandı! İşleme süresi:{" "}
-                  {file.result?.processing_time?.toFixed(1) || "0"} saniye
+                    fontSize: '12px',
+                    marginTop: '8px',
+                    color: '#28a745'
+                  }}>
+                  ✓ Analiz tamamlandı! İşleme süresi:{' '}
+                  {file.result?.processing_time?.toFixed(1) || '0'} saniye
                 </div>
               )}
             </div>
@@ -1022,51 +1051,48 @@ export const DashboardPage = () => {
       <>
         {/* Önce eşleşmiş çiftlerin sonuçlarını göster */}
         {matchedPairs
-          .filter((pair) => pair.status === "completed" && pair.mergedResult)
+          .filter((pair) => pair.status === 'completed' && pair.mergedResult)
           .map((pair) => {
             processedPairIds.add(pair.id);
             return (
               <div
                 key={`pair-result-${pair.id}`}
                 className={`${classes.analyseItem} ${
-                  expandedItems.has(pair.id) ? "active" : ""
-                }`}
-              >
+                  expandedItems.has(pair.id) ? 'active' : ''
+                }`}>
                 <div
                   className={classes.analyseFirstSection}
-                  onClick={() => toggleExpanded(pair.id)}
-                >
+                  onClick={() => toggleExpanded(pair.id)}>
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                    }}
-                  >
-                    <span style={{ fontSize: "18px" }}>🔗</span>
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px'
+                    }}>
+                    <span style={{ fontSize: '18px' }}>🔗</span>
                     <div>
-                      <p className={classes.exp} style={{ fontWeight: "bold" }}>
+                      <p
+                        className={classes.exp}
+                        style={{ fontWeight: 'bold' }}>
                         {pair.pdfFile.file.name}
                       </p>
                       <p
                         style={{
-                          fontSize: "12px",
-                          color: "#666",
-                          marginTop: "4px",
-                        }}
-                      >
+                          fontSize: '12px',
+                          color: '#666',
+                          marginTop: '4px'
+                        }}>
                         PDF + STEP Eşleştirmesi
                         <span
                           style={{
-                            marginLeft: "8px",
-                            padding: "2px 6px",
-                            borderRadius: "8px",
-                            backgroundColor: "#d4edda",
+                            marginLeft: '8px',
+                            padding: '2px 6px',
+                            borderRadius: '8px',
+                            backgroundColor: '#d4edda',
                             color: getMatchQualityColor(pair.matchQuality),
-                            fontSize: "10px",
-                            fontWeight: "bold",
-                          }}
-                        >
+                            fontSize: '10px',
+                            fontWeight: 'bold'
+                          }}>
                           🎯 {pair.matchScore}% - {pair.matchQuality}
                         </span>
                       </p>
@@ -1075,12 +1101,11 @@ export const DashboardPage = () => {
                   <span
                     style={{
                       transform: expandedItems.has(pair.id)
-                        ? "rotate(180deg)"
-                        : "rotate(0deg)",
-                      transition: "transform 0.3s",
-                    }}
-                  >
-                    <i className="fa fa-arrow-down"></i>
+                        ? 'rotate(180deg)'
+                        : 'rotate(0deg)',
+                      transition: 'transform 0.3s'
+                    }}>
+                    <i className='fa fa-arrow-down'></i>
                   </span>
                 </div>
 
@@ -1095,14 +1120,14 @@ export const DashboardPage = () => {
           .filter((file) => {
             // Sadece eşleşme parçası olmayan VE tamamlanmış dosyaları göster
             if (file.isPartOfMatch) return false;
-            if (file.status !== "completed") return false;
+            if (file.status !== 'completed') return false;
 
             // Eğer bu dosya bir eşleşmenin parçasıysa gösterme
             const isPartOfProcessedPair = matchedPairs.some(
               (pair) =>
                 (pair.pdfFile.file.name === file.file.name ||
                   pair.stepFile.file.name === file.file.name) &&
-                pair.status === "completed"
+                pair.status === 'completed'
             );
 
             return !isPartOfProcessedPair;
@@ -1111,28 +1136,24 @@ export const DashboardPage = () => {
             <div
               key={`file-result-${index}`}
               className={`${classes.analyseItem} ${
-                expandedItems.has(`file-${index}`) ? "active" : ""
-              }`}
-            >
+                expandedItems.has(`file-${index}`) ? 'active' : ''
+              }`}>
               <div
                 className={classes.analyseFirstSection}
-                onClick={() => toggleExpanded(`file-${index}`)}
-              >
+                onClick={() => toggleExpanded(`file-${index}`)}>
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>{getFileTypeIcon(getFileType(file.file.name))}</span>
                   <p className={classes.exp}>{file.file.name}</p>
                 </div>
                 <span
                   style={{
                     transform: expandedItems.has(`file-${index}`)
-                      ? "rotate(180deg)"
-                      : "rotate(0deg)",
-                    transition: "transform 0.3s",
-                  }}
-                >
-                  <i className="fa fa-arrow-down"></i>
+                      ? 'rotate(180deg)'
+                      : 'rotate(0deg)',
+                    transition: 'transform 0.3s'
+                  }}>
+                  <i className='fa fa-arrow-down'></i>
                 </span>
               </div>
 
@@ -1145,16 +1166,16 @@ export const DashboardPage = () => {
   };
 
   const hasCompletedResults =
-    matchedPairs.some((p) => p.status === "completed") ||
-    files.some((f) => f.status === "completed" && !f.isPartOfMatch);
+    matchedPairs.some((p) => p.status === 'completed') ||
+    files.some((f) => f.status === 'completed' && !f.isPartOfMatch);
 
   const completedMatchCount = matchedPairs.filter(
-    (p) => p.status === "completed"
+    (p) => p.status === 'completed'
   ).length;
 
   const completedSingleFileCount = files.filter((f) => {
     // Dosya tamamlanmış mı?
-    if (f.status !== "completed") return false;
+    if (f.status !== 'completed') return false;
 
     // Dosya bir eşleştirmenin parçası mı?
     if (f.isPartOfMatch) return false;
@@ -1162,7 +1183,7 @@ export const DashboardPage = () => {
     // Bu dosya için tamamlanmış bir eşleştirme var mı?
     const hasCompletedMatch = matchedPairs.some(
       (pair) =>
-        pair.status === "completed" &&
+        pair.status === 'completed' &&
         (pair.pdfFile.file.name === f.file.name ||
           pair.stepFile.file.name === f.file.name)
     );
@@ -1170,66 +1191,62 @@ export const DashboardPage = () => {
     return !hasCompletedMatch;
   }).length;
 
-  const pendingCount = files.filter((f) => f.status === "pending").length;
+  const pendingCount = files.filter((f) => f.status === 'pending').length;
 
   return (
     <div className={classes.container}>
-      <div className={classes.firstSection}>
-        <img
-          src="/background-logo.png"
-          alt="Background Logo"
-          className={classes.backgroundLogo}
-        />
-        <p className={classes.title}>
-          Yapay Zeka ile Teklif Parametrelerinin PDF ve STEP Dosyalarından
-          Analizi
-        </p>
-        <p className={classes.exp}>
-          İşlem sonucunda teklif verilecek ürüne ait tüm analizler tamamlanacak,
-          değerler hesaplanacak, 3D modeli görüntülenebilir duruma gelecek ve
-          sonuçlar excel olarak indirilebilecektir. <br />
-        </p>
+      {/* Main Content - Split Layout */}
+      <div className={classes.mainContent}>
+        {/* Left Panel - File Upload and Management */}
+        <div className={classes.leftPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📁 Dosya Yönetimi</h3>
+            <p>Dosyalarınızı buraya sürükleyin veya seçin</p>
+          </div>
 
-        <div className={classes.uploadSection}>
-          <div className={classes.fileSelection}>
-            <button
-              className={classes.fileSelectionButton}
-              onClick={handleFileSelect}
-            >
-              Choose Files
-            </button>
-            <span className={classes.fileIcon}>📁</span>
-            <p className={classes.fileSelectionText}>
-              {files.length === 0
-                ? "No files selected"
-                : `${files.length} file${files.length > 1 ? "s" : ""} selected`}
-            </p>
+          {/* Dropzone */}
+          <div
+            className={`${classes.dropzone} ${
+              isDragging ? classes.dropzoneActive : ''
+            }`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={handleFileSelect}>
+            <div className={classes.dropzoneContent}>
+              <span className={classes.dropzoneIcon}>📤</span>
+              <p className={classes.dropzoneText}>
+                {isDragging
+                  ? 'Dosyaları buraya bırakın'
+                  : 'Dosyaları sürükleyin veya tıklayın'}
+              </p>
+              <p className={classes.dropzoneSubtext}>
+                PDF, DOC, DOCX, STEP, STP
+              </p>
+              {files.length > 0 && (
+                <p className={classes.dropzoneFileCount}>
+                  {files.length} dosya seçildi
+                </p>
+              )}
+            </div>
           </div>
 
           <input
             ref={fileInputRef}
-            type="file"
+            type='file'
             multiple
-            accept=".pdf,.doc,.docx,.step,.stp"
+            accept='.pdf,.doc,.docx,.step,.stp'
             onChange={handleFileChange}
             className={classes.hiddenFileInput}
           />
 
           {/* Eşleştirme bilgisi */}
           {files.length > 0 && matchedPairs.length > 0 && (
-            <div
-              style={{
-                marginTop: "10px",
-                marginBottom: "10px",
-                padding: "12px",
-                backgroundColor: "#e8f5e8",
-                borderRadius: "6px",
-                border: "1px solid #4caf50",
-              }}
-            >
-              <div style={{ fontSize: "14px", color: "#2e7d32" }}>
+            <div className={classes.matchInfo}>
+              <div className={classes.matchInfoContent}>
                 🎯 <strong>{matchedPairs.length} eşleştirme bulundu!</strong>
-                <ul style={{ margin: "8px 0 0 20px", fontSize: "12px" }}>
+                <ul>
                   {matchedPairs.map((pair) => (
                     <li key={pair.id}>
                       {pair.pdfFile.file.name} ↔ {pair.stepFile.file.name} (
@@ -1241,16 +1258,16 @@ export const DashboardPage = () => {
             </div>
           )}
 
+          {/* Upload Button */}
           <button
             className={classes.uploadButton}
             onClick={uploadAndAnalyze}
-            disabled={files.length === 0 || isUploading || pendingCount === 0}
-          >
+            disabled={files.length === 0 || isUploading || pendingCount === 0}>
             {isUploading
-              ? "Yükleniyor ve Analiz Ediliyor..."
+              ? 'Yükleniyor ve Analiz Ediliyor...'
               : pendingCount > 0
               ? `Yükle ve Tara (${pendingCount} dosya)`
-              : "Tüm Dosyalar İşlendi"}
+              : 'Tüm Dosyalar İşlendi'}
           </button>
 
           {(isUploading || pendingCount > 0) && (
@@ -1259,278 +1276,132 @@ export const DashboardPage = () => {
                 ? `${
                     files.filter(
                       (f) =>
-                        f.status === "uploading" || f.status === "analyzing"
+                        f.status === 'uploading' || f.status === 'analyzing'
                     ).length
                   } dosya işleniyor, lütfen bekleyin...`
                 : `${pendingCount} dosya işlenmeyi bekliyor`}
             </p>
           )}
 
-          {/* Uploaded Files */}
-          {renderFileList()}
+          {/* File List */}
+          <div className={classes.fileListSection}>{renderFileList()}</div>
 
-          {/* Analysis Results */}
+          {/* Excel Operations */}
           {hasCompletedResults && (
-            <>
-              <div className={classes.line}></div>
-
-              <div className={classes.analyseSection}>
-                <div className={classes.iconTextDiv}>
-                  <span>🕒</span>
-                  <p className={classes.titleSmall}>
-                    Toplam geçen süre: {totalProcessingTime.toFixed(1)} saniye
-                  </p>
-                </div>
-
-                <div className={classes.iconTextDiv}>
-                  <span>📊</span>
-                  <p className={classes.title}>
-                    Analiz Sonuçları
-                    <span
-                      style={{
-                        fontSize: "14px",
-                        fontWeight: "normal",
-                        marginLeft: "10px",
-                        color: "#666",
-                      }}
-                    >
-                      ({completedMatchCount} eşleştirme,{" "}
-                      {completedSingleFileCount} tekil dosya)
-                    </span>
-                  </p>
-                </div>
-
-                {renderAnalysisResults()}
-
-                {/* Multiple Excel Export Butonu */}
-                <div style={{ position: "relative", width: "100%" }}>
-                  {/* Export progress */}
-                  {isExporting && (
-                    <div style={{ marginBottom: "10px" }}>
-                      <div
-                        style={{
-                          backgroundColor: "#f0f0f0",
-                          borderRadius: "4px",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${exportProgress}%`,
-                            height: "20px",
-                            backgroundColor: "#28a745",
-                            transition: "width 0.3s ease",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: "white",
-                            fontSize: "12px",
-                          }}
-                        >
-                          {exportProgress}%
-                        </div>
-                      </div>
-                      <p
-                        style={{
-                          fontSize: "12px",
-                          color: "#666",
-                          marginTop: "5px",
-                        }}
-                      >
-                        Excel dosyası oluşturuluyor...
-                      </p>
-                    </div>
-                  )}
-
-                  <button
-                    className={classes.analyseButton}
-                    onClick={handleMultipleExcelExport}
-                    disabled={!hasCompletedResults || isExporting}
-                    style={{
-                      backgroundColor: isExporting ? "#cccccc" : "#10b86b",
-                      cursor: isExporting ? "not-allowed" : "pointer",
-                      opacity: isExporting ? 0.7 : 1,
-                    }}
-                  >
-                    <img src="/download-icon.svg" alt="" />
-                    {isExporting
-                      ? "Excel Oluşturuluyor..."
-                      : `Excel İndir (${
-                          matchedPairs.filter((p) => p.status === "completed")
-                            .length +
-                          files.filter(
-                            (f) => f.status === "completed" && !f.isPartOfMatch
-                          ).length
-                        } Analiz)`}
-                  </button>
-
-                  {/* Bilgi mesajı */}
-                  {hasCompletedResults && !isExporting && (
+            <div className={classes.excelOperations}>
+              {/* Multiple Excel Export */}
+              <div className={classes.exportSection}>
+                <h4>📊 Toplu Excel İndirme</h4>
+                {isExporting && (
+                  <div className={classes.exportProgress}>
                     <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginTop: "10px",
-                        padding: "8px",
-                        backgroundColor: "#e8f5e8",
-                        borderRadius: "4px",
-                        border: "1px solid #c3e6c3",
-                      }}
-                    >
-                      📊 <strong>Çoklu Excel Export:</strong> Tüm tamamlanmış
-                      analizler tek Excel dosyasında birleştirilecek.
-                      <br />
-                      <strong>
-                        İndirilecek{" "}
-                        {matchedPairs.filter((p) => p.status === "completed")
-                          .length +
-                          files.filter(
-                            (f) => f.status === "completed" && !f.isPartOfMatch
-                          ).length}{" "}
-                        analiz sonucu mevcut.
-                      </strong>
+                      className={classes.exportProgressBar}
+                      style={{ width: `${exportProgress}%` }}>
+                      {exportProgress}%
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+                <button
+                  className={classes.exportButton}
+                  onClick={handleMultipleExcelExport}
+                  disabled={!hasCompletedResults || isExporting}>
+                  <img
+                    src='/download-icon.svg'
+                    alt=''
+                  />
+                  {isExporting
+                    ? 'Excel Oluşturuluyor...'
+                    : `Excel İndir (${
+                        completedMatchCount + completedSingleFileCount
+                      } Analiz)`}
+                </button>
+              </div>
 
-                <div className={classes.line}></div>
-
-                {/* Excel Merge Bölümü */}
-                <div className={classes.iconTextDiv}>
-                  <span>📤</span>
-                  <p className={classes.title}>
-                    Excel Yükle ve Analiz Sonuçlarıyla Birleştir
-                  </p>
-                </div>
-
-                {/* Excel dosya seçimi */}
-                <div className={classes.fileSelection}>
+              {/* Excel Merge */}
+              <div className={classes.mergeSection}>
+                <h4>📤 Excel Birleştirme</h4>
+                <div className={classes.excelFileSelection}>
                   <button
-                    className={classes.fileSelectionButton}
+                    className={classes.excelSelectButton}
                     onClick={handleExcelFileSelect}
-                    disabled={isMerging}
-                  >
-                    Choose File
+                    disabled={isMerging}>
+                    Excel Seç
                   </button>
-                  <span className={classes.fileIcon}>📊</span>
-                  <p className={classes.fileSelectionText}>
+                  <span className={classes.excelFileName}>
                     {selectedExcelFile
                       ? selectedExcelFile.name
-                      : "no file selected"}
-                  </p>
+                      : 'Dosya seçilmedi'}
+                  </span>
                   {selectedExcelFile && (
                     <button
                       onClick={removeExcelFile}
-                      style={{
-                        marginLeft: "10px",
-                        backgroundColor: "#dc3545",
-                        color: "white",
-                        border: "none",
-                        padding: "4px 8px",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "11px",
-                      }}
-                      disabled={isMerging}
-                    >
+                      className={classes.removeExcelButton}
+                      disabled={isMerging}>
                       ✕
                     </button>
                   )}
                 </div>
-
-                {/* Excel input (hidden) */}
                 <input
                   ref={excelInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
+                  type='file'
+                  accept='.xlsx,.xls'
                   onChange={handleExcelFileChange}
-                  style={{ display: "none" }}
+                  style={{ display: 'none' }}
                 />
-
-                {/* Excel merge progress */}
                 {isMerging && (
-                  <div style={{ marginTop: "10px", marginBottom: "10px" }}>
+                  <div className={classes.mergeProgress}>
                     <div
-                      style={{
-                        backgroundColor: "#f0f0f0",
-                        borderRadius: "4px",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${mergeProgress}%`,
-                          height: "20px",
-                          backgroundColor: "#28a745",
-                          transition: "width 0.3s ease",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "white",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {mergeProgress}%
-                      </div>
+                      className={classes.mergeProgressBar}
+                      style={{ width: `${mergeProgress}%` }}>
+                      {mergeProgress}%
                     </div>
-                    <p
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginTop: "5px",
-                      }}
-                    >
-                      Excel dosyası birleştiriliyor...
-                    </p>
                   </div>
                 )}
-
-                {/* Merge butonu */}
                 <button
-                  className={classes.excelButton}
+                  className={classes.mergeButton}
                   onClick={handleExcelMerge}
                   disabled={
                     !selectedExcelFile || isMerging || !hasCompletedResults
-                  }
-                >
-                  <img src="/upload.svg" alt="" />
-                  {isMerging
-                    ? "Birleştiriliyor..."
-                    : "Excel Dosyasını Yükle ve Birleştir"}
+                  }>
+                  <img
+                    src='/upload.svg'
+                    alt=''
+                  />
+                  {isMerging ? 'Birleştiriliyor...' : 'Excel Birleştir'}
                 </button>
-
-                {/* Bilgi mesajı */}
-                {hasCompletedResults && (
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#666",
-                      marginTop: "10px",
-                      padding: "8px",
-                      backgroundColor: "#f8f9fa",
-                      borderRadius: "4px",
-                      border: "1px solid #dee2e6",
-                    }}
-                  >
-                    💡 <strong>Nasıl çalışır:</strong> Excel dosyanızı seçin ve
-                    analiz sonuçlarıyla birleştirin. Sistem otomatik olarak ürün
-                    kodlarını eşleştirip malzeme bilgilerini, boyutları ve 3D
-                    görsellerini ekleyecek.
-                    <br />
-                    <strong>
-                      Birleştirilecek{" "}
-                      {matchedPairs.filter((p) => p.status === "completed")
-                        .length +
-                        files.filter(
-                          (f) => f.status === "completed" && !f.isPartOfMatch
-                        ).length}{" "}
-                      analiz sonucu mevcut.
-                    </strong>
-                  </div>
-                )}
               </div>
-            </>
+            </div>
           )}
+        </div>
+
+        {/* Right Panel - Analysis Results */}
+        <div className={classes.rightPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📊 Analiz Sonuçları</h3>
+            {hasCompletedResults && (
+              <p>
+                {completedMatchCount} eşleştirme, {completedSingleFileCount}{' '}
+                tekil dosya
+                {totalProcessingTime > 0 &&
+                  ` • ⏱️ ${totalProcessingTime.toFixed(1)}s`}
+              </p>
+            )}
+          </div>
+
+          <div className={classes.resultsSection}>
+            {hasCompletedResults ? (
+              renderAnalysisResults()
+            ) : (
+              <div className={classes.emptyResults}>
+                <span className={classes.emptyIcon}>📋</span>
+                <p style={{ marginTop: 16 }}>Henüz analiz sonucu yok</p>
+                <p className={classes.emptySubtext}>
+                  Dosyalarınızı yükleyip analiz ettikten sonra sonuçlar burada
+                  görünecek
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
-import { Button } from "primereact/button";
-import { InputText } from "primereact/inputtext";
-import { Dropdown } from "primereact/dropdown";
-import { DataTable } from "primereact/datatable";
-import { Column } from "primereact/column";
-import { Toast } from "primereact/toast";
-import { Dialog } from "primereact/dialog";
-import { Card } from "primereact/card";
-import { Badge } from "primereact/badge";
-import { ConfirmDialog, confirmDialog } from "primereact/confirmdialog";
-import { Toolbar } from "primereact/toolbar";
-import { MaterialPageStyles } from "./MaterialPage.styles";
+import React, { useState, useEffect } from 'react';
+import { Button } from 'primereact/button';
+import { InputText } from 'primereact/inputtext';
+import { Dropdown } from 'primereact/dropdown';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
+import { Toast } from 'primereact/toast';
+import { Dialog } from 'primereact/dialog';
+import { Card } from 'primereact/card';
+import { Badge } from 'primereact/badge';
+import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
+import { Toolbar } from 'primereact/toolbar';
+import { MaterialPageStyles } from './MaterialPage.styles';
 
 // Types
 interface Material {
@@ -38,7 +38,6 @@ interface DropdownOption {
   value: string;
 }
 
-// ✅ YENİ - Cache refresh response interface
 interface CacheRefreshResponse {
   success: boolean;
   message: string;
@@ -47,34 +46,34 @@ interface CacheRefreshResponse {
 export const MaterialPage = () => {
   const classes = MaterialPageStyles();
 
-  // Existing state variables
+  // State variables
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialPrices, setMaterialPrices] = useState<MaterialPrice[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'materials' | 'prices'>(
+    'materials'
+  );
 
-  // ✅ YENİ - Cache refresh state
+  // Cache refresh state
   const [refreshingCache, setRefreshingCache] = useState(false);
   const [lastCacheRefresh, setLastCacheRefresh] = useState<Date | null>(null);
 
   // Form states
-  const [selectedMaterial, setSelectedMaterial] = useState<string>("");
-  const [newAliases, setNewAliases] = useState("");
-  const [newMaterialName, setNewMaterialName] = useState("");
-  const [newMaterialAliases, setNewMaterialAliases] = useState("");
-  const [newMaterialDensity, setNewMaterialDensity] = useState("");
+  const [selectedMaterial, setSelectedMaterial] = useState<string>('');
+  const [newAliases, setNewAliases] = useState('');
+  const [newMaterialName, setNewMaterialName] = useState('');
+  const [newMaterialAliases, setNewMaterialAliases] = useState('');
+  const [newMaterialDensity, setNewMaterialDensity] = useState('');
   const [selectedPriceMaterial, setSelectedPriceMaterial] =
-    useState<string>("");
-  const [materialPrice, setMaterialPrice] = useState("");
+    useState<string>('');
+  const [materialPrice, setMaterialPrice] = useState('');
 
-  // Edit dialogs
-  const [editMaterialDialog, setEditMaterialDialog] = useState(false);
-  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editDensity, setEditDensity] = useState("");
-
-  const [editPriceDialog, setEditPriceDialog] = useState(false);
-  const [editingPrice, setEditingPrice] = useState<MaterialPrice | null>(null);
-  const [editPriceValue, setEditPriceValue] = useState("");
+  // Edit states
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(
+    null
+  );
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<{ [key: string]: any }>({});
 
   const toast = React.useRef<Toast>(null);
 
@@ -82,9 +81,9 @@ export const MaterialPage = () => {
   const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     const defaultOptions: RequestInit = {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-        "Content-Type": "application/json",
-      },
+        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        'Content-Type': 'application/json'
+      }
     };
 
     const response = await fetch(
@@ -109,81 +108,79 @@ export const MaterialPage = () => {
     loadLastCacheRefresh();
   }, []);
 
-  // ✅ YENİ - Load last cache refresh time from localStorage
+  // Load last cache refresh time from localStorage
   const loadLastCacheRefresh = () => {
-    const lastRefresh = localStorage.getItem("lastMaterialCacheRefresh");
+    const lastRefresh = localStorage.getItem('lastMaterialCacheRefresh');
     if (lastRefresh) {
       setLastCacheRefresh(new Date(lastRefresh));
     }
   };
 
-  // ✅ YENİ - Cache refresh function
+  // Cache refresh function
   const handleCacheRefresh = async () => {
     try {
       setRefreshingCache(true);
 
-      console.log("🔄 Material cache refresh başlatılıyor...");
+      console.log('🔄 Material cache refresh başlatılıyor...');
 
-      const { data } = await apiRequest("/api/materials/refresh-cache", {
-        method: "POST",
+      const { data } = await apiRequest('/api/materials/refresh-cache', {
+        method: 'POST'
       });
 
       if (data.success) {
         const now = new Date();
         setLastCacheRefresh(now);
-        localStorage.setItem("lastMaterialCacheRefresh", now.toISOString());
+        localStorage.setItem('lastMaterialCacheRefresh', now.toISOString());
 
         showSuccess(
-          "Malzeme cache başarıyla yenilendi! Analiz sistemi güncel malzemelerle çalışacak."
+          'Malzeme cache başarıyla yenilendi! Analiz sistemi güncel malzemelerle çalışacak.'
         );
 
         // Malzemeleri yeniden yükle
         await loadMaterials();
         await loadMaterialPrices();
 
-        console.log("✅ Material cache refresh başarılı");
+        console.log('✅ Material cache refresh başarılı');
       } else {
-        throw new Error(data.message || "Cache yenileme başarısız");
+        throw new Error(data.message || 'Cache yenileme başarısız');
       }
     } catch (error: any) {
-      console.error("❌ Cache refresh hatası:", error);
+      console.error('❌ Cache refresh hatası:', error);
       showError(`Cache yenileme hatası: ${error.message}`);
     } finally {
       setRefreshingCache(false);
     }
   };
 
-  // ✅ YENİ - Auto refresh cache after important operations
+  // Auto refresh cache after important operations
   const performOperationWithCacheRefresh = async (
     operation: () => Promise<void>,
     operationName: string
   ) => {
     try {
       await operation();
-
-      // After successful material operations, refresh cache automatically
       console.log(`🔄 ${operationName} sonrası cache otomatik yenileniyor...`);
       await handleCacheRefresh();
     } catch (error) {
       console.error(`❌ ${operationName} ve cache refresh hatası:`, error);
-      throw error; // Re-throw to maintain error handling
+      throw error;
     }
   };
 
   const loadMaterials = async () => {
     try {
       setLoading(true);
-      const { data } = await apiRequest("/api/materials?limit=1000");
+      const { data } = await apiRequest('/api/materials?limit=1000');
 
       if (data.success) {
         setMaterials(data.materials || []);
-        console.log("Loaded materials:", data.materials?.length || 0);
+        console.log('Loaded materials:', data.materials?.length || 0);
       } else {
-        showError(data.message || "Malzemeler yüklenemedi");
+        showError(data.message || 'Malzemeler yüklenemedi');
       }
     } catch (error) {
-      console.error("Materials loading error:", error);
-      showError("Malzemeler yüklenirken hata oluştu");
+      console.error('Materials loading error:', error);
+      showError('Malzemeler yüklenirken hata oluştu');
     } finally {
       setLoading(false);
     }
@@ -191,7 +188,7 @@ export const MaterialPage = () => {
 
   const loadMaterialPrices = async () => {
     try {
-      const { data } = await apiRequest("/api/materials?limit=1000");
+      const { data } = await apiRequest('/api/materials?limit=1000');
 
       if (data.success) {
         const pricesData =
@@ -202,71 +199,71 @@ export const MaterialPage = () => {
               material_name: material.name,
               price: material.price_per_kg,
               density: material.density,
-              category: material.category,
+              category: material.category
             })) || [];
 
         setMaterialPrices(pricesData);
-        console.log("Loaded material prices:", pricesData.length);
+        console.log('Loaded material prices:', pricesData.length);
       }
     } catch (error) {
-      console.log("Fiyat bilgileri yüklenemedi:", error);
+      console.log('Fiyat bilgileri yüklenemedi:', error);
     }
   };
 
   const showSuccess = (message: string) => {
     toast.current?.show({
-      severity: "success",
-      summary: "Başarılı",
+      severity: 'success',
+      summary: 'Başarılı',
       detail: message,
-      life: 3000,
+      life: 3000
     });
   };
 
   const showError = (message: string) => {
     toast.current?.show({
-      severity: "error",
-      summary: "Hata",
+      severity: 'error',
+      summary: 'Hata',
       detail: message,
-      life: 3000,
+      life: 3000
     });
   };
 
-  // ✅ ENHANCED - Add alias with cache refresh
+  // Add alias with cache refresh
   const handleAddAlias = async () => {
     if (!selectedMaterial || !newAliases.trim()) {
-      showError("Malzeme seçin ve alias girin");
+      showError('Malzeme seçin ve alias girin');
       return;
     }
 
     await performOperationWithCacheRefresh(async () => {
       const aliasArray = newAliases
-        .split(",")
+        .split(',')
         .map((alias) => alias.trim())
         .filter((alias) => alias);
 
       const { data } = await apiRequest(
         `/api/materials/${selectedMaterial}/aliases`,
         {
-          method: "POST",
-          body: JSON.stringify({ aliases: aliasArray }),
+          method: 'POST',
+          body: JSON.stringify({ aliases: aliasArray })
         }
       );
 
       if (data.success) {
-        showSuccess("Alias başarıyla eklendi");
-        setSelectedMaterial("");
-        setNewAliases("");
+        showSuccess('Alias başarıyla eklendi');
+        setSelectedMaterial('');
+        setNewAliases('');
         await loadMaterials();
       } else {
-        throw new Error(data.message || "Alias eklenemedi");
+        throw new Error(data.message || 'Alias eklenemedi');
       }
-    }, "Alias ekleme");
+    }, 'Alias ekleme');
   };
 
-  // ✅ ENHANCED - Add new material with cache refresh
+  // Add new material with cache refresh
   const handleAddNewMaterial = async () => {
     if (!newMaterialName.trim()) {
-      showError("Malzeme adı gerekli");
+      showError('Malzeme adı gerekli');
       return;
     }
 
@@ -275,34 +272,34 @@ export const MaterialPage = () => {
         name: newMaterialName.trim(),
         aliases: newMaterialAliases
           ? newMaterialAliases
-              .split(",")
+              .split(',')
               .map((alias) => alias.trim())
               .filter((alias) => alias)
           : [],
-        density: newMaterialDensity ? parseFloat(newMaterialDensity) : null,
+        density: newMaterialDensity ? parseFloat(newMaterialDensity) : null
       };
 
-      const { data } = await apiRequest("/api/materials", {
-        method: "POST",
-        body: JSON.stringify(materialData),
+      const { data } = await apiRequest('/api/materials', {
+        method: 'POST',
+        body: JSON.stringify(materialData)
       });
 
       if (data.success) {
-        showSuccess("Malzeme başarıyla eklendi");
-        setNewMaterialName("");
-        setNewMaterialAliases("");
-        setNewMaterialDensity("");
+        showSuccess('Malzeme başarıyla eklendi');
+        setNewMaterialName('');
+        setNewMaterialAliases('');
+        setNewMaterialDensity('');
         await loadMaterials();
       } else {
-        throw new Error(data.message || "Malzeme eklenemedi");
+        throw new Error(data.message || 'Malzeme eklenemedi');
       }
-    }, "Yeni malzeme ekleme");
+    }, 'Yeni malzeme ekleme');
   };
 
-  // ✅ ENHANCED - Add/update material price with cache refresh
+  // Add/update material price with cache refresh
   const handleAddMaterialPrice = async () => {
     if (!selectedPriceMaterial || !materialPrice) {
-      showError("Malzeme seçin ve fiyat girin");
+      showError('Malzeme seçin ve fiyat girin');
       return;
     }
 
@@ -311,624 +308,672 @@ export const MaterialPage = () => {
         (m) => m.name === selectedPriceMaterial
       );
       if (!selectedMaterial) {
-        throw new Error("Seçilen malzeme bulunamadı");
+        throw new Error('Seçilen malzeme bulunamadı');
       }
 
       const { data } = await apiRequest(
         `/api/materials/${selectedMaterial.id}`,
         {
-          method: "PUT",
+          method: 'PUT',
           body: JSON.stringify({
-            price_per_kg: parseFloat(materialPrice),
-          }),
+            price_per_kg: parseFloat(materialPrice)
+          })
         }
       );
 
       if (data.success) {
-        showSuccess("Fiyat başarıyla eklendi/güncellendi");
-        setSelectedPriceMaterial("");
-        setMaterialPrice("");
+        showSuccess('Fiyat başarıyla eklendi/güncellendi');
+        setSelectedPriceMaterial('');
+        setMaterialPrice('');
         await loadMaterials();
         await loadMaterialPrices();
       } else {
-        throw new Error(data.message || "Fiyat eklenemedi");
+        throw new Error(data.message || 'Fiyat eklenemedi');
       }
-    }, "Fiyat güncelleme");
+    }, 'Fiyat güncelleme');
   };
 
-  // ✅ ENHANCED - Update material with cache refresh
-  const handleUpdateMaterial = async () => {
-    if (!editName.trim()) {
-      showError("Malzeme adı gerekli");
+  // Start editing material
+  const startEditMaterial = (material: Material) => {
+    setEditingMaterialId(material.id);
+    setEditValues({
+      ...editValues,
+      [`material_${material.id}_name`]: material.name,
+      [`material_${material.id}_density`]: material.density?.toString() || ''
+    });
+  };
+
+  // Cancel editing material
+  const cancelEditMaterial = () => {
+    setEditingMaterialId(null);
+  };
+
+  // Save edited material
+  const saveEditedMaterial = async (material: Material) => {
+    const newName = editValues[`material_${material.id}_name`];
+    const newDensity = editValues[`material_${material.id}_density`];
+
+    if (!newName?.trim()) {
+      showError('Malzeme adı gerekli');
       return;
     }
 
-    if (!editingMaterial) return;
-
     await performOperationWithCacheRefresh(async () => {
       const updateData = {
-        name: editName.trim(),
-        density: editDensity ? parseFloat(editDensity) : null,
+        name: newName.trim(),
+        density: newDensity ? parseFloat(newDensity) : null
       };
 
-      const { data } = await apiRequest(
-        `/api/materials/${editingMaterial.id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify(updateData),
-        }
-      );
+      const { data } = await apiRequest(`/api/materials/${material.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updateData)
+      });
 
       if (data.success) {
-        showSuccess("Malzeme güncellendi");
-        setEditMaterialDialog(false);
+        showSuccess('Malzeme güncellendi');
+        setEditingMaterialId(null);
         await loadMaterials();
       } else {
-        throw new Error(data.message || "Malzeme güncellenemedi");
+        throw new Error(data.message || 'Malzeme güncellenemedi');
       }
-    }, "Malzeme güncelleme");
+    }, 'Malzeme güncelleme');
   };
 
-  // ✅ YENİ - Toolbar content with cache refresh button
-  const renderToolbarContent = () => {
-    return (
-      <div
-        className="flex align-items-center justify-content-between w-full"
-        style={{ width: "100%" }}
-      >
-        <div
-          className="flex align-items-center gap-2"
-          style={{
-            width: "100%",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Button
-            icon="pi pi-refresh"
-            label="Cache Yenile"
-            severity="info"
-            outlined
-            onClick={handleCacheRefresh}
-            loading={refreshingCache}
-            tooltip="Malzeme analiz cache'ini yenile - Yeni eklenen malzemeler hemen aktif olur"
-            className={classes.responsiveButton}
-          />
-          {lastCacheRefresh && (
-            <small className="text-500">
-              Son yenileme: {lastCacheRefresh.toLocaleString("tr-TR")}
-            </small>
-          )}
-        </div>
-      </div>
-    );
+  // Start editing price
+  const startEditPrice = (price: MaterialPrice) => {
+    setEditingPriceId(price.id);
+    setEditValues({
+      ...editValues,
+      [`price_${price.id}`]: price.price.toString()
+    });
   };
 
-  // All other existing functions remain the same...
+  // Cancel editing price
+  const cancelEditPrice = () => {
+    setEditingPriceId(null);
+  };
+
+  // Save edited price
+  const saveEditedPrice = async (price: MaterialPrice) => {
+    const newPrice = editValues[`price_${price.id}`];
+
+    if (!newPrice) {
+      showError('Fiyat gerekli');
+      return;
+    }
+
+    await performOperationWithCacheRefresh(async () => {
+      const { data } = await apiRequest(`/api/materials/${price.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          price_per_kg: parseFloat(newPrice)
+        })
+      });
+
+      if (data.success) {
+        showSuccess('Fiyat güncellendi');
+        setEditingPriceId(null);
+        await loadMaterials();
+        await loadMaterialPrices();
+      } else {
+        throw new Error(data.message || 'Fiyat güncellenemedi');
+      }
+    }, 'Fiyat güncelleme');
+  };
+
   const renderAliases = (rowData: Material) => {
     const aliases = rowData.aliases || [];
     return (
-      <div className={classes.badgeContainer}>
+      <div className={classes.aliasContainer}>
         {aliases.map((alias, index) => (
-          <Badge
+          <span
             key={index}
-            value={alias}
-            severity="secondary"
+            className={classes.aliasChip}
             onClick={() => handleDeleteAlias(rowData.id, alias)}
-            title="Silmek için tıklayın"
-          />
+            title='Silmek için tıklayın'>
+            {alias}
+            <span className={classes.aliasDelete}>×</span>
+          </span>
         ))}
       </div>
     );
   };
 
-  const renderActions = (rowData: Material) => {
-    return (
-      <div className={classes.actionButtons}>
-        <Button
-          icon="pi pi-pencil"
-          size="small"
-          severity="info"
-          outlined
-          onClick={() => openEditMaterial(rowData)}
-          tooltip="Düzenle"
-          className={classes.responsiveButton}
-        />
-        <Button
-          icon="pi pi-trash"
-          size="small"
-          severity="danger"
-          outlined
-          onClick={() => handleDeleteMaterial(rowData)}
-          tooltip="Sil"
-          className={classes.responsiveButton}
-        />
-      </div>
-    );
-  };
-
-  const renderPriceActions = (rowData: MaterialPrice) => {
-    return (
-      <div className={classes.actionButtons}>
-        <Button
-          icon="pi pi-pencil"
-          size="small"
-          severity="info"
-          outlined
-          onClick={() => openEditPrice(rowData)}
-          tooltip="Düzenle"
-          className={classes.responsiveButton}
-        />
-        <Button
-          icon="pi pi-trash"
-          size="small"
-          severity="danger"
-          outlined
-          onClick={() => handleDeletePrice(rowData)}
-          tooltip="Sil"
-          className={classes.responsiveButton}
-        />
-      </div>
-    );
-  };
-
-  // Keep all other existing functions the same...
   const handleDeleteAlias = async (materialId: string, alias: string) => {
     try {
       const { data } = await apiRequest(
         `/api/materials/${materialId}/aliases/${encodeURIComponent(alias)}`,
         {
-          method: "DELETE",
+          method: 'DELETE'
         }
       );
 
       if (data.success) {
-        showSuccess("Alias silindi");
+        showSuccess('Alias silindi');
         await loadMaterials();
-        // Auto refresh cache after alias deletion
         await handleCacheRefresh();
       } else {
-        showError(data.message || "Alias silinemedi");
+        showError(data.message || 'Alias silinemedi');
       }
     } catch (error) {
-      showError("Alias silinirken hata oluştu");
+      showError('Alias silinirken hata oluştu');
     }
   };
 
   const handleDeleteMaterial = (material: Material) => {
     confirmDialog({
       message: `"${material.name}" malzemesini silmek istediğinize emin misiniz?`,
-      header: "Silme Onayı",
-      icon: "pi pi-exclamation-triangle",
+      header: 'Silme Onayı',
+      icon: 'pi pi-exclamation-triangle',
       accept: async () => {
         await performOperationWithCacheRefresh(async () => {
           const { data } = await apiRequest(`/api/materials/${material.id}`, {
-            method: "DELETE",
+            method: 'DELETE'
           });
 
           if (data.success) {
-            showSuccess("Malzeme silindi");
+            showSuccess('Malzeme silindi');
             await loadMaterials();
           } else {
-            throw new Error(data.message || "Malzeme silinemedi");
+            throw new Error(data.message || 'Malzeme silinemedi');
           }
-        }, "Malzeme silme");
-      },
-    });
-  };
-
-  const openEditMaterial = (material: Material) => {
-    setEditingMaterial(material);
-    setEditName(material.name);
-    setEditDensity(material.density?.toString() || "");
-    setEditMaterialDialog(true);
-  };
-
-  const openEditPrice = (priceItem: MaterialPrice) => {
-    setEditingPrice(priceItem);
-    setEditPriceValue(priceItem.price.toString());
-    setEditPriceDialog(true);
-  };
-
-  const handleUpdatePrice = async () => {
-    if (!editPriceValue || !editingPrice) {
-      showError("Fiyat gerekli");
-      return;
-    }
-
-    await performOperationWithCacheRefresh(async () => {
-      const { data } = await apiRequest(`/api/materials/${editingPrice.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          price_per_kg: parseFloat(editPriceValue),
-        }),
-      });
-
-      if (data.success) {
-        showSuccess("Fiyat güncellendi");
-        setEditPriceDialog(false);
-        await loadMaterials();
-        await loadMaterialPrices();
-      } else {
-        throw new Error(data.message || "Fiyat güncellenemedi");
+        }, 'Malzeme silme');
       }
-    }, "Fiyat güncelleme");
+    });
   };
 
   const handleDeletePrice = (priceItem: MaterialPrice) => {
     confirmDialog({
       message: `"${priceItem.material_name}" fiyatını silmek istediğinize emin misiniz?`,
-      header: "Silme Onayı",
-      icon: "pi pi-exclamation-triangle",
+      header: 'Silme Onayı',
+      icon: 'pi pi-exclamation-triangle',
       accept: async () => {
         await performOperationWithCacheRefresh(async () => {
           const { data } = await apiRequest(`/api/materials/${priceItem.id}`, {
-            method: "PUT",
+            method: 'PUT',
             body: JSON.stringify({
-              price_per_kg: null,
-            }),
+              price_per_kg: null
+            })
           });
 
           if (data.success) {
-            showSuccess("Fiyat silindi");
+            showSuccess('Fiyat silindi');
             await loadMaterials();
             await loadMaterialPrices();
           } else {
-            throw new Error(data.message || "Fiyat silinemedi");
+            throw new Error(data.message || 'Fiyat silinemedi');
           }
-        }, "Fiyat silme");
-      },
+        }, 'Fiyat silme');
+      }
     });
   };
 
   const materialOptions: DropdownOption[] = materials.map((material) => ({
     label: material.name,
-    value: material.id,
+    value: material.id
   }));
 
   const materialNameOptions: DropdownOption[] = materials.map((material) => ({
     label: material.name,
-    value: material.name,
+    value: material.name
   }));
+
+  // Material Cards Render
+  const renderMaterialCards = () => {
+    return materials.map((material) => {
+      const isEditing = editingMaterialId === material.id;
+
+      return (
+        <div
+          key={material.id}
+          className={classes.materialCard}>
+          <div className={classes.materialHeader}>
+            {isEditing ? (
+              <input
+                type='text'
+                value={editValues[`material_${material.id}_name`] || ''}
+                onChange={(e) =>
+                  setEditValues({
+                    ...editValues,
+                    [`material_${material.id}_name`]: e.target.value
+                  })
+                }
+                className={classes.inlineEditInput}
+                autoFocus
+              />
+            ) : (
+              <h4 className={classes.materialName}>{material.name}</h4>
+            )}
+            <div className={classes.materialActions}>
+              {isEditing ? (
+                <>
+                  <button
+                    className={`${classes.iconButton} ${classes.saveButton}`}
+                    onClick={() => saveEditedMaterial(material)}
+                    title='Kaydet'>
+                    <i className='pi pi-check'></i>
+                  </button>
+                  <button
+                    className={`${classes.iconButton} ${classes.cancelButton}`}
+                    onClick={cancelEditMaterial}
+                    title='İptal'>
+                    <i className='pi pi-times'></i>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className={classes.iconButton}
+                    onClick={() => startEditMaterial(material)}
+                    title='Düzenle'>
+                    <i className='pi pi-pencil'></i>
+                  </button>
+                  <button
+                    className={`${classes.iconButton} ${classes.deleteButton}`}
+                    onClick={() => handleDeleteMaterial(material)}
+                    title='Sil'>
+                    <i className='pi pi-trash'></i>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className={classes.materialInfo}>
+            <div className={classes.infoRow}>
+              <span className={classes.infoLabel}>Özkütle:</span>
+              {isEditing ? (
+                <input
+                  type='number'
+                  value={editValues[`material_${material.id}_density`] || ''}
+                  onChange={(e) =>
+                    setEditValues({
+                      ...editValues,
+                      [`material_${material.id}_density`]: e.target.value
+                    })
+                  }
+                  placeholder='0.00'
+                  step='0.01'
+                  className={classes.inlineEditInputSmall}
+                />
+              ) : (
+                <span className={classes.infoValue}>
+                  {material.density
+                    ? `${material.density.toFixed(2)} g/cm³`
+                    : '-'}
+                </span>
+              )}
+            </div>
+            <div className={classes.infoRow}>
+              <span className={classes.infoLabel}>Fiyat:</span>
+              <span className={classes.infoValue}>
+                {material.price_per_kg
+                  ? `${material.price_per_kg.toFixed(2)}/kg`
+                  : '-'}
+              </span>
+            </div>
+          </div>
+
+          {material.aliases && material.aliases.length > 0 && (
+            <div className={classes.materialAliases}>
+              <span className={classes.aliasLabel}>Aliaslar:</span>
+              {renderAliases(material)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  // Price Cards Render
+  const renderPriceCards = () => {
+    return materialPrices.map((price) => {
+      const isEditing = editingPriceId === price.id;
+
+      return (
+        <div
+          key={price.id}
+          className={classes.priceCard}>
+          <div className={classes.priceHeader}>
+            <h4 className={classes.priceMaterialName}>{price.material_name}</h4>
+            <div className={classes.priceHeaderRight}>
+              {isEditing ? (
+                <div className={classes.priceEditContainer}>
+                  <span className={classes.dollarSign}>$</span>
+                  <input
+                    type='number'
+                    value={editValues[`price_${price.id}`] || ''}
+                    onChange={(e) =>
+                      setEditValues({
+                        ...editValues,
+                        [`price_${price.id}`]: e.target.value
+                      })
+                    }
+                    step='0.01'
+                    className={classes.priceEditInput}
+                    autoFocus
+                  />
+                  <span className={classes.priceUnit}>/kg</span>
+                </div>
+              ) : (
+                <div className={classes.priceValue}>
+                  ${price.price.toFixed(2)}
+                  <span className={classes.priceUnit}>/kg</span>
+                </div>
+              )}
+              <div className={classes.priceCardActions}>
+                {isEditing ? (
+                  <>
+                    <button
+                      className={`${classes.iconButton} ${classes.saveButton}`}
+                      onClick={() => saveEditedPrice(price)}
+                      title='Kaydet'>
+                      <i className='pi pi-check'></i>
+                    </button>
+                    <button
+                      className={`${classes.iconButton} ${classes.cancelButton}`}
+                      onClick={cancelEditPrice}
+                      title='İptal'>
+                      <i className='pi pi-times'></i>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className={classes.iconButton}
+                      onClick={() => startEditPrice(price)}
+                      title='Düzenle'>
+                      <i className='pi pi-pencil'></i>
+                    </button>
+                    <button
+                      className={`${classes.iconButton} ${classes.deleteButton}`}
+                      onClick={() => handleDeletePrice(price)}
+                      title='Sil'>
+                      <i className='pi pi-trash'></i>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {price.density && (
+            <div className={classes.priceInfo}>
+              <div className={classes.densityInfo}>
+                <i className='pi pi-info-circle'></i>
+                Özkütle: {price.density.toFixed(2)} g/cm³
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
 
   return (
     <div className={classes.container}>
       <Toast ref={toast} />
       <ConfirmDialog />
 
-      <h1 className={classes.pageTitle}>⚙️ Parametre Düzenleme</h1>
+      {/* Header Section */}
+      <div className={classes.headerSection}>
+        <h1 className={classes.pageTitle}>⚙️ Parametre Düzenleme</h1>
+        <p className={classes.pageDescription}>
+          Malzeme tanımlarını ve fiyatlarını yönetin. Yaptığınız değişiklikler
+          analiz sistemine otomatik yansıtılır.
+        </p>
 
-      {/* ✅ YENİ - Cache Management Toolbar */}
-      <div className={classes.cardContainer}>
-        <Card>
-          <Toolbar
-            left={renderToolbarContent}
-            className="mb-3 w-100"
-            style={{ width: "100%" }}
-          />
-          <div className="bg-yellow-50 border-left-3 border-yellow-500 p-3 mb-3">
-            <div
-              className="flex align-items-center"
-              style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}
-            >
-              <i className="pi pi-info-circle text-yellow-500 mr-2"></i>
-              <div>
-                <strong>Cache Yenileme:</strong> Yeni malzeme ekledikten,
-                güncelleddikten veya sildikten sonra{" "}
-                <strong>"Cache Yenile"</strong> butonuna tıklayın. Bu sayede
-                malzeme analiz sistemi yeni malzemeleri hemen tanımaya başlar.
-                <br />
+        {/* Cache Management */}
+        <div className={classes.cacheManagement}>
+          <button
+            className={`${classes.cacheButton} ${
+              refreshingCache ? classes.cacheButtonLoading : ''
+            }`}
+            onClick={handleCacheRefresh}
+            disabled={refreshingCache}>
+            <i
+              className={`pi ${
+                refreshingCache ? 'pi-spin pi-spinner' : 'pi-refresh'
+              }`}></i>
+            {refreshingCache ? 'Yenileniyor...' : 'Cache Yenile'}
+          </button>
+          {lastCacheRefresh && (
+            <span className={classes.cacheInfo}>
+              Son yenileme: {lastCacheRefresh.toLocaleString('tr-TR')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content - Split Layout */}
+      <div className={classes.mainContent}>
+        {/* Left Panel - Forms */}
+        <div className={classes.leftPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📝 Malzeme İşlemleri</h3>
+            <p>Yeni malzeme ekleyin veya mevcut malzemelere alias tanımlayın</p>
+          </div>
+
+          {/* New Material Form */}
+          <div className={classes.formCard}>
+            <h4>🆕 Yeni Malzeme Ekle</h4>
+            <div className={classes.formFields}>
+              <div className={classes.fieldGroup}>
+                <label>
+                  Malzeme Adı <span className={classes.required}>*</span>
+                </label>
+                <input
+                  type='text'
+                  value={newMaterialName}
+                  onChange={(e) => setNewMaterialName(e.target.value)}
+                  placeholder='Örn: Alüminyum'
+                  className={classes.inputField}
+                />
               </div>
-            </div>
-          </div>
-        </Card>
-      </div>
 
-      {/* Alias Ekleme Kartı */}
-      <div className={classes.cardContainer}>
-        <Card title="Mevcut Malzemeye Alias Ekle">
-          <div className={`${classes.formGrid} grid-3`}>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="material-select">
-                Malzeme Seçin <span className="required">*</span>
-              </label>
-              <Dropdown
-                id="material-select"
-                value={selectedMaterial}
-                onChange={(e) => setSelectedMaterial(e.value)}
-                options={materialOptions}
-                placeholder="Malzeme Seçin"
-                className="w-full"
-              />
-            </div>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="aliases-input">
-                Alias (virgülle ayır) <span className="required">*</span>
-              </label>
-              <InputText
-                id="aliases-input"
-                value={newAliases}
-                onChange={(e) => setNewAliases(e.target.value)}
-                placeholder="Alias (virgülle ayır)"
-                className="w-full"
-              />
-            </div>
-            <Button
-              label="Alias Ekle"
-              onClick={handleAddAlias}
-              disabled={!selectedMaterial || !newAliases.trim()}
-              className={classes.responsiveButton}
-            />
-          </div>
-        </Card>
-      </div>
+              <div className={classes.fieldGroup}>
+                <label>Aliaslar</label>
+                <input
+                  type='text'
+                  value={newMaterialAliases}
+                  onChange={(e) => setNewMaterialAliases(e.target.value)}
+                  placeholder='Virgülle ayırın: AL, Aluminum'
+                  className={classes.inputField}
+                />
+              </div>
 
-      {/* Yeni Malzeme Ekleme Kartı */}
-      <div className={classes.cardContainer}>
-        <Card title="🆕 Yeni Malzeme Ekle">
-          <div className={`${classes.formGrid} grid-4`}>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="new-material-name">
-                Yeni Malzeme Adı <span className="required">*</span>
-              </label>
-              <InputText
-                id="new-material-name"
-                value={newMaterialName}
-                onChange={(e) => setNewMaterialName(e.target.value)}
-                placeholder="Yeni Malzeme Adı"
-                className="w-full"
-              />
-            </div>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="new-material-aliases">
-                Alias (virgülle ayır)
-              </label>
-              <InputText
-                id="new-material-aliases"
-                value={newMaterialAliases}
-                onChange={(e) => setNewMaterialAliases(e.target.value)}
-                placeholder="Alias (virgülle ayır)"
-                className="w-full"
-              />
-            </div>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="new-material-density">Özkütle (g/cm³)</label>
-              <InputText
-                id="new-material-density"
-                value={newMaterialDensity}
-                onChange={(e) => setNewMaterialDensity(e.target.value)}
-                placeholder="Özkütle"
-                type="number"
-                step="0.01"
-                className="w-full"
-              />
-            </div>
-            <Button
-              label="Ekle"
-              severity="success"
-              onClick={handleAddNewMaterial}
-              disabled={!newMaterialName.trim()}
-              className={classes.responsiveButton}
-            />
-          </div>
-        </Card>
-      </div>
+              <div className={classes.fieldGroup}>
+                <label>Özkütle (g/cm³)</label>
+                <input
+                  type='number'
+                  value={newMaterialDensity}
+                  onChange={(e) => setNewMaterialDensity(e.target.value)}
+                  placeholder='2.70'
+                  step='0.01'
+                  className={classes.inputField}
+                />
+              </div>
 
-      {/* Mevcut Malzemeler Tablosu */}
-      <div className={classes.cardContainer}>
-        <Card title="📋 Mevcut Malzemeler">
-          <div className={classes.tableWrapper}>
-            <DataTable
-              value={materials}
-              loading={loading}
-              paginator
-              rows={10}
-              emptyMessage="Henüz malzeme eklenmedi."
-              responsiveLayout="scroll"
-            >
-              <Column
-                field="id"
-                header="ID"
-                style={{ width: "80px" }}
-                className={classes.hideOnMobile}
-              />
-              <Column field="name" header="Malzeme Adı" />
-              <Column body={renderAliases} header="Alias'lar" />
-              <Column
-                field="density"
-                header="Özkütle"
-                style={{ width: "100px" }}
-                body={(rowData: Material) => rowData.density?.toFixed(2) || "-"}
-                className={classes.hideOnMobile}
-              />
-              <Column
-                field="price_per_kg"
-                header="Fiyat (USD/kg)"
-                style={{ width: "120px" }}
-                body={(rowData: Material) =>
-                  rowData.price_per_kg
-                    ? `${rowData.price_per_kg.toFixed(2)}`
-                    : "-"
-                }
-                className={classes.hideOnMobile}
-              />
-              <Column
-                body={renderActions}
-                header="İşlemler"
-                style={{ width: "120px" }}
-              />
-            </DataTable>
-            <div className={classes.scrollHint}>
-              💡 Tabloda kaydırarak tüm sütunları görebilirsiniz
+              <button
+                className={`${classes.submitButton} ${
+                  !newMaterialName.trim() ? classes.submitButtonDisabled : ''
+                }`}
+                onClick={handleAddNewMaterial}
+                disabled={!newMaterialName.trim()}>
+                <i className='pi pi-plus'></i> Malzeme Ekle
+              </button>
             </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Malzeme Fiyatları Kartı */}
-      <div className={classes.cardContainer}>
-        <Card title="💰 Malzeme KG Ücretleri (USD)">
-          <div
-            className={`${classes.formGrid} grid-3 ${classes.spacingMedium}`}
-          >
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="price-material-select">
-                Malzeme Seçin <span className="required">*</span>
-              </label>
-              <Dropdown
-                id="price-material-select"
-                value={selectedPriceMaterial}
-                onChange={(e) => setSelectedPriceMaterial(e.value)}
-                options={materialNameOptions}
-                placeholder="Malzeme Seçin"
-                className="w-full"
-              />
-            </div>
-            <div className={classes.fieldWrapper}>
-              <label htmlFor="material-price">
-                USD/kg <span className="required">*</span>
-              </label>
-              <InputText
-                id="material-price"
-                value={materialPrice}
-                onChange={(e) => setMaterialPrice(e.target.value)}
-                placeholder="USD/kg"
-                type="number"
-                step="0.01"
-                className="w-full"
-              />
-            </div>
-            <Button
-              label="Ekle / Güncelle"
-              severity="success"
-              onClick={handleAddMaterialPrice}
-              disabled={!selectedPriceMaterial || !materialPrice}
-              className={classes.responsiveButton}
-            />
           </div>
 
-          <div className={classes.tableWrapper}>
-            <DataTable
-              value={materialPrices}
-              emptyMessage="Henüz ücret bilgisi girilmedi."
-              paginator
-              rows={5}
-              responsiveLayout="scroll"
-            >
-              <Column field="material_name" header="Malzeme" />
-              <Column
-                field="price"
-                header="Ücret (USD/kg)"
-                body={(rowData: MaterialPrice) =>
-                  `${rowData.price?.toFixed(2) || "0.00"}`
-                }
-              />
-              <Column
-                field="density"
-                header="Özkütle (g/cm³)"
-                body={(rowData: MaterialPrice) =>
-                  rowData.density?.toFixed(2) || "-"
-                }
-                className={classes.hideOnMobile}
-              />
-              <Column
-                body={renderPriceActions}
-                header="İşlemler"
-                style={{ width: "120px" }}
-              />
-            </DataTable>
-            <div className={classes.scrollHint}>
-              💡 Tabloda kaydırarak tüm sütunları görebilirsiniz
+          {/* Add Alias Form */}
+          <div className={classes.formCard}>
+            <h4>🏷️ Alias Ekle</h4>
+            <div className={classes.formFields}>
+              <div className={classes.fieldGroup}>
+                <label>
+                  Malzeme Seçin <span className={classes.required}>*</span>
+                </label>
+                <Dropdown
+                  value={selectedMaterial}
+                  onChange={(e) => setSelectedMaterial(e.value)}
+                  options={materialOptions}
+                  placeholder='Malzeme seçin'
+                  className={classes.dropdownField}
+                  panelClassName={classes.dropdownPanel}
+                />
+              </div>
+
+              <div className={classes.fieldGroup}>
+                <label>
+                  Aliaslar <span className={classes.required}>*</span>
+                </label>
+                <input
+                  type='text'
+                  value={newAliases}
+                  onChange={(e) => setNewAliases(e.target.value)}
+                  placeholder='Virgülle ayırın'
+                  className={classes.inputField}
+                />
+              </div>
+
+              <button
+                className={`${classes.submitButton} ${
+                  !selectedMaterial || !newAliases.trim()
+                    ? classes.submitButtonDisabled
+                    : ''
+                }`}
+                onClick={handleAddAlias}
+                disabled={!selectedMaterial || !newAliases.trim()}>
+                <i className='pi pi-plus'></i> Alias Ekle
+              </button>
             </div>
           </div>
-        </Card>
-      </div>
 
-      {/* Malzeme Düzenleme Dialog */}
-      <Dialog
-        header="Malzeme Düzenle"
-        visible={editMaterialDialog}
-        className={classes.responsiveDialog}
-        onHide={() => setEditMaterialDialog(false)}
-      >
-        <div className={classes.dialogForm}>
-          <div className={classes.fieldWrapper}>
-            <label htmlFor="edit-name">
-              Malzeme Adı <span className="required">*</span>
-            </label>
-            <InputText
-              id="edit-name"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="w-full"
-            />
+          {/* Price Form */}
+          <div className={classes.formCard}>
+            <h4>💰 Fiyat Güncelle</h4>
+            <div className={classes.formFields}>
+              <div className={classes.fieldGroup}>
+                <label>
+                  Malzeme <span className={classes.required}>*</span>
+                </label>
+                <Dropdown
+                  value={selectedPriceMaterial}
+                  onChange={(e) => setSelectedPriceMaterial(e.value)}
+                  options={materialNameOptions}
+                  placeholder='Malzeme seçin'
+                  className={classes.dropdownField}
+                  panelClassName={classes.dropdownPanel}
+                />
+              </div>
+
+              <div className={classes.fieldGroup}>
+                <label>
+                  Fiyat (USD/kg) <span className={classes.required}>*</span>
+                </label>
+                <input
+                  type='number'
+                  value={materialPrice}
+                  onChange={(e) => setMaterialPrice(e.target.value)}
+                  placeholder='0.00'
+                  step='0.01'
+                  className={classes.inputField}
+                />
+              </div>
+
+              <button
+                className={`${classes.submitButton} ${
+                  !selectedPriceMaterial || !materialPrice
+                    ? classes.submitButtonDisabled
+                    : ''
+                }`}
+                onClick={handleAddMaterialPrice}
+                disabled={!selectedPriceMaterial || !materialPrice}>
+                <i className='pi pi-dollar'></i> Fiyat Güncelle
+              </button>
+            </div>
           </div>
-          <div className={classes.fieldWrapper}>
-            <label htmlFor="edit-density">Özkütle (g/cm³)</label>
-            <InputText
-              id="edit-density"
-              value={editDensity}
-              onChange={(e) => setEditDensity(e.target.value)}
-              type="number"
-              step="0.01"
-              className="w-full"
-            />
-          </div>
-          <div className={classes.dialogButtons}>
-            <Button
-              label="İptal"
-              severity="secondary"
-              outlined
-              onClick={() => setEditMaterialDialog(false)}
-              className={classes.responsiveButton}
-            />
-            <Button
-              label="Güncelle"
-              onClick={handleUpdateMaterial}
-              className={classes.responsiveButton}
-            />
+
+          {/* Info Panel */}
+          <div className={classes.infoPanel}>
+            <i className='pi pi-info-circle'></i>
+            <p>
+              <strong>Önemli:</strong> Malzeme değişikliklerinden sonra "Cache
+              Yenile" butonuna tıklayın. Bu sayede analiz sistemi yeni
+              malzemeleri tanımaya başlar.
+            </p>
           </div>
         </div>
-      </Dialog>
 
-      {/* Fiyat Düzenleme Dialog */}
-      <Dialog
-        header="Fiyat Düzenle"
-        visible={editPriceDialog}
-        className={classes.responsiveDialog}
-        onHide={() => setEditPriceDialog(false)}
-      >
-        <div className={classes.dialogForm}>
-          <div className={classes.fieldWrapper}>
-            <label htmlFor="edit-price">
-              Fiyat (USD/kg) <span className="required">*</span>
-            </label>
-            <InputText
-              id="edit-price"
-              value={editPriceValue}
-              onChange={(e) => setEditPriceValue(e.target.value)}
-              type="number"
-              step="0.01"
-              className="w-full"
-            />
+        {/* Right Panel - Lists */}
+        <div className={classes.rightPanel}>
+          {/* Tab Navigation */}
+          <div className={classes.tabNavigation}>
+            <button
+              className={`${classes.tabButton} ${
+                activeTab === 'materials' ? classes.tabButtonActive : ''
+              }`}
+              onClick={() => setActiveTab('materials')}>
+              📋 Malzemeler ({materials.length})
+            </button>
+            <button
+              className={`${classes.tabButton} ${
+                activeTab === 'prices' ? classes.tabButtonActive : ''
+              }`}
+              onClick={() => setActiveTab('prices')}>
+              💰 Fiyatlar ({materialPrices.length})
+            </button>
           </div>
-          <div className={classes.dialogButtons}>
-            <Button
-              label="İptal"
-              severity="secondary"
-              outlined
-              onClick={() => setEditPriceDialog(false)}
-              className={classes.responsiveButton}
-            />
-            <Button
-              label="Güncelle"
-              onClick={handleUpdatePrice}
-              className={classes.responsiveButton}
-            />
+
+          {/* Content Area */}
+          <div className={classes.contentArea}>
+            {loading ? (
+              <div className={classes.loadingState}>
+                <i
+                  className='pi pi-spin pi-spinner'
+                  style={{ fontSize: '2rem' }}></i>
+                <p>Yükleniyor...</p>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'materials' && (
+                  <div className={classes.cardGrid}>
+                    {materials.length === 0 ? (
+                      <div className={classes.emptyState}>
+                        <span className={classes.emptyIcon}>📦</span>
+                        <p>Henüz malzeme eklenmemiş</p>
+                        <p className={classes.emptySubtext}>
+                          Sol panelden yeni malzeme ekleyebilirsiniz
+                        </p>
+                      </div>
+                    ) : (
+                      renderMaterialCards()
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'prices' && (
+                  <div className={classes.priceGrid}>
+                    {materialPrices.length === 0 ? (
+                      <div className={classes.emptyState}>
+                        <span className={classes.emptyIcon}>💸</span>
+                        <p>Henüz fiyat bilgisi yok</p>
+                        <p className={classes.emptySubtext}>
+                          Sol panelden malzeme fiyatları ekleyebilirsiniz
+                        </p>
+                      </div>
+                    ) : (
+                      renderPriceCards()
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
-      </Dialog>
+      </div>
+
+      {/* Dialog'ları kaldırıyoruz çünkü artık inline düzenleme var */}
     </div>
   );
 };

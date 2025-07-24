@@ -1,612 +1,772 @@
-import { createUseStyles } from "react-jss";
+import { createUseStyles } from 'react-jss';
 
 export const DashboardPageStyles = createUseStyles({
   container: {
     display: 'flex',
     flexDirection: 'column',
-    rowGap: 0,
     width: '100%',
-    height: 'auto',
-    marginTop: 80,
-    padding: '0px 100px',
+    height: '100%',
     boxSizing: 'border-box',
+    overflow: 'hidden',
     '@media (max-width:1000px)': {
-      padding: '0px 12px',
-    },
+      marginTop: 60
+    }
   },
-  firstSection: {
+  headerSection: {
     display: 'flex',
     flexDirection: 'column',
-    width: '100%',
-    minHeight: 'calc(100vh - 80px)',
-    boxSizing: 'border-box',
-    rowGap: 32,
     alignItems: 'center',
-    justifyContent: 'start',
-    paddingTop: 32,
+    padding: '24px 32px',
+    backgroundColor: 'white',
+    borderBottom: '1px solid #e0e0e0',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
     '@media (max-width:1000px)': {
-      rowGap: 24,
-      paddingTop: 24,
-    },
+      padding: '16px'
+    }
   },
   backgroundLogo: {
-    height: 100,
+    height: 60,
     width: 'auto',
+    marginBottom: 16,
     '@media (max-width:1000px)': {
-      width: 250,
-      height: 'auto',
-    },
+      height: 40
+    }
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 600,
     color: '#181a25',
     textAlign: 'center',
-    margin: 0,
+    margin: '0 0 8px 0',
     '@media (max-width:1000px)': {
-      fontSize: 18,
-    },
+      fontSize: 16
+    }
   },
   exp: {
-    fontSize: "1rem",
+    fontSize: 14,
     color: '#55565d',
     textAlign: 'center',
     margin: 0,
+    maxWidth: 800,
+    lineHeight: 1.5,
     '@media (max-width:1000px)': {
-      fontSize: 12,
-      width: '100%',
-    },
-    '& span': {
-      fontStyle: 'italic',
-    },
+      fontSize: 12
+    }
   },
-  uploadSection: {
-    width: '100%',
-    height: 'auto',
-    boxSizing: 'border-box',
-    padding: 24,
-    backgroundColor: 'white',
-    borderRadius: 16,
+  mainContent: {
     display: 'flex',
-    flexDirection: 'column',
-    rowGap: 16,
+    flex: 1,
+    overflow: 'hidden',
+    '@media (max-width:1000px)': {
+      flexDirection: 'column'
+    }
+  },
+  leftPanel: {
+    width: '40%',
+    minWidth: 400,
+    maxWidth: 600,
+    backgroundColor: '#f8f9fa',
+    borderRight: '1px solid #e0e0e0',
+    overflow: 'auto',
+    padding: 24,
+    boxSizing: 'border-box',
+    '@media (max-width:1000px)': {
+      width: '100%',
+      minWidth: 'unset',
+      maxWidth: 'unset',
+      borderRight: 'none',
+      borderBottom: '1px solid #e0e0e0',
+      padding: 16,
+      maxHeight: '50vh'
+    }
+  },
+  rightPanel: {
+    flex: 1,
+    backgroundColor: 'white',
+    overflow: 'auto',
+    padding: 24,
+    boxSizing: 'border-box',
     '@media (max-width:1000px)': {
       padding: 16,
-      borderRadius: 12,
-      rowGap: 12,
+      minHeight: '50vh'
+    }
+  },
+  panelHeader: {
+    marginBottom: 24,
+    '& h3': {
+      fontSize: 18,
+      fontWeight: 600,
+      color: '#181a25',
+      margin: '0 0 8px 0'
     },
+    '& p': {
+      fontSize: 14,
+      color: '#55565d',
+      margin: 0
+    },
+    '@media (max-width:1000px)': {
+      marginBottom: 16,
+      '& h3': {
+        fontSize: 16
+      },
+      '& p': {
+        fontSize: 12
+      }
+    }
   },
-  fileSelection: {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 8,
-    boxSizing: 'border-box',
-    padding: 8,
-    width: '100%',
-    border: '1px solid #181a2520',
-    borderRadius: 4,
-    backgroundColor: '#181a2505',
-  },
-  fileSelectionButton: {
-    border: 'none',
-    backgroundColor: '#181a2520',
-    color: '#181a25',
-    padding: '4px 8px',
-    borderRadius: 4,
+  dropzone: {
+    border: '2px dashed #d0d0d0',
+    borderRadius: 12,
+    padding: 32,
+    textAlign: 'center',
     cursor: 'pointer',
-    fontSize: 14,
-    transition: 'background 0.2s',
+    transition: 'all 0.3s ease',
+    backgroundColor: 'white',
+    marginBottom: 16,
     '&:hover': {
-      backgroundColor: '#181a2530',
-    },
-    '&:active': {
-      backgroundColor: '#181a2540',
+      borderColor: '#195cd7',
+      backgroundColor: '#f0f7ff'
     },
     '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
+      padding: 24
+    }
   },
-  fileIcon: {
-    height: 24,
-    width: 24,
+  dropzoneActive: {
+    borderColor: '#195cd7',
+    backgroundColor: '#e6f2ff',
+    transform: 'scale(1.02)'
   },
-  fileSelectionText: {
-    fontSize: 14,
-    fontWeight: 400,
-    color: '#55565d',
-    margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
+  dropzoneContent: {
+    pointerEvents: 'none'
   },
-  uploadButton: {
-    border: 'none',
-    backgroundColor: '#195cd7',
-    color: 'white',
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: 12,
-    borderRadius: 4,
-    cursor: 'pointer',
-    transition: 'background 0.2s',
+  dropzoneIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+    display: 'block'
+  },
+  dropzoneText: {
     fontSize: 16,
     fontWeight: 500,
+    color: '#181a25',
+    marginBottom: 8,
+    '@media (max-width:1000px)': {
+      fontSize: 14
+    }
+  },
+  dropzoneSubtext: {
+    fontSize: 14,
+    color: '#55565d',
+    '@media (max-width:1000px)': {
+      fontSize: 12
+    }
+  },
+  dropzoneFileCount: {
+    fontSize: 14,
+    color: '#195cd7',
+    fontWeight: 500,
+    marginTop: 16,
+    padding: '8px 16px',
+    backgroundColor: '#e6f2ff',
+    borderRadius: 20,
+    display: 'inline-block'
+  },
+  matchInfo: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#e8f5e8',
+    borderRadius: 8,
+    border: '1px solid #4caf50'
+  },
+  matchInfoContent: {
+    fontSize: 14,
+    color: '#2e7d32',
+    '& ul': {
+      margin: '8px 0 0 20px',
+      fontSize: 12,
+      '& li': {
+        marginBottom: 4
+      }
+    },
+    '@media (max-width:1000px)': {
+      fontSize: 12,
+      '& ul': {
+        fontSize: 11
+      }
+    }
+  },
+  uploadButton: {
+    width: '100%',
+    padding: 12,
+    fontSize: 16,
+    fontWeight: 500,
+    color: 'white',
+    backgroundColor: '#195cd7',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    transition: 'background 0.3s',
+    marginBottom: 16,
     '&:hover': {
-      backgroundColor: '#1c67f0',
+      backgroundColor: '#1c67f0'
     },
     '&:active': {
-      backgroundColor: '#174bb5',
+      backgroundColor: '#174bb5'
     },
     '&:disabled': {
       backgroundColor: '#cccccc',
-      cursor: 'not-allowed',
+      cursor: 'not-allowed'
     },
     '@media (max-width:1000px)': {
       fontSize: 14,
-    },
+      padding: 10
+    }
   },
   processingInfo: {
     fontSize: 14,
-    fontWeight: 400,
     color: '#55565d',
     textAlign: 'center',
-    margin: 0,
+    marginBottom: 16,
+    '@media (max-width:1000px)': {
+      fontSize: 12
+    }
+  },
+  fileListSection: {
+    maxHeight: 'calc(100vh - 600px)',
+    overflow: 'auto',
+    marginBottom: 24,
+    '@media (max-width:1000px)': {
+      maxHeight: 200
+    }
   },
   uploadedItem: {
     width: '100%',
-    height: 'auto',
-    borderRadius: 4,
-    border: '1px solid #181a2520',
-    display: 'flex',
-    flexDirection: 'column',
-    rowGap: 16,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    padding: 24,
-    boxSizing: 'border-box',
-    '@media (max-width:1000px)': {
-      padding: 16,
-      rowGap: 12,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    border: '1px solid #e0e0e0',
+    padding: 16,
+    marginBottom: 12,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    transition: 'box-shadow 0.2s',
+    '&:hover': {
+      boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
     },
+    '@media (max-width:1000px)': {
+      padding: 12
+    }
   },
   uploadedItemFirstSection: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
+    marginBottom: 12
   },
   uploadedItemStatus: {
     display: 'flex',
-    flexDirection: 'row',
-    columnGap: 4,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: '2px 8px',
-    borderRadius: 4,
+    padding: '4px 12px',
+    borderRadius: 16,
+    fontSize: 12,
+    fontWeight: 500,
     '&.green': {
-      backgroundColor: '#179054',
+      backgroundColor: '#e8f5e8',
+      color: '#2e7d32'
     },
     '&.yellow': {
-      backgroundColor: '#ffbf0a',
+      backgroundColor: '#fff8e1',
+      color: '#f57c00'
     },
     '&.red': {
-      backgroundColor: '#dc3545',
+      backgroundColor: '#ffebee',
+      color: '#c62828'
     },
     '&.blue': {
-      backgroundColor: '#195cd7',
-    },
-  },
-  uploadedItemStatusIcon: {
-    '& [class*="fa"]': {
-      color: 'white',
+      backgroundColor: '#e3f2fd',
+      color: '#1565c0'
     }
   },
   uploadedItemStatusText: {
-    fontSize: 12,
-    fontWeight: 500,
-    color: 'white',
-    margin: 0,
+    margin: 0
   },
   progressContainer: {
     width: '100%',
-    backgroundColor: '#eef2f8',
-    borderRadius: 999,
-    height: 20,
-    position: 'relative',
+    height: '1rem',
+    backgroundColor: '#e0e0e0',
+    borderRadius: 3,
     overflow: 'hidden',
-    '@media (max-width:1000px)': {
-      height: 15,
-    },
+    marginBottom: 8
   },
   progressBar: {
     height: '100%',
-    background: 'linear-gradient(to right, #9cc5ff, #195cd7)',
-    borderRadius: 999,
-    position: 'relative',
+    backgroundColor: '#195cd7',
+    transition: 'width 0.3s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  progressText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: 500
+  },
+  excelOperations: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTop: '2px solid #e0e0e0'
+  },
+  exportSection: {
+    marginBottom: 24,
+    '& h4': {
+      fontSize: 16,
+      fontWeight: 600,
+      color: '#181a25',
+      marginBottom: 12
+    }
+  },
+  exportButton: {
+    width: '100%',
+    padding: 12,
+    fontSize: 14,
+    fontWeight: 500,
+    color: 'white',
+    backgroundColor: '#10b86b',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    transition: 'background 0.3s',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#181a25',
-    fontSize: 12,
-    fontWeight: 500,
-    transition: 'width 0.3s ease',
+    gap: 8,
+    '&:hover': {
+      backgroundColor: '#0ea760'
+    },
+    '&:disabled': {
+      backgroundColor: '#cccccc',
+      cursor: 'not-allowed'
+    },
+    '& img': {
+      width: 16,
+      height: 16
+    }
   },
-  progressText: {
-    zIndex: 1,
+  exportProgress: {
+    marginBottom: 12,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 10,
+    overflow: 'hidden'
+  },
+  exportProgressBar: {
+    height: '100%',
+    backgroundColor: '#10b86b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     color: 'white',
     fontSize: 12,
     fontWeight: 500,
+    transition: 'width 0.3s'
   },
-  line: {
-    width: '100%',
-    height: 2,
-    backgroundColor: '#181a2510',
-    marginTop: 32,
-    marginBottom: 32,
-    boxSizing: 'border-box',
-    '@media (max-width:1000px)': {
-      marginTop: 24,
-      marginBottom: 24,
+  mergeSection: {
+    '& h4': {
+      fontSize: 16,
+      fontWeight: 600,
+      color: '#181a25',
+      marginBottom: 12
+    }
+  },
+  excelFileSelection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    padding: 8,
+    backgroundColor: 'white',
+    border: '1px solid #e0e0e0',
+    borderRadius: 8
+  },
+  excelSelectButton: {
+    padding: '6px 12px',
+    fontSize: 14,
+    fontWeight: 500,
+    color: '#181a25',
+    backgroundColor: '#f0f0f0',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    transition: 'background 0.2s',
+    '&:hover': {
+      backgroundColor: '#e0e0e0'
     },
+    '&:disabled': {
+      opacity: 0.5,
+      cursor: 'not-allowed'
+    }
   },
-  analyseSection: {
+  excelFileName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#55565d',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  removeExcelButton: {
+    padding: '4px 8px',
+    fontSize: 12,
+    color: '#dc3545',
+    backgroundColor: 'transparent',
+    border: '1px solid #dc3545',
+    borderRadius: 4,
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    '&:hover': {
+      backgroundColor: '#dc3545',
+      color: 'white'
+    },
+    '&:disabled': {
+      opacity: 0.5,
+      cursor: 'not-allowed'
+    }
+  },
+  mergeButton: {
+    width: '100%',
+    padding: 12,
+    fontSize: 14,
+    fontWeight: 500,
+    color: 'white',
+    backgroundColor: '#ffbf0a',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    transition: 'background 0.3s',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    '&:hover': {
+      backgroundColor: '#e6ab00'
+    },
+    '&:disabled': {
+      backgroundColor: '#cccccc',
+      cursor: 'not-allowed'
+    },
+    '& img': {
+      width: 16,
+      height: 16
+    }
+  },
+  mergeProgress: {
+    marginBottom: 12,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 10,
+    overflow: 'hidden'
+  },
+  mergeProgressBar: {
+    height: '100%',
+    backgroundColor: '#ffbf0a',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 500,
+    transition: 'width 0.3s'
+  },
+  resultsSection: {
+    height: 'calc(100vh - 280px)',
+    overflow: 'auto',
+    '@media (max-width:1000px)': {
+      height: 'auto',
+      minHeight: 300
+    }
+  },
+  emptyResults: {
     display: 'flex',
     flexDirection: 'column',
-    rowGap: 32,
     alignItems: 'center',
-    '@media (max-width:1000px)': {
-      rowGap: 24,
-    },
+    justifyContent: 'center',
+    height: '100%',
+    minHeight: 400,
+    color: '#999'
   },
-  iconTextDiv: {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 8,
-    '@media (max-width:1000px)': {
-      columnGap: 4,
-    },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+    opacity: 0.5
   },
-  titleSmall: {
-    fontSize: 18,
-    color: '#181a25',
-    fontWeight: 500,
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
     textAlign: 'center',
-    margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 15,
-    },
+    marginTop: 8,
+    maxWidth: 300
   },
   analyseItem: {
     width: '100%',
-    height: '100%',
-    borderRadius: 4,
-    border: '1px solid #181a2520',
-    display: 'flex',
-    flexDirection: 'column',
-    rowGap: 0,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    border: '1px solid #e0e0e0',
+    marginBottom: 16,
+    overflow: 'hidden',
+    transition: 'all 0.3s',
+    '&:hover': {
+      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+    },
     '&.active': {
-      backgroundColor: '#195cd720',
-    },
-    '@media (max-width:1000px)': {
-      padding: 0,
-    },
+      border: '1px solid #195cd7',
+      boxShadow: '0 4px 12px rgba(25,92,215,0.15)'
+    }
   },
   analyseFirstSection: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
-    padding: 24,
-    boxSizing: 'border-box',
+    padding: 20,
     cursor: 'pointer',
-    '@media (max-width:1000px)': {
-      padding: 16,
+    transition: 'background 0.2s',
+    '&:hover': {
+      backgroundColor: '#f8f9fa'
     },
+    '@media (max-width:1000px)': {
+      padding: 16
+    }
   },
   analyseItemInsideDiv: {
-    backgroundColor: 'white',
-    display: 'flex',
-    width: '100%',
-    height: '100%',
-    flexDirection: 'column',
-    rowGap: 16,
-    boxSizing: 'border-box',
-    padding: 16,
-    overflow: 'auto',
-    borderRadius: 4,
-    '@media (max-width:1000px)': {
-      padding: 12,
-      rowGap: 12,
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    borderTop: '1px solid #e0e0e0',
+    '& [class*=analyseItemInsideDiv]': {
+      padding: '1rem 0'
     },
+    '@media (max-width:1000px)': {
+      padding: 16
+    }
   },
   analyseFirstDiv: {
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-evenly',
-    columnGap: 32,
-    width: '100%',
+    justifyContent: 'space-between',
+    gap: 32,
+    marginBottom: 24,
     '@media (max-width:1000px)': {
       flexDirection: 'column',
-      justifyContent: 'flex-start',
-      rowGap: 24,
-    },
+      gap: 24
+    }
   },
   analyseAlias: {
-    color: '#181a25',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 600,
-    backgroundColor: '#195cd710',
-    padding: 12,
+    color: '#181a25',
+    backgroundColor: '#195cd720',
+    padding: '12px 20px',
     borderRadius: 8,
-    width: 'fit-content',
     margin: 0,
+    whiteSpace: 'nowrap',
+    '@media (max-width:1000px)': {
+      fontSize: 14,
+      padding: '10px 16px'
+    }
   },
   modelDiv: {
     display: 'flex',
     flexDirection: 'column',
-    rowGap: 16,
     alignItems: 'center',
+    gap: 12
   },
   modelSection: {
     width: 200,
     height: 200,
     backgroundColor: 'white',
-    border: '1px solid #181a2520',
+    border: '1px solid #e0e0e0',
     borderRadius: 8,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
   },
   modelImage: {
     width: '100%',
-    height: 'auto',
-    borderRadius: 8,
-    objectFit: 'contain',
+    height: '100%',
+    objectFit: 'contain'
   },
   modelShowButton: {
-    padding: '12px 48px',
+    padding: '10px 24px',
     fontSize: 14,
     fontWeight: 500,
     color: '#195cd7',
     backgroundColor: '#195cd720',
-    borderRadius: 8,
-    transition: 'background 0.2s',
-    cursor: 'pointer',
     border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    transition: 'all 0.2s',
     '&:hover': {
       backgroundColor: '#195cd730',
-    },
-    '&:active': {
-      backgroundColor: '#195cd740',
-    },
+      transform: 'translateY(-1px)'
+    }
+  },
+  line: {
+    width: '100%',
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    margin: '24px 0'
+  },
+  titleSmall: {
+    fontSize: 16,
+    fontWeight: 600,
+    color: '#181a25',
+    margin: '0 0 16px 0',
+    '@media (max-width:1000px)': {
+      fontSize: 14
+    }
   },
   analyseSubtitleDiv: {
-    fontSize: 16,
-    fontWeight: 500,
-    color: '#181a25',
-    padding: 16,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
     backgroundColor: '#195cd710',
     borderRadius: 8,
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 8,
-    boxSizing: 'border-box',
-    marginTop: 12,
-    '@media (max-width:1000px)': {
-      fontSize: 14,
-      padding: 12,
+    marginBottom: 16,
+    '& span': {
+      fontSize: 20
     },
+    '& p': {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 500,
+      color: '#181a25'
+    },
+    '@media (max-width:1000px)': {
+      '& p': {
+        fontSize: 14
+      }
+    }
   },
   analyseInsideItem: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     alignItems: 'center',
-    rowGap: 0,
-    columnGap: 0,
-    boxSizing: 'border-box',
-    padding: '0 12px',
-    '@media (max-width:1000px)': {
-      gridTemplateColumns: '1fr 1fr',
-      rowGap: 12,
-      columnGap: 12,
-    },
+    padding: '12px 16px',
+    backgroundColor: 'white',
+    borderRadius: 6,
+    marginBottom: 8,
+    '&:last-child': {
+      marginBottom: 0
+    }
   },
   analyseItemTitle: {
     fontSize: 14,
     fontWeight: 600,
     color: '#181a25',
-    margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
+    margin: 0
   },
   analyseItemExp: {
     fontSize: 14,
-    fontWeight: 500,
+    fontWeight: 400,
     color: '#55565d',
     margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
+    textAlign: 'right'
   },
   lineAnalyseItem: {
+    display: 'none'
+  },
+  dimensionTable: {
     width: '100%',
-    height: 1,
-    backgroundColor: '#181a2520',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+  },
+  tableHeader: {
+    display: 'flex',
+    backgroundColor: '#f5f5f5',
+    fontWeight: 600,
+    fontSize: 14,
+    color: '#181a25'
+  },
+  tableRow: {
+    display: 'flex',
+    backgroundColor: 'white',
+    borderTop: '1px solid #e0e0e0',
+    '&:hover': {
+      backgroundColor: '#f8f9fa'
+    }
+  },
+  tableCell: {
+    flex: 1,
+    padding: '12px 16px',
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#55565d',
+    borderRight: '1px solid #e0e0e0',
+    '&:last-child': {
+      borderRight: 'none'
+    }
   },
   analyseMaterialDiv: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 1fr',
-    alignItems: 'center',
-    rowGap: 0,
-    columnGap: 0,
-    fontSize: 14,
-    fontWeight: 500,
-    color: '#181a25',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 16,
     padding: 16,
     backgroundColor: '#195cd710',
     borderRadius: 8,
-    width: '100%',
-    height: '100%',
+    marginBottom: 8,
     '@media (max-width:1000px)': {
-      display: 'inline-grid',
-      gridTemplateColumns: 'repeat(4, minmax(120px, 1fr))',
       overflowX: 'auto',
-      minWidth: 'max-content',
-    },
+      display: 'flex',
+      gap: 24
+    }
   },
   materialTitle: {
     fontSize: 14,
     fontWeight: 600,
     color: '#181a25',
     margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
+    whiteSpace: 'nowrap'
   },
   analyseMaterialExpDiv: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 1fr',
-    alignItems: 'center',
-    rowGap: 0,
-    columnGap: 0,
-    fontSize: 14,
-    fontWeight: 500,
-    color: '#181a25',
-    padding: '0 16px',
-    borderRadius: 8,
-    width: '100%',
-    height: '100%',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 16,
+    padding: '12px 16px',
+    backgroundColor: 'white',
+    borderRadius: 6,
+    marginBottom: 8,
     '@media (max-width:1000px)': {
-      display: 'inline-grid',
-      gridTemplateColumns: 'repeat(4, minmax(120px, 1fr))',
       overflowX: 'auto',
-      minWidth: 'max-content',
-    },
+      display: 'flex',
+      gap: 24
+    }
   },
   materialExp: {
     fontSize: 14,
-    fontWeight: 400,
     color: '#55565d',
     margin: 0,
-    '@media (max-width:1000px)': {
-      fontSize: 12,
-    },
-  },
-  analyseButton: {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    columnGap: 8,
-    width: 300,
-    height: 50,
-    border: 'none',
-    backgroundColor: '#10b86b',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 500,
-    color: 'white',
-    cursor: 'pointer',
-    transition: 'background 0.2s',
-    '&:hover': {
-      backgroundColor: '#10ae66',
-    },
-    '&:active': {
-      backgroundColor: '#15a161',
-    },
-    '@media (max-width:1000px)': {
-      width: '100%',
-      height: 40,
-      fontSize: 12,
-    },
-  },
-  excelButton: {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    columnGap: 8,
-    width: 300,
-    height: 50,
-    border: 'none',
-    backgroundColor: '#ffbf0a',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 500,
-    color: 'white',
-    cursor: 'pointer',
-    transition: 'background 0.2s',
-    '&:hover': {
-      backgroundColor: '#ffcd41',
-    },
-    '&:active': {
-      backgroundColor: '#ffda73',
-    },
-    '@media (max-width:1000px)': {
-      width: '100%',
-      height: 40,
-      fontSize: 12,
-    },
+    whiteSpace: 'nowrap'
   },
   hiddenFileInput: {
-    display: 'none',
+    display: 'none'
   },
   retryButton: {
-    backgroundColor: '#dc3545',
+    padding: '4px 12px',
+    fontSize: 12,
+    fontWeight: 500,
     color: 'white',
+    backgroundColor: '#dc3545',
     border: 'none',
-    padding: '8px 16px',
     borderRadius: 4,
     cursor: 'pointer',
-    fontSize: 12,
+    transition: 'background 0.2s',
     '&:hover': {
-      backgroundColor: '#c82333',
+      backgroundColor: '#c82333'
     },
-  },
-  loadingIcon: {
-    animation: '$spin 1s linear infinite',
-  },
-  '@keyframes spin': {
-    '0%': { transform: 'rotate(0deg)' },
-    '100%': { transform: 'rotate(360deg)' },
-  },
-  dimensionTable: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  
-  tableHeader: {
-    display: 'flex',
-    backgroundColor: '#f5f5f5',
-    fontWeight: 'bold',
-    borderBottom: '2px solid #ddd',
-  },
-  
-  tableRow: {
-    display: 'flex',
-    borderBottom: '1px solid #eee',
-    '&:hover': {
-      backgroundColor: '#f9f9f9',
-    },
-  },
-  
-  tableCell: {
-    flex: 1,
-    padding: '8px 12px',
-    textAlign: 'center',
-    borderRight: '1px solid #eee',
-    '&:last-child': {
-      borderRight: 'none',
-    },
-  },
+    '&:disabled': {
+      opacity: 0.5,
+      cursor: 'not-allowed'
+    }
+  }
 });
