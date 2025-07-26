@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 import traceback
+import numpy as np
 
 try:
     from striprtf.striprtf import rtf_to_text
@@ -223,7 +224,8 @@ class CMMParser:
             if STRIPRTF_AVAILABLE:
                 return rtf_to_text(content)
             else:
-                # Basit RTF temizleme
+                # Basit RTF temizleme (striprtf yoksa)
+                # RTF kontrol kodlarını kaldır
                 content = re.sub(r'\\[a-z]+\d*', '', content)
                 content = re.sub(r'[{}]', '', content)
                 return content
@@ -231,47 +233,72 @@ class CMMParser:
             print(f"RTF okuma hatası: {e}")
             return ""
     
+    def clean_text(self, text: str) -> str:
+        """Metni temizler ve normalize eder"""
+        # Fazla boşlukları temizle
+        text = re.sub(r'\s+', ' ', text)
+        # Özel karakterleri temizle
+        text = text.replace('\x00', '').replace('\r', '\n')
+        return text.strip()
+    
     def parse_file(self, file_path: str) -> List[CMMOlcum]:
         """Tek bir CMM dosyasını parse eder"""
         measurements = []
         
-        # Dosya adından operasyon belirle
+        # Dosya adından operasyon belirle - daha esnek yaklaşım
         filename = Path(file_path).stem
         operasyon = self._detect_operation(filename)
         
-        print(f"📂 İşlenen dosya: {filename}, Operasyon: {operasyon}")
+        print(f"DEBUG: İşlenen dosya: {filename}, Operasyon: {operasyon}")
         
         # RTF text'i çıkar
         text = self.extract_rtf_text(file_path)
         if not text:
             return measurements
         
-        # Sıra numaralarını bul
+        # Sıra numaralarını bul - üç farklı pattern ile
         sira_matches = self._find_measurement_numbers(text)
         
-        print(f"🔍 Bulunan ölçüm sayısı: {len(sira_matches)}")
+        print(f"DEBUG: Toplam eşleşme sayısı: {len(sira_matches)}")
         
-        # Her sıra numarası için bloğu işle
+        # Her sıra numarası için bloğu çıkar
         for i, match in enumerate(sira_matches):
             sira_no_str = self._process_measurement_number(match.group(1).strip())
             
-            # Blok sınırlarını belirle
-            start_pos = match.end()
-            end_pos = sira_matches[i + 1].start() if i + 1 < len(sira_matches) else len(text)
+            print(f"DEBUG: Raw: '{match.group(1).strip()}' → Processed: '{sira_no_str}'")
             
-            # Blok metnini çıkar ve işle
+            # Blok başlangıcı
+            start_pos = match.end()
+            
+            # Blok bitişi (bir sonraki sıra numarası veya dosya sonu)
+            if i + 1 < len(sira_matches):
+                end_pos = sira_matches[i + 1].start()
+            else:
+                end_pos = len(text)
+            
+            # Blok metnini çıkar
             block_text = text[start_pos:end_pos].strip()
+            
             if block_text:
-                block_measurements = self.parse_measurement_block(block_text, operasyon, sira_no_str)
+                print(f"DEBUG: ======== Sıra {sira_no_str} İŞLENİYOR ========")
+                print(f"DEBUG: Blok uzunluğu: {len(block_text)} karakter")
+                
+                block_measurements = self.parse_measurement_block_simple(block_text, operasyon, sira_no_str)
                 measurements.extend(block_measurements)
+                
+                print(f"DEBUG: ======== Sıra {sira_no_str} TAMAMLANDI ========")
+                print(f"DEBUG: Bu bloktan {len(block_measurements)} ölçüm eklendi")
+                print(f"DEBUG: Toplam ölçüm sayısı: {len(measurements)}")
+                print()
         
-        print(f"✅ Toplam ölçüm sayısı: {len(measurements)}")
+        print(f"DEBUG: Toplam ölçüm sayısı: {len(measurements)}")
         return measurements
     
     def _detect_operation(self, filename: str) -> str:
         """Dosya adından operasyon tespit et"""
         filename_upper = filename.upper()
         
+        # Önce standart formatları kontrol et
         if '1OP' in filename_upper:
             return '1OP'
         elif '2OP' in filename_upper:
@@ -279,15 +306,17 @@ class CMMParser:
         elif '3OP' in filename_upper:
             return '3OP'
         else:
-            return '1OP'  # Varsayılan
+            # Varsayılan olarak 1OP ata
+            print(f"DEBUG: Dosya adında operasyon bulunamadı, varsayılan '1OP' atandı")
+            return '1OP'
     
     def _find_measurement_numbers(self, text: str) -> List[re.Match]:
         """Metinde ölçüm numaralarını bul"""
-        # Üç farklı pattern dene
+        # Üç farklı regex pattern dene - TAM KAPSAMLI
         patterns = [
-            r'\*+\s+([0-9]+(?:-[A-Za-z0-9\s]+)?)\s+\*+',  # Boşluklu
-            r'\*+([0-9]+(?:-[A-Za-z0-9\s]+)?)\*+',        # Boşluksuz
-            r'\*+\s*([0-9]+)\s*\*+'                        # Esnek
+            r'\*+\s+([0-9]+(?:-[A-Za-z0-9\s]+)?)\s+\*+',  # Boşluklu format "**** 15 ****"
+            r'\*+([0-9]+(?:-[A-Za-z0-9\s]+)?)\*+',        # Boşluksuz format "*****17-PART*****"
+            r'\*+\s*([0-9]+)\s*\*+'                        # Tam esnek format
         ]
         
         all_matches = []
@@ -305,31 +334,36 @@ class CMMParser:
     
     def _process_measurement_number(self, sira_no_raw: str) -> str:
         """Sıra numarasını işle"""
+        # Sıra numarasını işle: sayı-metin ise sadece sayıyı al, sayı-sayı ise olduğu gibi bırak
         if '-' in sira_no_raw:
-            parts = sira_no_raw.split('-', 1)
+            parts = sira_no_raw.split('-', 1)  # Sadece ilk tire'de böl
             first_part = parts[0].strip()
             second_part = parts[1].strip()
             
+            # İkinci kısım sayı mı kontrol et
             try:
                 int(second_part)
-                # Aralık formatı (10-18)
-                return sira_no_raw.replace(' ', '')
+                # İkinci kısım da sayı, aralık formatı (10-18)
+                return sira_no_raw.replace(' ', '')  # Boşlukları kaldır
             except ValueError:
-                # Metin etiketi (16-WEB SURFACE)
+                # İkinci kısım metin, sadece ilk kısmı al (16-WEB SURFACE → 16)
                 return first_part
         else:
+            # Tire yok, normal sayı
             return sira_no_raw
     
-    def parse_measurement_block(self, block: str, operasyon: str, sira_no_str: str) -> List[CMMOlcum]:
-        """Ölçüm bloğunu parse et"""
+    def parse_measurement_block_simple(self, block: str, operasyon: str, sira_no_str: str) -> List[CMMOlcum]:
+        """Basitleştirilmiş blok parser - SURFACE profil birleştirme ile"""
         measurements = []
         lines = block.split('\n')
         
         current_dim = None
         current_desc = None
-        surface_profiles = []
-        has_surface = False
-        position_measurements = []
+        surface_profiles = []  # SURFACE profil ölçümlerini topla
+        has_surface = False  # Bu blokta SURFACE var mı kontrol et
+        position_measurements = []  # POSITION ölçümlerini topla
+        
+        print(f"DEBUG: Blok işleniyor, sıra: {sira_no_str}")
         
         for line in lines:
             line = line.strip()
@@ -341,71 +375,107 @@ class CMMParser:
             if dim_match:
                 current_dim = dim_match.group(1)
                 current_desc = dim_match.group(2).strip()
+                print(f"DEBUG: DIM bulundu: {current_dim} - {current_desc}")
                 
-                # SURFACE veya POSITION kontrolü
+                # SURFACE profili mi kontrol et
                 if 'SURFACE' in current_desc.upper() or 'PROFILE' in current_desc.upper():
                     has_surface = True
+                    print(f"DEBUG: SURFACE profili tespit edildi!")
                 
-                if 'POSITION' in current_desc.upper() and position_measurements:
-                    self._process_position_group(position_measurements, measurements)
-                    position_measurements = []
+                # POSITION ölçümü mü kontrol et
+                if 'POSITION' in current_desc.upper():
+                    # Yeni bir position grubu başlıyor, öncekini kaydet
+                    if position_measurements:
+                        self._process_position_group(position_measurements, measurements)
+                        position_measurements = []
                 
                 continue
             
-            # Veri satırlarını işle
+            # Veri satırları - Y, Z, X, A eksenlerini de dahil et
             if re.match(r'^[DRMTPZYXAF]+\s+', line):
-                measurement = self._parse_data_line(line, operasyon, sira_no_str, current_dim, current_desc)
-                if measurement:
-                    if current_desc and 'POSITION' in current_desc.upper():
+                print(f"DEBUG: Veri satırı yakalandı: {line[:50]}...")
+                
+                # POSITION ölçümleri için özel işlem
+                if current_desc and 'POSITION' in current_desc.upper():
+                    measurement = self._parse_data_line(line, operasyon, sira_no_str, current_dim, current_desc)
+                    if measurement:
                         position_measurements.append(measurement)
-                    elif current_desc and ('SURFACE' in current_desc.upper() or 'PROFILE' in current_desc.upper()):
+                        print(f"DEBUG: POSITION ölçümü toplandı: {measurement.eksen}")
+                # SURFACE profil ölçümleri için özel işlem
+                elif current_desc and ('SURFACE' in current_desc.upper() or 'PROFILE' in current_desc.upper()):
+                    measurement = self._parse_data_line(line, operasyon, sira_no_str, current_dim, current_desc)
+                    if measurement:
                         surface_profiles.append(measurement)
-                    else:
+                        print(f"DEBUG: SURFACE profil ölçümü toplandı: {measurement.boyut_adi}")
+                else:
+                    # Normal ölçümler
+                    measurement = self._parse_data_line(line, operasyon, sira_no_str, current_dim, current_desc)
+                    if measurement:
                         measurements.append(measurement)
+                        print(f"DEBUG: Normal ölçüm eklendi: {measurement.boyut_adi}")
         
         # Son position grubunu işle
         if position_measurements:
             self._process_position_group(position_measurements, measurements)
         
-        # SURFACE profilleri birleştir
+        # SURFACE profil ölçümlerini birleştir - sadece gerçek SURFACE bloğunda
         if surface_profiles and has_surface:
+            # Sadece M eksenli SURFACE profilleri birleştir
             m_surface_profiles = [p for p in surface_profiles if p.eksen == 'M']
             other_profiles = [p for p in surface_profiles if p.eksen != 'M']
             
             if m_surface_profiles:
-                combined = self._combine_surface_profiles(m_surface_profiles, sira_no_str, operasyon)
-                if combined:
-                    measurements.append(combined)
+                combined_measurement = self._combine_surface_profiles(m_surface_profiles, sira_no_str, operasyon)
+                if combined_measurement:
+                    measurements.append(combined_measurement)
+                    print(f"DEBUG: {len(m_surface_profiles)} M eksenli SURFACE profil ölçümü birleştirildi - Sıra: {sira_no_str}")
             
-            measurements.extend(other_profiles)
+            # M ekseni olmayan profilleri ayrı ekle
+            if other_profiles:
+                measurements.extend(other_profiles)
+                print(f"DEBUG: {len(other_profiles)} non-M SURFACE profili ayrı eklendi")
         elif surface_profiles:
+            # Eğer surface_profiles var ama has_surface False ise, normal olarak ekle
             measurements.extend(surface_profiles)
+            print(f"DEBUG: SURFACE profilleri normal olarak eklendi")
         
+        print(f"DEBUG: Blok tamamlandı, Sıra: {sira_no_str}, Toplam ölçüm: {len(measurements)}")
         return measurements
     
     def _process_position_group(self, position_measurements: List[CMMOlcum], measurements: List[CMMOlcum]):
-        """POSITION ölçüm grubunu işle"""
+        """POSITION ölçüm grubunu işle - sadece DF ve TP satırlarını ekle"""
+        # X, Y, Z koordinat satırlarını FAI'dan hariç tut
         for m in position_measurements:
             if m.eksen in ['X', 'Y', 'Z']:
                 m.exclude_from_fai = True
             measurements.append(m)
+        
+        print(f"DEBUG: POSITION grubu işlendi, {len(position_measurements)} ölçüm ({sum(1 for m in position_measurements if m.exclude_from_fai)} tanesi FAI'dan hariç)")
     
     def _combine_surface_profiles(self, profiles: List[CMMOlcum], sira_no_str: str, operasyon: str) -> Optional[CMMOlcum]:
-        """SURFACE profil ölçümlerini birleştir"""
+        """Birden fazla SURFACE profil ölçümünü birleştirir"""
         if not profiles:
             return None
         
+        # Tüm ölçülen değerleri topla
         measured_values = [float(p.olculen) for p in profiles]
         min_val = min(measured_values)
         max_val = max(measured_values)
         
-        if abs(min_val - max_val) < 0.001:
+        print(f"DEBUG: SURFACE profil değerleri: {measured_values}")
+        print(f"DEBUG: Min: {min_val}, Max: {max_val}")
+        
+        # Min/Max formatında sonuç oluştur - YUVARLAMA YOK!
+        if abs(min_val - max_val) < 0.001:  # Aynı değerler
             combined_result = str(min_val).rstrip('0').rstrip('.')
         else:
             min_str = str(min_val).rstrip('0').rstrip('.')
             max_str = str(max_val).rstrip('0').rstrip('.')
             combined_result = f"{min_str} / {max_str}"
         
+        print(f"DEBUG: Birleştirilmiş sonuç: {combined_result}")
+        
+        # İlk profili temel alarak birleştirilmiş ölçüm oluştur
         base_profile = profiles[0]
         
         return CMMOlcum(
@@ -415,7 +485,7 @@ class CMMParser:
             aciklama="PROFILE OF SURFACE (Combined)",
             eksen="M",
             nominal=base_profile.nominal,
-            olculen=combined_result,
+            olculen=combined_result,  # Min/Max string formatında sakla
             pos_tolerans=base_profile.pos_tolerans,
             neg_tolerans=base_profile.neg_tolerans,
             sapma=base_profile.sapma,
@@ -425,7 +495,7 @@ class CMMParser:
         )
     
     def _parse_data_line(self, line: str, operasyon: str, sira_no_str: str, dim_name: str, description: str) -> Optional[CMMOlcum]:
-        """Veri satırını parse et"""
+        """Tek bir veri satırını parse eder - A ekseni desteği ile"""
         parts = line.split()
         if len(parts) < 3:
             return None
@@ -433,17 +503,17 @@ class CMMParser:
         try:
             eksen = parts[0]
             
-            # Nominal değer
+            # Nominal
             nominal_str = parts[1]
             if nominal_str in ["RFS", "MMC", "LMC"]:
                 nominal = 0.0
             else:
                 nominal = float(nominal_str)
             
-            # Ölçülen değer
+            # Ölçülen
             olculen = float(parts[2])
             
-            # Toleranslar ve diğer değerler
+            # Toleranslar (varsa)
             pos_tol = None
             neg_tol = None
             bonus = None
@@ -452,13 +522,19 @@ class CMMParser:
             
             # TP satırı için özel parsing
             if eksen == "TP":
-                if len(parts) >= 6:
-                    pos_tol = float(parts[3]) if parts[3] != '' else None
-                    bonus = float(parts[5]) if parts[5] != '' else None
-                    sapma = float(parts[6]) if parts[6] != '' else 0.0
-                    tolerans_disi = float(parts[7]) if len(parts) >= 8 and parts[7] != '' else 0.0
+                print(f"DEBUG: TP satırı parse ediliyor: {line}")
+                try:
+                    # TP RFS 0.081 0.200 0.000 0.081 0.000
+                    if len(parts) >= 6:
+                        pos_tol = float(parts[3]) if parts[3] != '' else None  # Tolerans
+                        bonus = float(parts[5]) if parts[5] != '' else None    # Bonus
+                        sapma = float(parts[6]) if parts[6] != '' else 0.0     # Sapma (DEV)
+                        tolerans_disi = float(parts[7]) if len(parts) >= 8 and parts[7] != '' else 0.0  # OUTTOL
+                        print(f"DEBUG: TP parse - tol:{pos_tol}, bonus:{bonus}, sapma:{sapma}, outtol:{tolerans_disi}")
+                except (ValueError, IndexError) as e:
+                    print(f"DEBUG: TP parse hatası: {e}")
             else:
-                # Normal satırlar
+                # Normal satırlar için (D, R, M, DF, A) - X,Y,Z dahil
                 if len(parts) >= 5:
                     try:
                         pos_tol = float(parts[3]) if parts[3] != '' else None
@@ -466,12 +542,14 @@ class CMMParser:
                     except ValueError:
                         pass
                 
-                # Sapma ve tolerans dışı değerleri bul
+                # Sapma değerini bul (DEV sütunu - genelde sonlarda)
                 for i, part in enumerate(parts):
                     try:
                         val = float(part)
+                        # Sapma değeri (küçük pozitif/negatif değerler)
                         if i >= 5 and abs(val) < 1.0 and val != nominal and val != olculen:
                             sapma = val
+                        # Tolerans dışı (genelde 0.000)
                         if i >= 6 and val == 0.0:
                             tolerans_disi = val
                             break
@@ -510,7 +588,7 @@ class CMMParser:
             )
         
         except (ValueError, IndexError) as e:
-            print(f"⚠️ Veri satırı parse hatası: {e} - {line}")
+            print(f"DEBUG: Veri satırı parse hatası: {e} - {line}")
             return None
     
     def parse_multiple_files(self, file_paths: List[str]) -> List[CMMOlcum]:
@@ -519,28 +597,89 @@ class CMMParser:
         
         for file_path in file_paths:
             try:
+                print(f"\n🔄 İşleniyor: {file_path}")
                 measurements = self.parse_file(file_path)
                 all_measurements.extend(measurements)
-                print(f"✅ {os.path.basename(file_path)}: {len(measurements)} ölçüm işlendi")
+                print(f"✅ {file_path}: {len(measurements)} ölçüm işlendi")
+                
+                # Her dosya için ölçüm detaylarını göster
+                for m in measurements:
+                    print(f"   📊 Ölçüm No: {m.sira_no}, Boyut: {m.boyut_adi}, Eksen: {m.eksen}")
+                    
             except Exception as e:
                 print(f"❌ {file_path}: Hata - {e}")
+                import traceback
                 traceback.print_exc()
         
-        print(f"📊 TOPLAM: {len(all_measurements)} ölçüm")
+        print(f"\n📈 TOPLAM: {len(all_measurements)} ölçüm")
         return all_measurements
 
 class CMMExcelExporter:
     """CMM verilerini Excel'e dönüştüren sınıf"""
     
+    def __init__(self):
+        pass
+    
+    def to_dataframe(self, measurements: List[CMMOlcum]) -> pd.DataFrame:
+        """CMMOlcum listesini DataFrame'e dönüştürür"""
+        data = []
+        for m in measurements:
+            data.append({
+                'Operasyon': m.operasyon,
+                'Ölçüm No': m.sira_no,
+                'Boyut Adı': m.boyut_adi,
+                'Açıklama': m.aciklama,
+                'Eksen': m.eksen,
+                'Nominal': m.nominal,
+                'Ölçülen': m.olculen,
+                '+Tolerans': m.pos_tolerans,
+                '-Tolerans': m.neg_tolerans,
+                'Sapma': m.sapma,
+                'Tolerans Dışı': m.tolerans_disi,
+                'Bonus': m.bonus,
+                'Durum': m.durum,
+                'FAI Hariç': m.exclude_from_fai  # FAI hariç tutma bilgisi
+            })
+        
+        df = pd.DataFrame(data)
+        
+        # Duplicate satırları kaldır
+        df = df.drop_duplicates()
+        
+        # Operasyon ve ölçüm numarasına göre sırala
+        # 1OP -> 1, 2OP -> 2 şeklinde sıralama
+        op_mapping = {'1OP': 1, '2OP': 2, 'UNKNOWN': 3}
+        df['op_order'] = df['Operasyon'].map(op_mapping)
+        
+        # Sıralama fonksiyonu - 10-18 formatı için
+        def get_sort_key(sira_no_str):
+            if '-' in str(sira_no_str):
+                return int(str(sira_no_str).split('-')[0])
+            else:
+                return int(sira_no_str)
+        
+        df['sort_key'] = df['Ölçüm No'].apply(get_sort_key)
+        
+        # Sıralama: Operasyon önce, sonra ölçüm no
+        df = df.sort_values(['op_order', 'sort_key', 'Boyut Adı'], ascending=[True, True, True])
+        
+        # Geçici sütunları kaldır ve index sıfırla
+        df = df.drop(['op_order', 'sort_key'], axis=1).reset_index(drop=True)
+        
+        print(f"DEBUG: DataFrame oluşturuldu, {len(df)} satır")
+        print(f"DEBUG: Operasyonlar: {df['Operasyon'].unique()}")
+        print(f"DEBUG: Ölçüm numaraları: {sorted(df['Ölçüm No'].unique(), key=get_sort_key)}")
+        
+        return df
+    
     def export_cleaned_data_to_excel(self, cleaned_data: List[Dict], output_path: str) -> bool:
-        """Temizlenmiş veriyi Excel'e dönüştür"""
-        import numpy as np
+        """Temizlenmiş JSON verisini Excel'e dönüştürür"""
         
         try:
-            # DataFrame oluştur
+            # Dict'ten DataFrame oluştur
             df = pd.DataFrame(cleaned_data)
             
-            # NaN değerleri temizle
+            # NaN ve problematik değerleri temizle
             def clean_value(val):
                 if pd.isna(val) or val is None:
                     return ''
@@ -549,6 +688,7 @@ class CMMExcelExporter:
                 else:
                     return val
             
+            # Tüm değerleri temizle
             for col in df.columns:
                 df[col] = df[col].apply(clean_value)
             
@@ -570,16 +710,21 @@ class CMMExcelExporter:
                 'exclude_from_fai': 'FAI Hariç'
             })
             
+            print(f"📋 Excel DataFrame hazırlandı:")
+            print(f"   Satır sayısı: {len(df)}")
+            print(f"   Operasyonlar: {df['Operasyon'].unique()}")
+            print(f"   Ölçüm numaraları: {sorted(df['Ölçüm No'].unique())}")
+            
             # Excel yazıcı oluştur
             with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
                 # Ana veri sayfası
                 df.to_excel(writer, sheet_name='CMM_Verileri', index=False)
                 
-                # Formatları uygula
+                # Workbook ve worksheet objelerini al
                 workbook = writer.book
                 worksheet = writer.sheets['CMM_Verileri']
                 
-                # Header formatı
+                # Formatları tanımla
                 header_format = workbook.add_format({
                     'bold': True,
                     'text_wrap': True,
@@ -588,13 +733,23 @@ class CMMExcelExporter:
                     'border': 1
                 })
                 
-                # TP satır formatı
+                good_format = workbook.add_format({
+                    'bg_color': '#C6EFCE',
+                    'font_color': '#006100'
+                })
+                
+                warning_format = workbook.add_format({
+                    'bg_color': '#FFC7CE',
+                    'font_color': '#9C0006'
+                })
+                
+                # TP satırları için özel format
                 tp_format = workbook.add_format({
                     'bg_color': '#E1D5E7',
                     'font_color': '#5B2C6F'
                 })
                 
-                # Sütun genişlikleri
+                # Sütun genişliklerini ayarla
                 worksheet.set_column('A:A', 12)  # Operasyon
                 worksheet.set_column('B:B', 10)  # Ölçüm No
                 worksheet.set_column('C:C', 15)  # Boyut Adı
@@ -606,19 +761,23 @@ class CMMExcelExporter:
                 for col_num, value in enumerate(df.columns.values):
                     worksheet.write(0, col_num, value, header_format)
                 
-                # TP satırlarını renklendir
+                # Sadece TP satırlarını renklendir
                 for row_num in range(1, len(df) + 1):
                     eksen = df.iloc[row_num-1]['Eksen']
+                    
+                    # Sadece TP satırları için özel renk
                     if eksen == 'TP':
                         for col_num in range(len(df.columns)):
                             cell_value = df.iloc[row_num-1, col_num]
+                            # Güvenli yazma
                             try:
                                 worksheet.write(row_num, col_num, cell_value, tp_format)
                             except:
+                                # Hata varsa boş string yaz
                                 worksheet.write(row_num, col_num, '', tp_format)
                 
                 # Özet sayfa ekle
-                self._add_summary_sheet(writer, df, workbook)
+                self._add_summary_sheet_from_dict(writer, df, workbook)
                 
                 # FAI Form 3 sayfası ekle
                 self._add_fai_form3_sheet(writer, df, workbook)
@@ -628,41 +787,13 @@ class CMMExcelExporter:
             
         except Exception as e:
             print(f"❌ Excel export hatası: {e}")
+            import traceback
             traceback.print_exc()
             return False
     
-    def _add_summary_sheet(self, writer, df: pd.DataFrame, workbook):
-        """Özet sayfası ekle"""
-        summary_data = {
-            'Metrik': [
-                'Toplam Ölçüm',
-                'Başarılı Ölçüm',
-                'Uyarı Gerekli',
-                'Operasyon 1OP',
-                'Operasyon 2OP',
-                'Farklı Ölçüm Numarası',
-                'FAI Hariç Tutulan'
-            ],
-            'Değer': [
-                len(df),
-                len(df[df['Durum'] == '✓']),
-                len(df[df['Durum'] == '⚠']),
-                len(df[df['Operasyon'] == '1OP']),
-                len(df[df['Operasyon'] == '2OP']),
-                len(df['Ölçüm No'].unique()),
-                len(df[df['FAI Hariç'] == True])
-            ]
-        }
-        
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Özet', index=False)
-        
-        summary_ws = writer.sheets['Özet']
-        summary_ws.set_column('A:A', 20)
-        summary_ws.set_column('B:B', 15)
-    
     def _add_fai_form3_sheet(self, writer, df: pd.DataFrame, workbook):
-        """FAI Form 3 sayfası ekle"""
+        """FAI Form 3 sayfası ekler - Position ve Min/Max desteği ile"""
+        
         # FAI'dan hariç tutulan satırları filtrele
         df_fai = df[df['FAI Hariç'] != True].copy()
         
@@ -728,9 +859,9 @@ class CMMExcelExporter:
             'border': 1
         })
         
-        # Sütun genişlikleri
+        # Sütun genişlikleri (ek bilgi sütunu ile)
         fai_ws.set_column('A:A', 6)   # Krk No
-        fai_ws.set_column('B:B', 10)  # Ek Bilgi
+        fai_ws.set_column('B:B', 10)  # Ek Bilgi (LOC3, CIR6 vs)
         fai_ws.set_column('C:C', 12)  # Ref Bölge
         fai_ws.set_column('D:D', 18)  # Karakter Özelliği
         fai_ws.set_column('E:E', 12)  # Gerek/Ölçü
@@ -744,31 +875,38 @@ class CMMExcelExporter:
         fai_ws.set_column('M:M', 15)  # Ek Veriler
         fai_ws.set_column('N:N', 15)  # Ek Veriler devam
         
-        # Başlık
+        # Satır yükseklikleri
+        fai_ws.set_row(0, 25)
+        fai_ws.set_row(2, 30)
+        fai_ws.set_row(3, 25)
+        fai_ws.set_row(5, 20)
+        fai_ws.set_row(6, 30)
+        
+        # Başlık - 1. satır
         fai_ws.merge_range('D1:N1', 'İLK ÜRÜN MUAYENESİ\nFIRST ARTICLE INSPECTION (FAI)', title_format)
         fai_ws.write('N1', 'Doküman No:ENG-KT-FR-44\nİlk Yayın Tarihi: 26.06.2024\nRevizyon No: 01\nRevizyon Tarihi:06.09.2024', doc_format)
         
-        # Alt başlık
+        # Alt başlık - 3. satır
         fai_ws.merge_range('A3:N3', 'Karakteristik Nitelikler, Doğrulama ve Uygunluk Değerlendirmesi Formu\nCharacteristic Accountability, Verification and Compatibility Evaluation\nSAE AS9102 Revision C', section_header_format)
         
-        # Parça bilgileri başlıkları
+        # Parça bilgileri başlıkları - 4. satır
         fai_ws.merge_range('A4:C4', '1. Parça Numarası\n     Part Number', part_header_format)
         fai_ws.merge_range('D4:J4', '2. Parça Tanımı\n     Part Name', part_header_format)
         fai_ws.merge_range('K4:L4', '3. Seri No.\n     Serial Number', part_header_format)
         fai_ws.merge_range('M4:N4', '4. FAI Rapor No.\n     FAIR Identifier', part_header_format)
         
-        # Parça bilgileri verileri
+        # Parça bilgileri verileri - 5. satır
         fai_ws.merge_range('A5:C5', 'MM-7570-1828', part_data_format)
         fai_ws.merge_range('D5:J5', 'KILAVUZ CL/KFY ORTA MAYON CIKIS ESB SOL', part_data_format)
         fai_ws.merge_range('K5:L5', 'FAI', part_data_format)
         fai_ws.merge_range('M5:N5', 'MM-7570-1828;241122', part_data_format)
         
-        # Ana bölüm başlıkları
+        # Ana bölüm başlıkları - 6. satır
         fai_ws.merge_range('A6:F6', 'Karakteristik Nitelikler\nCharacteristic Accountability', section_header_format)
         fai_ws.merge_range('G6:L6', 'Muayene / Test Sonuçları\nInspection / Test Results', section_header_format)
         fai_ws.merge_range('M6:N6', '12. Ek Veriler / Yorumlar\n Additional Data / Comments', section_header_format)
         
-        # Sütun başlıkları
+        # Sütun başlıkları - 7. satır (ek bilgi sütunu ile)
         fai_ws.write('A7', '5. Krk. No.\n    Char No.', column_header_format)
         fai_ws.write('B7', '6. Ek Bilgi\nExtra Info', column_header_format)
         fai_ws.write('C7', '7.Dokümandaki Ref.Bölge\nReference Location', column_header_format)
@@ -779,10 +917,14 @@ class CMMExcelExporter:
         fai_ws.merge_range('K7:L7', '12. Uygunsuzluk Bildirim No.\nNon-Conformance Number', column_header_format)
         fai_ws.merge_range('M7:N7', '13. Ek Veriler / Yorumlar\n Additional Data / Comments', column_header_format)
         
-        # Veri satırlarını yaz
+        # Boş satır - 8
+        for col in range(15):
+            fai_ws.write(7, col, '', data_format)
+        
+        # Veri satırları - Alt numaralama ile
         start_row = 8
         
-        # Alt numaralama hesaplamaları
+        # Aynı ölçüm numarası için sub-numbering hesapla
         measurement_counts = {}
         for idx, row in df_fai.iterrows():
             olcum_no = row['Ölçüm No']
@@ -791,15 +933,18 @@ class CMMExcelExporter:
             else:
                 measurement_counts[olcum_no] = 1
         
+        # Her ölçüm numarası için sayaç
         current_counts = {}
-        position_values = {}
         
-        # Position değerlerini topla
+        # Position ölçümleri için min/max değerleri topla
+        position_values = {}  # {(olcum_no, loc_name, measurement_type): [values]}
+        
         for idx, row in df_fai.iterrows():
             olcum_no = row['Ölçüm No']
             boyut_adi = row['Boyut Adı']
             eksen = row['Eksen']
             
+            # Position ölçümü için DF ve TP değerlerini topla
             if 'LOC' in str(boyut_adi) and eksen in ['DF', 'TP']:
                 loc_name = str(boyut_adi).split('_')[0] if '_' in str(boyut_adi) else str(boyut_adi)
                 key = (olcum_no, loc_name, eksen)
@@ -811,157 +956,276 @@ class CMMExcelExporter:
         fai_row_index = 0
         for idx, row in df_fai.iterrows():
             current_row = start_row + fai_row_index
+            olcum_no = row['Ölçüm No']
             
-            # Format ve değerleri hazırla
-            krk_no_formatted = self._format_krk_no(row, measurement_counts, current_counts)
-            ek_bilgi = self._extract_ek_bilgi(row['Boyut Adı'])
-            ozellik = self._determine_karakter_ozellik(row)
-            gerek_olcu = self._format_gerek_olcu(row)
-            requirement = self._format_requirement(row, ozellik)
-            sonuc_str = self._format_sonuc(row, position_values)
+            # Sub-numbering hesapla
+            if olcum_no in current_counts:
+                current_counts[olcum_no] += 1
+            else:
+                current_counts[olcum_no] = 1
             
-            # Satırı yaz
-            fai_ws.write(current_row, 0, krk_no_formatted, data_format)
-            fai_ws.write(current_row, 1, ek_bilgi, data_format)
-            fai_ws.write(current_row, 2, 'N/A', data_format)
-            fai_ws.write(current_row, 3, ozellik, data_format)
-            fai_ws.write(current_row, 4, gerek_olcu, data_format)
-            fai_ws.write(current_row, 5, requirement, data_format)
-            fai_ws.write(current_row, 6, sonuc_str, data_format)
-            fai_ws.write(current_row, 7, '', data_format)
-            fai_ws.write(current_row, 8, '', data_format)
-            fai_ws.write(current_row, 9, 'CMM-001', data_format)
-            fai_ws.write(current_row, 10, '', data_format)
-            fai_ws.write(current_row, 11, '', data_format)
-            fai_ws.write(current_row, 12, '', data_format)
-            fai_ws.write(current_row, 13, '', data_format)
+            # Krk No formatını belirle
+            if measurement_counts[olcum_no] > 1:
+                # Birden fazla ölçüm varsa alt numara ekle
+                krk_no_formatted = f"{olcum_no}.{current_counts[olcum_no]}"
+            else:
+                # Tek ölçüm varsa sadece numara
+                krk_no_formatted = str(olcum_no)
+            
+            # Ek bilgi çıkar (LOC3, CIR6 vs)
+            boyut_adi = row['Boyut Adı']
+            ek_bilgi = ""
+            if '_' in str(boyut_adi):
+                # DIM3_TP -> DIM3 ve TP ayrımı
+                boyut_parts = str(boyut_adi).split('_')
+                if len(boyut_parts) >= 2:
+                    base_dim = boyut_parts[0]  # DIM3, LOC3 vs
+                    # LOC3, CIR6, ANGL1 gibi bilgileri çıkar
+                    if base_dim.startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL')):
+                        ek_bilgi = base_dim
+            elif str(boyut_adi).startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL')):
+                ek_bilgi = str(boyut_adi)
+            
+            # Karakter özelliği belirle (Türkçe terimler)
+            eksen = row['Eksen']
+            aciklama = str(row['Açıklama'])
+            
+            if 'SURFACE' in aciklama.upper() or 'PROFILE' in aciklama.upper():
+                ozellik = 'PROFİL'
+            elif 'POSITION' in aciklama.upper() or eksen == 'TP':
+                ozellik = 'KONUM'
+            elif 'FLATNESS' in aciklama.upper():
+                ozellik = 'DÜZLEMSELLİK'
+            elif 'PARALLELISM' in aciklama.upper():
+                ozellik = 'PARALELLİK'
+            elif 'PERPENDICULARITY' in aciklama.upper():
+                ozellik = 'DİKLİK'
+            elif 'DISTANCE' in aciklama.upper():
+                ozellik = 'MESAFE'
+            elif 'ANGLE' in aciklama.upper() or eksen == 'A':
+                ozellik = 'AÇI'
+            elif 'LOCATION' in aciklama.upper():
+                if eksen == 'D':
+                    ozellik = 'ÇAP'
+                elif eksen == 'R':
+                    ozellik = 'YARIÇAP'
+                else:
+                    ozellik = 'KONUM'
+            else:
+                ozellik = str(boyut_adi)
+            
+            # Gerek/Ölçü formatı - TAM DEĞER, YUVARLAMA YOK
+            nominal = row['Nominal']
+            if nominal != 0 and eksen != 'TP':  # nominal > 0 yerine nominal != 0 kullan
+                if eksen == 'R':
+                    # R96, R61 formatı - tam sayıya yuvarla sadece R için
+                    gerek_olcu = f"R{int(abs(nominal))}"  # Mutlak değer al
+                elif eksen == 'A':
+                    # Açı değerleri için - negatif değerleri mutlak değer olarak yaz
+                    gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
+                elif 'M6' in str(nominal):
+                    gerek_olcu = "M6"
+                else:
+                    # TAM DEĞERİ KULLAN - YUVARLAMA YOK - NEGATİF DEĞERLERİ MUTLAK DEĞER OLARAK YAZ
+                    gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
+            elif eksen == 'TP':
+                gerek_olcu = "KONUM"
+            elif ozellik in ['DÜZLEMSELLİK', 'PARALELLİK', 'DİKLİK', 'PROFİL']:
+                gerek_olcu = ozellik
+            else:
+                gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.') if nominal != 0 else ""
+            
+            # Requirement (tolerans) - Geometrik toleranslar için artı işareti kaldır - YUVARLAMA YOK!
+            pos_tol = row['+Tolerans']
+            neg_tol = row['-Tolerans']
+            if pos_tol and neg_tol and pos_tol == neg_tol:
+                if ozellik in ['KONUM', 'DÜZLEMSELLİK', 'PARALELLİK', 'DİKLİK', 'PROFİL']:
+                    # Geometrik toleranslar için artı işareti yok - TAM DEĞER
+                    requirement = str(pos_tol).replace('.', ',')
+                else:
+                    # Normal ölçüler için ± formatı - TAM DEĞER
+                    requirement = f"±{str(pos_tol)}".replace('.', ',')
+            elif pos_tol and neg_tol:
+                requirement = f"+{str(pos_tol)}/-{str(neg_tol)}".replace('.', ',')
+            elif pos_tol:
+                if ozellik in ['KONUM', 'DÜZLEMSELLİK', 'PARALELLİK', 'DİKLİK', 'PROFİL']:
+                    # Geometrik toleranslar için artı işareti yok - TAM DEĞER
+                    requirement = str(pos_tol).replace('.', ',')
+                else:
+                    # Normal ölçüler için + formatı - TAM DEĞER
+                    requirement = f"+{str(pos_tol)}".replace('.', ',')
+            elif eksen == 'TP':
+                requirement = str(row['Ölçülen']).replace('.', ',')
+            else:
+                requirement = ""
+            
+            # Sonuç formatı - Position ölçümleri için min/max format
+            sonuc = row['Ölçülen']
+            
+            # Position ölçümleri için min/max kontrolü
+            if 'LOC' in str(boyut_adi) and eksen in ['DF', 'TP']:
+                loc_name = str(boyut_adi).split('_')[0] if '_' in str(boyut_adi) else str(boyut_adi)
+                key = (olcum_no, loc_name, eksen)
+                if key in position_values and len(position_values[key]) > 1:
+                    # Min/max formatı kullan
+                    values = position_values[key]
+                    min_val = min(values)
+                    max_val = max(values)
+                    if abs(min_val - max_val) < 0.001:
+                        sonuc_str = str(min_val).replace('.', ',')
+                    else:
+                        sonuc_str = f"{str(min_val).replace('.', ',')} - {str(max_val).replace('.', ',')}"
+                else:
+                    sonuc_str = str(sonuc).replace('.', ',')
+            elif isinstance(sonuc, (int, float)):
+                if 'M6' in str(gerek_olcu):
+                    sonuc_str = "OK"
+                else:
+                    # TAM DEĞERİ YAZ - YUVARLAMA YOK!
+                    sonuc_str = str(sonuc).replace('.', ',')
+            else:
+                sonuc_str = str(sonuc).replace('.', ',')
+            
+            # Veriyi yaz (ek bilgi sütunu ile güncellenmiş sütun düzeni)
+            fai_ws.write(current_row, 0, krk_no_formatted, data_format)  # A: Krk No (alt numaralama)
+            fai_ws.write(current_row, 1, ek_bilgi, data_format)  # B: Ek Bilgi (LOC3, CIR6 vs)
+            fai_ws.write(current_row, 2, 'N/A', data_format)  # C: Ref Bölge  
+            fai_ws.write(current_row, 3, ozellik, data_format)  # D: Karakter Özelliği
+            fai_ws.write(current_row, 4, gerek_olcu, data_format)  # E: Gerek/Ölçü
+            fai_ws.write(current_row, 5, requirement, data_format)  # F: Requirement
+            fai_ws.write(current_row, 6, sonuc_str, data_format)  # G: Sonuç
+            fai_ws.write(current_row, 7, '', data_format)  # H: Boş
+            fai_ws.write(current_row, 8, '', data_format)  # I: Boş
+            fai_ws.write(current_row, 9, 'CMM-001', data_format)  # J: Aletler
+            fai_ws.write(current_row, 10, '', data_format)  # K: Uygunsuzluk No - BOŞ
+            fai_ws.write(current_row, 11, '', data_format)  # L: Boş
+            fai_ws.write(current_row, 12, '', data_format)  # M: Ek Veriler - BOŞ
+            fai_ws.write(current_row, 13, '', data_format)  # N: Ek Veriler - BOŞ
+            fai_ws.write(current_row, 14, '', data_format)  # O: Boş
             
             fai_row_index += 1
         
         print(f"📋 FAI Form 3 sayfası eklendi: {fai_row_index} karakteristik")
-    
-    def _format_krk_no(self, row, measurement_counts, current_counts):
-        """Krk No formatla"""
-        olcum_no = row['Ölçüm No']
         
-        if olcum_no in current_counts:
-            current_counts[olcum_no] += 1
+        # Alt numaralama debug bilgisi
+        duplicate_measurements = {k: v for k, v in measurement_counts.items() if v > 1}
+        if duplicate_measurements:
+            print(f"🔢 Alt numaralama yapılan ölçümler: {duplicate_measurements}")
         else:
-            current_counts[olcum_no] = 1
-        
-        if measurement_counts[olcum_no] > 1:
-            return f"{olcum_no}.{current_counts[olcum_no]}"
-        else:
-            return str(olcum_no)
+            print(f"ℹ️ Tüm ölçümler tekil, alt numaralama yapılmadı")
     
-    def _extract_ek_bilgi(self, boyut_adi):
-        """Ek bilgi çıkar"""
-        boyut_adi_str = str(boyut_adi)
+    def _add_summary_sheet_from_dict(self, writer, df: pd.DataFrame, workbook):
+        """Dict verisinden özet sayfası ekler"""
+        summary_data = {
+            'Metrik': [
+                'Toplam Ölçüm',
+                'Başarılı Ölçüm',
+                'Uyarı Gerekli',
+                'Operasyon 1OP',
+                'Operasyon 2OP',
+                'Farklı Ölçüm Numarası',
+                'FAI Hariç Tutulan'
+            ],
+            'Değer': [
+                len(df),
+                len(df[df['Durum'] == '✓']),
+                len(df[df['Durum'] == '⚠']),
+                len(df[df['Operasyon'] == '1OP']),
+                len(df[df['Operasyon'] == '2OP']),
+                len(df['Ölçüm No'].unique()),
+                len(df[df['FAI Hariç'] == True])
+            ]
+        }
         
-        if '_' in boyut_adi_str:
-            base_dim = boyut_adi_str.split('_')[0]
-            if base_dim.startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL')):
-                return base_dim
-        elif boyut_adi_str.startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL')):
-            return boyut_adi_str
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='Özet', index=False)
         
-        return ""
+        # Özet sayfası formatlaması
+        summary_ws = writer.sheets['Özet']
+        summary_ws.set_column('A:A', 20)
+        summary_ws.set_column('B:B', 15)
+
+# Legacy functions for backward compatibility
+def process_cmm_files(file_paths: List[str], output_excel_path: str = None) -> Dict[str, Any]:
+    """Ana işleme fonksiyonu - backward compatibility için"""
+    service = CMMService()
+    return service.process_files(file_paths, output_excel_path)
+
+def clean_and_sort_data(json_path: str) -> List[Dict]:
+    """JSON dosyasından veriyi temizle ve ölçüm numarasına göre sırala"""
+    import json
     
-    def _determine_karakter_ozellik(self, row):
-        """Karakter özelliğini belirle"""
-        eksen = row['Eksen']
-        aciklama = str(row['Açıklama']).upper()
-        
-        if 'SURFACE' in aciklama or 'PROFILE' in aciklama:
-            return 'PROFİL'
-        elif 'POSITION' in aciklama or eksen == 'TP':
-            return 'KONUM'
-        elif 'FLATNESS' in aciklama:
-            return 'DÜZLEMSELLİK'
-        elif 'PARALLELISM' in aciklama:
-            return 'PARALELLİK'
-        elif 'PERPENDICULARITY' in aciklama:
-            return 'DİKLİK'
-        elif 'DISTANCE' in aciklama:
-            return 'MESAFE'
-        elif 'ANGLE' in aciklama or eksen == 'A':
-            return 'AÇI'
-        elif 'LOCATION' in aciklama:
-            if eksen == 'D':
-                return 'ÇAP'
-            elif eksen == 'R':
-                return 'YARIÇAP'
-            else:
-                return 'KONUM'
-        else:
-            return str(row['Boyut Adı'])
+    with open(json_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
     
-    def _format_gerek_olcu(self, row):
-        """Gerek/Ölçü formatla"""
-        nominal = row['Nominal']
-        eksen = row['Eksen']
-        
-        if nominal != 0 and eksen != 'TP':
-            if eksen == 'R':
-                return f"R{int(abs(nominal))}"
-            elif eksen == 'A':
-                return str(abs(nominal)).rstrip('0').rstrip('.')
-            elif 'M6' in str(nominal):
-                return "M6"
-            else:
-                return str(abs(nominal)).rstrip('0').rstrip('.')
-        elif eksen == 'TP':
-            return "KONUM"
-        else:
-            return str(abs(nominal)).rstrip('0').rstrip('.') if nominal != 0 else ""
+    print(f"📊 Ham veri analizi:")
+    print(f"   Toplam kayıt: {len(data)}")
     
-    def _format_requirement(self, row, ozellik):
-        """Requirement formatla"""
-        pos_tol = row['+Tolerans']
-        neg_tol = row['-Tolerans']
-        eksen = row['Eksen']
-        
-        if pos_tol and neg_tol and pos_tol == neg_tol:
-            if ozellik in ['KONUM', 'DÜZLEMSELLİK', 'PARALELLİK', 'DİKLİK', 'PROFİL']:
-                return str(pos_tol).replace('.', ',')
-            else:
-                return f"±{str(pos_tol)}".replace('.', ',')
-        elif pos_tol and neg_tol:
-            return f"+{str(pos_tol)}/-{str(neg_tol)}".replace('.', ',')
-        elif pos_tol:
-            if ozellik in ['KONUM', 'DÜZLEMSELLİK', 'PARALELLİK', 'DİKLİK', 'PROFİL']:
-                return str(pos_tol).replace('.', ',')
-            else:
-                return f"+{str(pos_tol)}".replace('.', ',')
-        elif eksen == 'TP':
-            return str(row['Ölçülen']).replace('.', ',')
-        else:
-            return ""
+    # Operasyonlara göre grupla (sadece debug için)
+    op_groups = {}
+    for item in data:
+        op = item['operasyon']
+        if op not in op_groups:
+            op_groups[op] = []
+        op_groups[op].append(item)
     
-    def _format_sonuc(self, row, position_values):
-        """Sonuç formatla"""
-        sonuc = row['Ölçülen']
-        olcum_no = row['Ölçüm No']
-        boyut_adi = str(row['Boyut Adı'])
-        eksen = row['Eksen']
+    for op, items in op_groups.items():
+        sira_nos = [item['sira_no'] for item in items]
+        print(f"   {op}: {len(items)} kayıt, sıra no: {sorted(set(sira_nos))}")
+    
+    # Duplikatları kaldır (tamamen aynı satırlar)
+    seen = set()
+    cleaned = []
+    duplicates_removed = 0
+    
+    for item in data:
+        # Unique key oluştur - tüm alanları dahil et
+        key = (
+            item['operasyon'],
+            item['sira_no'], 
+            item['boyut_adi'],
+            item['aciklama'],
+            item['eksen'],
+            item['nominal'],
+            str(item['olculen'])  # String'e çevir (min/max formatı için)
+        )
         
-        # Position ölçümleri için min/max kontrolü
-        if 'LOC' in boyut_adi and eksen in ['DF', 'TP']:
-            loc_name = boyut_adi.split('_')[0] if '_' in boyut_adi else boyut_adi
-            key = (olcum_no, loc_name, eksen)
-            if key in position_values and len(position_values[key]) > 1:
-                values = position_values[key]
-                min_val = min(values)
-                max_val = max(values)
-                if abs(min_val - max_val) < 0.001:
-                    return str(min_val).replace('.', ',')
-                else:
-                    return f"{str(min_val).replace('.', ',')} - {str(max_val).replace('.', ',')}"
-        
-        if isinstance(sonuc, (int, float)):
-            if 'M6' in str(row.get('Nominal', '')):
-                return "OK"
-            else:
-                return str(sonuc).replace('.', ',')
+        if key not in seen:
+            seen.add(key)
+            cleaned.append(item)
         else:
-            return str(sonuc).replace('.', ',')
+            duplicates_removed += 1
+    
+    print(f"🗑️ {duplicates_removed} duplikat kayıt kaldırıldı")
+    
+    # Sıralama fonksiyonu - 10-18 formatı için
+    def get_sort_key(item):
+        sira_no_str = str(item['sira_no'])
+        # 10-18 formatında ise "-" öncesini al
+        if '-' in sira_no_str:
+            return int(sira_no_str.split('-')[0])
+        else:
+            return int(sira_no_str)
+    
+    # Ölçüm numarasına göre sırala (10-18 → 10 olarak değerlendir)
+    cleaned.sort(key=get_sort_key)
+    
+    print(f"✅ Sıralama tamamlandı: {len(cleaned)} kayıt")
+    print(f"   Ölçüm numaraları sırası: {[item['sira_no'] for item in cleaned]}")
+    
+    return cleaned
+
+# Test fonksiyonu
+def test_parser():
+    """Parser'ı test etmek için"""
+    test_files = [
+        "uploads/cmm_0001-1OP.RTF",
+        "uploads/cmm_0001-2OP.RTF"
+    ]
+    
+    output_path = "static/cmm_test_output.xlsx"
+    result = process_cmm_files(test_files, output_path)
+    print("Test sonucu:", result)
+
+if __name__ == "__main__":
+    test_parser()
