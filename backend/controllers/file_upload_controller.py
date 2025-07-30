@@ -3119,7 +3119,7 @@ def get_performance_stats():
 # ===== ENHANCED BACKGROUND RENDERING =====
 
 def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_strategy: str = "default"):
-    """COMPLETE FIXED VERSION - Enhanced with detailed debugging and proper file path handling"""
+    """COMPLETE FRONTEND-COMPATIBLE VERSION - Enhanced with proper path handling for fixImagePath"""
     
     print(f"[BG-RENDER] 🎨 Enhanced background render starting: {analysis_id}")
     print(f"[BG-RENDER] 📂 STEP path: {step_path}")
@@ -3233,112 +3233,150 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
             })
             return {"success": False, "error": error_msg}
         
-        # ✅ 6. SUCCESS PROCESSING - FIXED FILE PATH VALIDATION
+        # ✅ 6. SUCCESS PROCESSING - FRONTEND-COMPATIBLE PATH HANDLING
         if render_result.get('success'):
             renders = render_result.get('renders', {})
             print(f"[BG-RENDER] 🖼️ Generated {len(renders)} views: {list(renders.keys())}")
             
-            # ✅ FIXED: Validate renders with proper path handling
+            # ✅ FRONTEND-COMPATIBLE: Validate renders with proper path handling for fixImagePath
             valid_renders = {}
             for view_name, view_data in renders.items():
                 print(f"[BG-RENDER] 🔍 Checking {view_name}: {view_data}")
                 
                 if view_data.get('success') and view_data.get('file_path'):
-                    file_path = view_data['file_path']
+                    original_file_path = view_data['file_path']
                     
                     # ✅ MULTIPLE PATH FORMATS SUPPORT
                     possible_paths = []
                     
-                    # 1. Relative path from current working directory
-                    if file_path.startswith('/'):
-                        possible_paths.append(file_path[1:])  # Remove leading slash
-                    else:
-                        possible_paths.append(file_path)
+                    # 1. Original path as-is
+                    possible_paths.append(original_file_path)
                     
-                    # 2. Absolute path as-is
-                    possible_paths.append(file_path)
+                    # 2. Remove leading slash if present
+                    if original_file_path.startswith('/'):
+                        possible_paths.append(original_file_path[1:])
                     
-                    # 3. Path relative to /app (container environment)
-                    if file_path.startswith('/app/'):
-                        possible_paths.append(file_path)
-                    elif not file_path.startswith('/app/'):
-                        possible_paths.append(os.path.join('/app', file_path.lstrip('/')))
+                    # 3. Add leading slash if not present
+                    if not original_file_path.startswith('/'):
+                        possible_paths.append('/' + original_file_path)
                     
-                    # 4. Static directory variations
-                    if 'static' in file_path:
-                        # Extract static part
-                        static_part = file_path[file_path.find('static'):]
+                    # 4. Container environment paths
+                    if not original_file_path.startswith('/app/'):
+                        possible_paths.append(os.path.join('/app', original_file_path.lstrip('/')))
+                    
+                    # 5. Current working directory relative
+                    possible_paths.append(os.path.join(os.getcwd(), original_file_path.lstrip('/')))
+                    
+                    # 6. Static directory variations
+                    if 'static' in original_file_path:
+                        static_part = original_file_path[original_file_path.find('static'):]
                         possible_paths.append(static_part)
+                        possible_paths.append('/' + static_part)
                         possible_paths.append(os.path.join(os.getcwd(), static_part))
                     
-                    print(f"[BG-RENDER] 🔍 Checking paths for {view_name}:")
+                    print(f"[BG-RENDER] 🔍 Testing {len(possible_paths)} path variations for {view_name}")
                     
                     found_path = None
-                    for i, test_path in enumerate(possible_paths):
+                    actual_file_path = None
+                    
+                    for test_path in possible_paths:
                         try:
                             if os.path.exists(test_path):
                                 file_size = os.path.getsize(test_path)
                                 if file_size > 0:
                                     found_path = test_path
+                                    actual_file_path = test_path
                                     print(f"[BG-RENDER] ✅ Found {view_name}: {test_path} ({file_size} bytes)")
                                     break
                                 else:
-                                    print(f"[BG-RENDER] ⚠️ Empty file {view_name}: {test_path}")
+                                    print(f"[BG-RENDER] ⚠️ Empty file: {test_path}")
                             else:
-                                print(f"[BG-RENDER] ❌ Not found {view_name}: {test_path}")
+                                print(f"[BG-RENDER] ❌ Not found: {test_path}")
                         except Exception as path_error:
-                            print(f"[BG-RENDER] ❌ Path error {view_name}: {test_path} - {path_error}")
+                            print(f"[BG-RENDER] ❌ Path error: {test_path} - {path_error}")
                     
                     if found_path:
-                        # ✅ USE ORIGINAL FILE_PATH FORMAT FOR DATABASE
-                        valid_renders[view_name] = view_data.copy()
-                        # Keep original file_path for frontend compatibility
-                        if not view_data['file_path'].startswith('/'):
-                            valid_renders[view_name]['file_path'] = '/' + view_data['file_path']
+                        # ✅ FRONTEND-COMPATIBLE PATH CONVERSION
+                        frontend_path = original_file_path
                         
-                        print(f"[BG-RENDER] ✅ Valid: {view_name} -> {valid_renders[view_name]['file_path']}")
+                        # Convert to frontend-expected format based on fixImagePath logic
+                        if 'static' in found_path:
+                            # Extract the static part and ensure it starts with /static/
+                            static_index = found_path.find('static')
+                            static_part = found_path[static_index:]
+                            
+                            if static_part.startswith('static/'):
+                                frontend_path = '/' + static_part  # /static/...
+                            elif not static_part.startswith('/static/'):
+                                frontend_path = '/static/' + static_part.replace('static/', '')
+                            else:
+                                frontend_path = static_part  # Already /static/...
+                        
+                        # Ensure path starts with /static/ for frontend compatibility
+                        if 'stepviews' in frontend_path and not frontend_path.startswith('/static/'):
+                            if frontend_path.startswith('static/'):
+                                frontend_path = '/' + frontend_path
+                            elif 'static/' in frontend_path:
+                                static_start = frontend_path.find('static/')
+                                frontend_path = '/' + frontend_path[static_start:]
+                            else:
+                                # Fallback: assume it's a stepviews path
+                                if 'stepviews' in frontend_path:
+                                    stepviews_start = frontend_path.find('stepviews')
+                                    frontend_path = '/static/' + frontend_path[stepviews_start:]
+                        
+                        # ✅ CREATE VALID RENDER ENTRY
+                        valid_renders[view_name] = view_data.copy()
+                        valid_renders[view_name]['file_path'] = frontend_path
+                        valid_renders[view_name]['actual_path'] = actual_file_path  # For debugging
+                        
+                        print(f"[BG-RENDER] ✅ Valid {view_name}:")
+                        print(f"    Frontend path: {frontend_path}")
+                        print(f"    Actual path: {actual_file_path}")
+                        
                     else:
                         print(f"[BG-RENDER] ❌ No valid path found for {view_name}")
                         
-                        # ✅ DEBUG: List actual directory contents
-                        if 'stepviews' in file_path:
-                            try:
-                                # Find stepviews directory
-                                base_paths = [
-                                    'static/stepviews',
-                                    '/app/static/stepviews',
-                                    os.path.join(os.getcwd(), 'static/stepviews')
-                                ]
-                                
-                                for base_path in base_paths:
-                                    if os.path.exists(base_path):
-                                        print(f"[BG-RENDER] 📁 Directory exists: {base_path}")
-                                        try:
-                                            contents = os.listdir(base_path)
-                                            print(f"[BG-RENDER] 📋 Contents: {contents[:10]}")  # First 10 items
-                                            
-                                            # Look for analysis directory
-                                            analysis_dir = os.path.join(base_path, analysis_id)
-                                            if os.path.exists(analysis_dir):
-                                                analysis_contents = os.listdir(analysis_dir)
-                                                print(f"[BG-RENDER] 📋 Analysis dir contents: {analysis_contents}")
-                                            
-                                        except Exception as list_error:
-                                            print(f"[BG-RENDER] ❌ Cannot list {base_path}: {list_error}")
-                                        break
-                            except Exception as debug_error:
-                                print(f"[BG-RENDER] ❌ Debug error: {debug_error}")
+                        # ✅ ENHANCED DEBUG: List actual directory contents
+                        print(f"[BG-RENDER] 🔍 Debug directory search for {view_name}...")
+                        
+                        # Search in common directories
+                        search_dirs = [
+                            f"static/stepviews/{analysis_id}",
+                            f"/app/static/stepviews/{analysis_id}",
+                            f"{os.getcwd()}/static/stepviews/{analysis_id}",
+                            "static/stepviews",
+                            "/app/static/stepviews",
+                            f"{os.getcwd()}/static/stepviews"
+                        ]
+                        
+                        for search_dir in search_dirs:
+                            if os.path.exists(search_dir):
+                                try:
+                                    contents = os.listdir(search_dir)
+                                    print(f"[BG-RENDER] 📁 {search_dir}: {contents}")
+                                    
+                                    # Look for files that might match this view
+                                    matching_files = [f for f in contents if view_name in f.lower() or f.endswith('.png')]
+                                    if matching_files:
+                                        print(f"[BG-RENDER] 🎯 Potential matches: {matching_files}")
+                                    
+                                except Exception as list_error:
+                                    print(f"[BG-RENDER] ❌ Cannot list {search_dir}: {list_error}")
+                                break  # Only check first existing directory
+                
                 else:
-                    print(f"[BG-RENDER] ⚠️ Invalid data for {view_name}: success={view_data.get('success')}, file_path={view_data.get('file_path')}")
+                    print(f"[BG-RENDER] ⚠️ Invalid render data for {view_name}")
+                    print(f"    Success: {view_data.get('success')}")
+                    print(f"    File path: {view_data.get('file_path')}")
             
-            print(f"[BG-RENDER] 📊 Validation complete: {len(valid_renders)}/{len(renders)} valid")
+            print(f"[BG-RENDER] 📊 Path validation complete: {len(valid_renders)}/{len(renders)} valid renders")
             
+            # ✅ EMERGENCY SEARCH with FRONTEND-COMPATIBLE PATHS
             if len(valid_renders) == 0:
                 error_msg = f"No valid render files found after validation (generated {len(renders)} renders)"
                 print(f"[BG-RENDER] ❌ {error_msg}")
-                
-                # ✅ EMERGENCY: Try to find ANY generated files
-                print(f"[BG-RENDER] 🆘 Emergency file search...")
+                print(f"[BG-RENDER] 🆘 Starting emergency file search...")
                 
                 emergency_search_paths = [
                     f"static/stepviews/{analysis_id}",
@@ -3351,32 +3389,45 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
                     if os.path.exists(search_path):
                         try:
                             files = os.listdir(search_path)
-                            print(f"[BG-RENDER] 🔍 Emergency found in {search_path}: {files}")
+                            print(f"[BG-RENDER] 🔍 Emergency search in {search_path}: {files}")
                             
                             for file in files:
-                                if file.endswith('.png'):
-                                    file_full_path = os.path.join(search_path, file)
-                                    if os.path.getsize(file_full_path) > 0:
-                                        # Create emergency render entry
-                                        view_name = file.replace('.png', '').replace(f'{analysis_id}_', '')
-                                        emergency_renders[view_name] = {
-                                            'success': True,
-                                            'file_path': f'/static/stepviews/{analysis_id}/{file}',
-                                            'format': 'png',
-                                            'emergency_found': True
-                                        }
-                                        print(f"[BG-RENDER] 🆘 Emergency render: {view_name}")
+                                if file.endswith('.png') and os.path.getsize(os.path.join(search_path, file)) > 0:
+                                    # Create view name from filename
+                                    view_name = file.replace('.png', '')
+                                    if analysis_id in view_name:
+                                        view_name = view_name.replace(f'{analysis_id}_', '')
+                                    
+                                    # Create frontend-compatible path
+                                    frontend_path = f'/static/stepviews/{analysis_id}/{file}'
+                                    
+                                    emergency_renders[view_name] = {
+                                        'success': True,
+                                        'file_path': frontend_path,
+                                        'format': 'png',
+                                        'emergency_found': True,
+                                        'actual_path': os.path.join(search_path, file)
+                                    }
+                                    
+                                    print(f"[BG-RENDER] 🆘 Emergency render found:")
+                                    print(f"    View: {view_name}")
+                                    print(f"    Frontend path: {frontend_path}")
+                                    print(f"    Actual path: {os.path.join(search_path, file)}")
+                                    
                         except Exception as emergency_error:
-                            print(f"[BG-RENDER] ❌ Emergency search error: {emergency_error}")
-                        break
+                            print(f"[BG-RENDER] ❌ Emergency search error in {search_path}: {emergency_error}")
+                        
+                        if emergency_renders:
+                            break  # Found files, stop searching
                 
                 if emergency_renders:
-                    print(f"[BG-RENDER] 🆘 Using emergency renders: {len(emergency_renders)}")
+                    print(f"[BG-RENDER] 🆘 Using {len(emergency_renders)} emergency renders")
                     valid_renders = emergency_renders
                 else:
+                    print(f"[BG-RENDER] ❌ No files found in emergency search")
                     FileAnalysis.update_analysis(analysis_id, {
                         "render_status": "failed",
-                        "render_error": error_msg
+                        "render_error": error_msg + " (emergency search also failed)"
                     })
                     return {"success": False, "error": error_msg}
             
@@ -3386,7 +3437,7 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
             update_data = {
                 "enhanced_renders": valid_renders,
                 "render_status": "completed",
-                "render_quality": "enhanced_fixed",
+                "render_quality": "frontend_compatible",
                 "render_strategy": analysis_strategy,
                 "render_count": len(valid_renders),
                 "last_render_update": time.time(),
@@ -3399,7 +3450,7 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
                 if valid_renders['isometric'].get('excel_path'):
                     update_data["isometric_view_clean"] = valid_renders['isometric'].get('excel_path')
             
-            print(f"[BG-RENDER] 💾 Updating database...")
+            print(f"[BG-RENDER] 💾 Updating database with {len(valid_renders)} frontend-compatible renders...")
             try:
                 db_success = FileAnalysis.update_analysis(analysis_id, update_data)
                 print(f"[BG-RENDER] 💾 Database update: {db_success}")
@@ -3412,13 +3463,19 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
                         verified_count = len(verification.get('enhanced_renders', {}))
                         print(f"[BG-RENDER] ✅ Verification: status={verified_status}, count={verified_count}")
                         
+                        # Log sample paths for frontend debugging
+                        if verified_count > 0:
+                            sample_render = list(verification.get('enhanced_renders', {}).values())[0]
+                            print(f"[BG-RENDER] 🔍 Sample frontend path: {sample_render.get('file_path')}")
+                        
                         if verified_status == 'completed' and verified_count > 0:
-                            print(f"[BG-RENDER] 🎉 SUCCESS: Enhanced render completed!")
+                            print(f"[BG-RENDER] 🎉 SUCCESS: Frontend-compatible render completed!")
                             return {
                                 "success": True,
                                 "renders": verified_count,
                                 "processing_time": processing_time,
-                                "render_paths": list(valid_renders.keys())
+                                "render_paths": list(valid_renders.keys()),
+                                "frontend_compatible": True
                             }
                     
                     # If verification failed, still return success if db_success
@@ -3428,7 +3485,8 @@ def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_s
                         "renders": len(valid_renders),
                         "processing_time": processing_time,
                         "verification_warning": True,
-                        "render_paths": list(valid_renders.keys())
+                        "render_paths": list(valid_renders.keys()),
+                        "frontend_compatible": True
                     }
                 else:
                     error_msg = "Database update failed"
