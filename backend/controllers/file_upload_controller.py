@@ -26,7 +26,7 @@ upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'step', 'stp'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_FILES_PER_REQUEST = 100
+MAX_FILES_PER_REQUEST = 200
 
 # Upload klasörünü oluştur
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -519,23 +519,31 @@ def upload_multiple_files_with_matching():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file_enhanced(analysis_id):
-    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + Instant Response"""
+    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + Instant Response + FIXED RENDER"""
     try:
         current_user = get_current_user()
+        
+        print(f"[ANALYZE] 🚀 Starting enhanced analysis: {analysis_id}")
         
         # ✅ 1. FAST VALIDATION
         analysis = FileAnalysis.find_by_id(analysis_id)
         if not analysis:
+            print(f"[ANALYZE] ❌ Analysis not found: {analysis_id}")
             return jsonify({"success": False, "message": "Analiz kaydı bulunamadı"}), 404
         
         if analysis['user_id'] != current_user['id']:
+            print(f"[ANALYZE] ❌ Unauthorized access: {analysis_id}")
             return jsonify({"success": False, "message": "Bu dosyaya erişim yetkiniz yok"}), 403
         
         if not os.path.exists(analysis['file_path']):
+            print(f"[ANALYZE] ❌ File not found: {analysis['file_path']}")
             return jsonify({"success": False, "message": "Dosya sistemde bulunamadı"}), 404
         
         if analysis['analysis_status'] == 'analyzing':
+            print(f"[ANALYZE] ⚠️ Already analyzing: {analysis_id}")
             return jsonify({"success": False, "message": "Dosya zaten analiz ediliyor"}), 409
+        
+        print(f"[ANALYZE] ✅ Validation passed: {analysis['original_filename']}")
         
         # ✅ 2. IMMEDIATE STATUS UPDATE
         FileAnalysis.update_analysis(analysis_id, {
@@ -544,116 +552,88 @@ def analyze_uploaded_file_enhanced(analysis_id):
             "error_message": None
         })
         
-        print(f"[ANALYZE-ENHANCED] ⚡ Gelişmiş analiz başlatılıyor: {analysis['original_filename']}")
+        print(f"[ANALYZE] 📊 Analysis starting for: {analysis['original_filename']}")
         start_time = time.time()
         
         # ✅ 3. ENHANCED ANALYSIS WITH PDF-STEP MATCHING
         try:
             material_service = MaterialAnalysisService()
             
-            # Eşleşmiş STEP dosyası var mı kontrol et
+            # Eşleşmiş STEP dosyası kontrolü
             matched_step_path = analysis.get('matched_step_path')
             analysis_strategy = analysis.get('analysis_strategy', 'default')
             
-            print(f"[ANALYZE-ENHANCED] 📋 Analiz stratejisi: {analysis_strategy}")
+            print(f"[ANALYZE] 📋 Strategy: {analysis_strategy}")
             if matched_step_path:
-                print(f"[ANALYZE-ENHANCED] 🔗 Eşleşmiş STEP: {matched_step_path}")
+                print(f"[ANALYZE] 🔗 Matched STEP: {matched_step_path}")
             
-            # ✅ STANDARD ANALYSIS PARAMETERS (mevcut API ile uyumlu)
-            # Ultra-fast analiz çağır (sadece desteklenen parametrelerle)
+            # ✅ STANDARD ANALYSIS
             result = material_service.analyze_document_ultra_fast(
                 analysis['file_path'], 
                 analysis['file_type'],
                 current_user['id']
             )
             
-            # ✅ ENHANCED POST-PROCESSING
-            # Eğer eşleşmiş STEP dosyası varsa ve PDF'den STEP çıkarılamadıysa, 
-            # eşleşmiş STEP'i kullan
+            print(f"[ANALYZE] 📊 Core analysis completed: {bool(result.get('material_matches'))}")
+            
+            # ✅ ENHANCED POST-PROCESSING (matched STEP handling)
             if matched_step_path and os.path.exists(matched_step_path):
                 if not result.get('step_analysis') or not result.get('step_file_hash'):
-                    print(f"[ANALYZE-ENHANCED] 🔄 PDF'den STEP çıkarılamadı, eşleşmiş STEP kullanılıyor: {matched_step_path}")
+                    print(f"[ANALYZE] 🔄 Using matched STEP: {matched_step_path}")
                     
-                    # Eşleşmiş STEP dosyasını analiz et
                     try:
                         import cadquery as cq
                         
                         assembly = cq.importers.importStep(matched_step_path)
                         shapes = assembly.objects
-                        sorted_shapes = sorted(shapes, key=lambda s: s.Volume(), reverse=True)
-                        main_shape = sorted_shapes[0]
-                        main_bbox = main_shape.BoundingBox()
                         
-                        relevant_shapes = [main_shape]
-                        for shape in sorted_shapes[1:]:
-                            bb = shape.BoundingBox()
-                            intersects = (
-                                bb.xmax > main_bbox.xmin and bb.xmin < main_bbox.xmax and
-                                bb.ymax > main_bbox.ymin and bb.ymin < main_bbox.ymax and
-                                bb.zmax > main_bbox.zmin and bb.zmin < main_bbox.zmax
-                            )
-                            if intersects:
-                                relevant_shapes.append(shape)
-                        
-                        part = cq.Compound.makeCompound(relevant_shapes)
-                        
-                        # Boyut optimizasyonu
-                        min_volume = None
-                        best_dims = (0, 0, 0)
-                        for rx in [0, 90, 180, 270]:
-                            for ry in [0, 90, 180, 270]:
-                                for rz in [0, 90, 180, 270]:
-                                    rotated = part.rotate((0, 0, 0), (1, 0, 0), rx)\
-                                                  .rotate((0, 0, 0), (0, 1, 0), ry)\
-                                                  .rotate((0, 0, 0), (0, 0, 1), rz)
-                                    bbox = rotated.BoundingBox()
-                                    volume = bbox.xlen * bbox.ylen * bbox.zlen
-                                    if (min_volume is None) or (volume < min_volume):
-                                        min_volume = volume
-                                        best_dims = (bbox.xlen, bbox.ylen, bbox.zlen)
-                        
-                        x, y, z = best_dims
-                        
-                        def always_round_up(value):
-                            return int(value) if abs(value - int(value)) < 0.01 else int(value) + 1
-                        
-                        x_pad = always_round_up(x + 10.0)
-                        y_pad = always_round_up(y + 10.0)
-                        z_pad = always_round_up(z + 10.0)
-                        volume_padded = x_pad * y_pad * z_pad
-                        product_volume = part.Volume()
-                        waste_volume = volume_padded - product_volume
-                        waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0.0
-                        total_surface_area = part.Area()
-                        
-                        # Eşleşmiş STEP analiz sonucunu result'a ekle
-                        result['step_analysis'] = {
-                            "X (mm)": round(x, 3),
-                            "Y (mm)": round(y, 3),
-                            "Z (mm)": round(z, 3),
-                            "Silindirik Çap (mm)": round(max(x, y), 3),
-                            "Silindirik Yükseklik (mm)": round(z, 3),
-                            "X+Pad (mm)": round(x_pad, 3),
-                            "Y+Pad (mm)": round(y_pad, 3),
-                            "Z+Pad (mm)": round(z_pad, 3),
-                            "Prizma Hacmi (mm³)": round(volume_padded, 3),
-                            "Ürün Hacmi (mm³)": round(product_volume, 3),
-                            "Talaş Hacmi (mm³)": round(waste_volume, 3),
-                            "Talaş Oranı (%)": round(waste_ratio, 2),
-                            "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 3)
-                        }
-                        
-                        result['step_source'] = 'matched'
-                        result['matched_step_used'] = True
-                        
-                        print(f"[ANALYZE-ENHANCED] ✅ Eşleşmiş STEP analizi tamamlandı: {matched_step_path}")
-                        
+                        if shapes:
+                            main_shape = max(shapes, key=lambda s: s.Volume())
+                            main_bbox = main_shape.BoundingBox()
+                            
+                            x, y, z = main_bbox.xlen, main_bbox.ylen, main_bbox.zlen
+                            
+                            x_pad = int(x) + 10 if x % 1 < 0.01 else int(x) + 11
+                            y_pad = int(y) + 10 if y % 1 < 0.01 else int(y) + 11
+                            z_pad = int(z) + 10 if z % 1 < 0.01 else int(z) + 11
+                            
+                            volume_padded = x_pad * y_pad * z_pad
+                            product_volume = main_shape.Volume()
+                            waste_volume = volume_padded - product_volume
+                            waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0.0
+                            total_surface_area = main_shape.Area()
+                            
+                            result['step_analysis'] = {
+                                "X (mm)": round(x, 3),
+                                "Y (mm)": round(y, 3),
+                                "Z (mm)": round(z, 3),
+                                "Silindirik Çap (mm)": round(max(x, y), 3),
+                                "Silindirik Yükseklik (mm)": round(z, 3),
+                                "X+Pad (mm)": x_pad,
+                                "Y+Pad (mm)": y_pad,
+                                "Z+Pad (mm)": z_pad,
+                                "Prizma Hacmi (mm³)": round(volume_padded, 3),
+                                "Ürün Hacmi (mm³)": round(product_volume, 3),
+                                "Talaş Hacmi (mm³)": round(waste_volume, 3),
+                                "Talaş Oranı (%)": round(waste_ratio, 2),
+                                "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 3)
+                            }
+                            
+                            result['step_source'] = 'matched'
+                            result['matched_step_used'] = True
+                            
+                            print(f"[ANALYZE] ✅ Matched STEP analysis completed")
+                        else:
+                            print(f"[ANALYZE] ⚠️ Matched STEP has no shapes")
+                            result['step_source'] = 'none'
+                            result['matched_step_used'] = False
+                            
                     except Exception as matched_step_error:
-                        print(f"[ANALYZE-ENHANCED] ❌ Eşleşmiş STEP analiz hatası: {matched_step_error}")
+                        print(f"[ANALYZE] ❌ Matched STEP error: {matched_step_error}")
                         result['step_source'] = 'none'
                         result['matched_step_used'] = False
                 else:
-                    print(f"[ANALYZE-ENHANCED] ✅ PDF'den STEP çıkarıldı, eşleşmiş STEP'e gerek yok")
+                    print(f"[ANALYZE] ✅ PDF STEP extraction successful, matched not needed")
                     result['step_source'] = 'extracted'
                     result['matched_step_used'] = False
             else:
@@ -664,10 +644,10 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 result['matched_step_used'] = False
             
             processing_time = time.time() - start_time
-            print(f"[ANALYZE-ENHANCED] ⏱️ Core analiz tamamlandı: {processing_time:.2f}s")
+            print(f"[ANALYZE] ⏱️ Analysis completed: {processing_time:.2f}s")
             
             if not result.get('error'):
-                # ✅ 4. INSTANT DATABASE UPDATE WITH ENHANCED DATA
+                # ✅ 4. DATABASE UPDATE WITH ENHANCED DATA
                 update_data = {
                     "analysis_status": "completed",
                     "processing_time": processing_time,
@@ -681,7 +661,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     "processing_log": result.get('processing_log', []),
                     # Enhanced fields
                     "used_matched_step": bool(matched_step_path and result.get('matched_step_used', False)),
-                    "step_source": result.get('step_source', 'none'),  # 'matched', 'extracted', 'none'
+                    "step_source": result.get('step_source', 'none'),
                     "material_confidence": result.get('material_confidence', 0),
                     # Render fields
                     "render_status": "pending",
@@ -699,29 +679,32 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     })
                 
                 FileAnalysis.update_analysis(analysis_id, update_data)
+                print(f"[ANALYZE] 💾 Database updated successfully")
                 
-                # ✅ 5. BACKGROUND RENDERING DECISION
+                # ✅ 5. ENHANCED RENDER DECISION
                 should_render = False
                 render_path = None
                 
-                # Rendering priority: matched_step > extracted_step > direct_step
+                # Render priority: matched_step > direct_step > extracted_step
                 if matched_step_path and os.path.exists(matched_step_path):
                     should_render = True
                     render_path = matched_step_path
-                    print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Matched STEP - {matched_step_path}")
+                    print(f"[ANALYZE] 🎨 Will render: Matched STEP - {matched_step_path}")
                 elif analysis['file_type'] in ['step', 'stp']:
                     should_render = True
                     render_path = analysis['file_path']
-                    print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Direct STEP - {render_path}")
+                    print(f"[ANALYZE] 🎨 Will render: Direct STEP - {render_path}")
                 elif result.get('extracted_step_path') and os.path.exists(result['extracted_step_path']):
                     should_render = True
                     render_path = result['extracted_step_path']
-                    print(f"[ANALYZE-ENHANCED] 🎨 Rendering: Extracted STEP - {render_path}")
+                    print(f"[ANALYZE] 🎨 Will render: Extracted STEP - {render_path}")
+                else:
+                    print(f"[ANALYZE] ⚠️ No STEP file available for rendering")
                 
                 if should_render and render_path:
-                    # Queue background rendering task
+                    # ✅ FIXED BACKGROUND RENDER TASK
                     task_id = bg_processor.add_task(
-                        background_render_task_enhanced,
+                        background_render_task_enhanced,  # ✅ FIXED version
                         args=(analysis_id, render_path, analysis_strategy),
                         kwargs={}
                     )
@@ -732,7 +715,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                         "render_status": "processing"
                     })
                     
-                    print(f"[ANALYZE-ENHANCED] 🎨 Background render queued: {task_id}")
+                    print(f"[ANALYZE] 🎨 Enhanced render queued: {task_id}")
                 
                 # ✅ 6. ENHANCED INSTANT RESPONSE
                 updated_analysis = FileAnalysis.find_by_id(analysis_id)
@@ -761,12 +744,14 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     }
                 }
                 
-                print(f"[ANALYZE-ENHANCED] 📤 Enhanced response sent: {processing_time:.2f}s")
+                print(f"[ANALYZE] 📤 Enhanced response sent: {processing_time:.2f}s")
                 return jsonify(response_data), 200
             
             else:
                 # Analysis error
                 error_msg = result.get('error', 'Bilinmeyen analiz hatası')
+                print(f"[ANALYZE] ❌ Analysis error: {error_msg}")
+                
                 FileAnalysis.update_analysis(analysis_id, {
                     "analysis_status": "failed",
                     "error_message": error_msg,
@@ -780,19 +765,23 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 
         except Exception as analysis_error:
             error_message = f"Analysis Service hatası: {str(analysis_error)}"
+            print(f"[ANALYZE] ❌ Analysis exception: {error_message}")
+            import traceback
+            traceback.print_exc()
+            
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
                 "error_message": error_message,
                 "processing_time": time.time() - start_time
             })
             
-            print(f"[ANALYZE-ENHANCED] ❌ Analysis error: {error_message}")
             return jsonify({
                 "success": False,
                 "message": error_message
             }), 500
         
     except Exception as e:
+        print(f"[ANALYZE] ❌ Global error: {str(e)}")
         try:
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
@@ -801,12 +790,10 @@ def analyze_uploaded_file_enhanced(analysis_id):
         except:
             pass
             
-        print(f"[ANALYZE-ENHANCED] ❌ Unexpected error: {str(e)}")
         return jsonify({
             "success": False,
             "message": f"Beklenmeyen hata: {str(e)}"
         }), 500
-
 # ===== RENDER ENDPOINTS =====
 
 @upload_bp.route('/render/<analysis_id>', methods=['POST'])
@@ -3132,183 +3119,362 @@ def get_performance_stats():
 # ===== ENHANCED BACKGROUND RENDERING =====
 
 def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_strategy: str = "default"):
-    """Enhanced background rendering with strategy awareness - FIXED VERSION"""
+    """COMPLETE FIXED VERSION - Enhanced with detailed debugging and proper file path handling"""
+    
+    print(f"[BG-RENDER] 🎨 Enhanced background render starting: {analysis_id}")
+    print(f"[BG-RENDER] 📂 STEP path: {step_path}")
+    print(f"[BG-RENDER] 📋 Strategy: {analysis_strategy}")
+    
+    start_time = time.time()
+    
     try:
-        print(f"[BG-RENDER-ENHANCED] 🎨 Enhanced background render başlıyor: {analysis_id}")
-        print(f"[BG-RENDER-ENHANCED] 📂 STEP path: {step_path}")
-        print(f"[BG-RENDER-ENHANCED] 📋 Strategy: {analysis_strategy}")
-        
-        from services.step_renderer import StepRendererEnhanced
-        from models.file_analysis import FileAnalysis
-        
-        # ✅ DOSYA VARLIK KONTROLÜ
-        if not os.path.exists(step_path):
-            error_msg = f"STEP dosyası bulunamadı: {step_path}"
-            print(f"[BG-RENDER-ENHANCED] ❌ {error_msg}")
-            
-            FileAnalysis.update_analysis(analysis_id, {
-                "render_status": "failed",
-                "render_error": error_msg
-            })
+        # ✅ 1. IMPORTS CHECK
+        try:
+            from services.step_renderer import StepRendererEnhanced
+            from models.file_analysis import FileAnalysis
+            print(f"[BG-RENDER] ✅ Imports successful")
+        except ImportError as import_error:
+            error_msg = f"Import failed: {import_error}"
+            print(f"[BG-RENDER] ❌ {error_msg}")
             return {"success": False, "error": error_msg}
         
-        step_renderer = StepRendererEnhanced()
-        
-        # Strategy-based render quality
-        render_quality = "high" if analysis_strategy == "pdf_with_matched_step" else "medium"
-        include_materials = analysis_strategy != "step_only"
-        
-        print(f"[BG-RENDER-ENHANCED] ⚙️ Render ayarları:")
-        print(f"   - Quality: {render_quality}")
-        print(f"   - Include Materials: {include_materials}")
-        
-        # ✅ RENDER GENERATION
-        render_result = step_renderer.generate_comprehensive_views(
-            step_path,
-            analysis_id=analysis_id,
-            include_dimensions=True,
-            include_materials=include_materials,
-            high_quality=(render_quality == "high")
-        )
-        
-        print(f"[BG-RENDER-ENHANCED] 📊 Render result: {render_result.get('success', False)}")
-        
-        if render_result.get('success', False):
-            renders = render_result.get('renders', {})
-            print(f"[BG-RENDER-ENHANCED] 🖼️ Generated renders: {list(renders.keys())}")
-            
-            # ✅ DATABASE UPDATE WITH DETAILED LOGGING
-            update_data = {
-                "enhanced_renders": renders,  # Bu key field!
-                "render_quality": render_quality,
-                "render_status": "completed",
-                "render_strategy": analysis_strategy,
-                "render_count": len(renders),
-                "last_render_update": time.time()
-            }
-            
-            # Add main isometric view
-            if 'isometric' in renders:
-                isometric_data = renders['isometric']
-                if isometric_data.get('success'):
-                    update_data["isometric_view"] = isometric_data.get('file_path')
-                    if isometric_data.get('excel_path'):
-                        update_data["isometric_view_clean"] = isometric_data.get('excel_path')
-                    print(f"[BG-RENDER-ENHANCED] 🎯 Isometric view: {isometric_data.get('file_path')}")
-            
-            # ✅ STL GENERATION (conditional based on strategy)
-            if analysis_strategy in ["pdf_with_matched_step", "step_only"]:
-                try:
-                    print(f"[BG-RENDER-ENHANCED] 🔧 STL generation başlıyor...")
-                    
-                    import cadquery as cq
-                    from cadquery import exporters
-                    
-                    session_output_dir = os.path.join("static", "stepviews", analysis_id)
-                    os.makedirs(session_output_dir, exist_ok=True)
-                    
-                    stl_filename = f"model_{analysis_id}.stl"
-                    stl_path_full = os.path.join(session_output_dir, stl_filename)
-                    
-                    # STL generation with error handling
-                    assembly = cq.importers.importStep(step_path)
-                    shape = assembly.val()
-                    exporters.export(shape, stl_path_full)
-                    
-                    if os.path.exists(stl_path_full):
-                        file_size = os.path.getsize(stl_path_full)
-                        stl_relative = f"/static/stepviews/{analysis_id}/{stl_filename}"
-                        
-                        update_data.update({
-                            "stl_generated": True,
-                            "stl_path": stl_relative,
-                            "stl_file_size": file_size
-                        })
-                        
-                        # STL'i enhanced_renders'a da ekle
-                        update_data["enhanced_renders"]["stl_model"] = {
-                            "success": True,
-                            "file_path": stl_relative,
-                            "file_size": file_size,
-                            "format": "stl"
-                        }
-                        
-                        print(f"[BG-RENDER-ENHANCED] ✅ STL generated: {stl_filename} ({file_size} bytes)")
-                        
-                except Exception as stl_error:
-                    print(f"[BG-RENDER-ENHANCED] ⚠️ STL generation failed: {stl_error}")
-                    update_data["stl_generation_error"] = str(stl_error)
-            
-            # ✅ CRITICAL: DATABASE UPDATE WITH ERROR HANDLING
-            print(f"[BG-RENDER-ENHANCED] 💾 Database update başlıyor...")
-            print(f"[BG-RENDER-ENHANCED] 📊 Update data keys: {list(update_data.keys())}")
-            print(f"[BG-RENDER-ENHANCED] 🖼️ Enhanced renders count: {len(update_data.get('enhanced_renders', {}))}")
+        # ✅ 2. FILE EXISTENCE CHECK
+        if not step_path or not os.path.exists(step_path):
+            error_msg = f"STEP file not found: {step_path}"
+            print(f"[BG-RENDER] ❌ {error_msg}")
             
             try:
-                success = FileAnalysis.update_analysis(analysis_id, update_data)
-                if success:
-                    print(f"[BG-RENDER-ENHANCED] ✅ Database update successful")
-                    
-                    # ✅ VERIFICATION: Re-read and verify
-                    verification = FileAnalysis.find_by_id(analysis_id)
-                    if verification:
-                        verified_renders = verification.get('enhanced_renders', {})
-                        print(f"[BG-RENDER-ENHANCED] ✅ Verification: {len(verified_renders)} renders in DB")
-                        if len(verified_renders) != len(renders):
-                            print(f"[BG-RENDER-ENHANCED] ⚠️ Render count mismatch: Expected {len(renders)}, Got {len(verified_renders)}")
-                    else:
-                        print(f"[BG-RENDER-ENHANCED] ❌ Verification failed: Analysis not found")
-                else:
-                    print(f"[BG-RENDER-ENHANCED] ❌ Database update failed")
-                    return {"success": False, "error": "Database update failed"}
-                    
-            except Exception as db_error:
-                print(f"[BG-RENDER-ENHANCED] ❌ Database update exception: {db_error}")
-                import traceback
-                print(f"[BG-RENDER-ENHANCED] 📋 DB Traceback: {traceback.format_exc()}")
-                return {"success": False, "error": f"Database error: {str(db_error)}"}
+                FileAnalysis.update_analysis(analysis_id, {
+                    "render_status": "failed",
+                    "render_error": error_msg
+                })
+                print(f"[BG-RENDER] 💾 Error status updated")
+            except:
+                print(f"[BG-RENDER] ⚠️ Could not update error status")
             
-            print(f"[BG-RENDER-ENHANCED] ✅ Enhanced render completed: {analysis_id} - {len(renders)} views")
-            return {
-                "success": True, 
-                "renders": len(renders), 
-                "strategy": analysis_strategy,
-                "render_paths": list(renders.keys())
-            }
+            return {"success": False, "error": error_msg}
+        
+        file_size = os.path.getsize(step_path)
+        print(f"[BG-RENDER] ✅ File exists: {file_size} bytes")
+        
+        if file_size < 100:
+            error_msg = f"STEP file too small: {file_size} bytes"
+            print(f"[BG-RENDER] ❌ {error_msg}")
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": error_msg
+            })
+            return {"success": False, "error": error_msg}
+        
+        # ✅ 3. QUICK CADQUERY TEST
+        try:
+            print(f"[BG-RENDER] 🔧 Testing CadQuery import...")
+            import cadquery as cq
             
-        else:
-            # Render failed
-            error_msg = render_result.get('message', 'Enhanced render hatası')
-            print(f"[BG-RENDER-ENHANCED] ❌ Render failed: {error_msg}")
+            assembly = cq.importers.importStep(step_path)
+            shapes = assembly.objects
+            
+            print(f"[BG-RENDER] 📊 CadQuery test: {len(shapes) if shapes else 0} shapes")
+            
+            if not shapes or len(shapes) == 0:
+                error_msg = "CadQuery found no shapes in STEP file"
+                print(f"[BG-RENDER] ❌ {error_msg}")
+                FileAnalysis.update_analysis(analysis_id, {
+                    "render_status": "failed",
+                    "render_error": error_msg
+                })
+                return {"success": False, "error": error_msg}
+            
+        except Exception as cq_error:
+            error_msg = f"CadQuery test failed: {cq_error}"
+            print(f"[BG-RENDER] ❌ {error_msg}")
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": error_msg
+            })
+            return {"success": False, "error": error_msg}
+        
+        # ✅ 4. RENDERER INITIALIZATION
+        try:
+            step_renderer = StepRendererEnhanced()
+            print(f"[BG-RENDER] ✅ Renderer initialized")
+        except Exception as renderer_error:
+            error_msg = f"Renderer init failed: {renderer_error}"
+            print(f"[BG-RENDER] ❌ {error_msg}")
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": error_msg
+            })
+            return {"success": False, "error": error_msg}
+        
+        # ✅ 5. RENDER GENERATION
+        print(f"[BG-RENDER] 🎨 Starting render generation...")
+        
+        try:
+            render_result = step_renderer.generate_comprehensive_views(
+                step_path,
+                analysis_id=analysis_id,
+                include_dimensions=True,
+                include_materials=True,
+                high_quality=False  # Fast render
+            )
+            
+            print(f"[BG-RENDER] 📊 Render completed: success={render_result.get('success', False)}")
+            
+        except Exception as render_error:
+            error_msg = f"Render generation failed: {render_error}"
+            print(f"[BG-RENDER] ❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
             
             FileAnalysis.update_analysis(analysis_id, {
                 "render_status": "failed",
                 "render_error": error_msg
             })
-            
             return {"success": False, "error": error_msg}
-            
-    except Exception as e:
-        import traceback
-        error_msg = str(e)
-        traceback_str = traceback.format_exc()
         
-        print(f"[BG-RENDER-ENHANCED] ❌ Enhanced background render error: {error_msg}")
-        print(f"[BG-RENDER-ENHANCED] 📋 Traceback: {traceback_str}")
+        # ✅ 6. SUCCESS PROCESSING - FIXED FILE PATH VALIDATION
+        if render_result.get('success'):
+            renders = render_result.get('renders', {})
+            print(f"[BG-RENDER] 🖼️ Generated {len(renders)} views: {list(renders.keys())}")
+            
+            # ✅ FIXED: Validate renders with proper path handling
+            valid_renders = {}
+            for view_name, view_data in renders.items():
+                print(f"[BG-RENDER] 🔍 Checking {view_name}: {view_data}")
+                
+                if view_data.get('success') and view_data.get('file_path'):
+                    file_path = view_data['file_path']
+                    
+                    # ✅ MULTIPLE PATH FORMATS SUPPORT
+                    possible_paths = []
+                    
+                    # 1. Relative path from current working directory
+                    if file_path.startswith('/'):
+                        possible_paths.append(file_path[1:])  # Remove leading slash
+                    else:
+                        possible_paths.append(file_path)
+                    
+                    # 2. Absolute path as-is
+                    possible_paths.append(file_path)
+                    
+                    # 3. Path relative to /app (container environment)
+                    if file_path.startswith('/app/'):
+                        possible_paths.append(file_path)
+                    elif not file_path.startswith('/app/'):
+                        possible_paths.append(os.path.join('/app', file_path.lstrip('/')))
+                    
+                    # 4. Static directory variations
+                    if 'static' in file_path:
+                        # Extract static part
+                        static_part = file_path[file_path.find('static'):]
+                        possible_paths.append(static_part)
+                        possible_paths.append(os.path.join(os.getcwd(), static_part))
+                    
+                    print(f"[BG-RENDER] 🔍 Checking paths for {view_name}:")
+                    
+                    found_path = None
+                    for i, test_path in enumerate(possible_paths):
+                        try:
+                            if os.path.exists(test_path):
+                                file_size = os.path.getsize(test_path)
+                                if file_size > 0:
+                                    found_path = test_path
+                                    print(f"[BG-RENDER] ✅ Found {view_name}: {test_path} ({file_size} bytes)")
+                                    break
+                                else:
+                                    print(f"[BG-RENDER] ⚠️ Empty file {view_name}: {test_path}")
+                            else:
+                                print(f"[BG-RENDER] ❌ Not found {view_name}: {test_path}")
+                        except Exception as path_error:
+                            print(f"[BG-RENDER] ❌ Path error {view_name}: {test_path} - {path_error}")
+                    
+                    if found_path:
+                        # ✅ USE ORIGINAL FILE_PATH FORMAT FOR DATABASE
+                        valid_renders[view_name] = view_data.copy()
+                        # Keep original file_path for frontend compatibility
+                        if not view_data['file_path'].startswith('/'):
+                            valid_renders[view_name]['file_path'] = '/' + view_data['file_path']
+                        
+                        print(f"[BG-RENDER] ✅ Valid: {view_name} -> {valid_renders[view_name]['file_path']}")
+                    else:
+                        print(f"[BG-RENDER] ❌ No valid path found for {view_name}")
+                        
+                        # ✅ DEBUG: List actual directory contents
+                        if 'stepviews' in file_path:
+                            try:
+                                # Find stepviews directory
+                                base_paths = [
+                                    'static/stepviews',
+                                    '/app/static/stepviews',
+                                    os.path.join(os.getcwd(), 'static/stepviews')
+                                ]
+                                
+                                for base_path in base_paths:
+                                    if os.path.exists(base_path):
+                                        print(f"[BG-RENDER] 📁 Directory exists: {base_path}")
+                                        try:
+                                            contents = os.listdir(base_path)
+                                            print(f"[BG-RENDER] 📋 Contents: {contents[:10]}")  # First 10 items
+                                            
+                                            # Look for analysis directory
+                                            analysis_dir = os.path.join(base_path, analysis_id)
+                                            if os.path.exists(analysis_dir):
+                                                analysis_contents = os.listdir(analysis_dir)
+                                                print(f"[BG-RENDER] 📋 Analysis dir contents: {analysis_contents}")
+                                            
+                                        except Exception as list_error:
+                                            print(f"[BG-RENDER] ❌ Cannot list {base_path}: {list_error}")
+                                        break
+                            except Exception as debug_error:
+                                print(f"[BG-RENDER] ❌ Debug error: {debug_error}")
+                else:
+                    print(f"[BG-RENDER] ⚠️ Invalid data for {view_name}: success={view_data.get('success')}, file_path={view_data.get('file_path')}")
+            
+            print(f"[BG-RENDER] 📊 Validation complete: {len(valid_renders)}/{len(renders)} valid")
+            
+            if len(valid_renders) == 0:
+                error_msg = f"No valid render files found after validation (generated {len(renders)} renders)"
+                print(f"[BG-RENDER] ❌ {error_msg}")
+                
+                # ✅ EMERGENCY: Try to find ANY generated files
+                print(f"[BG-RENDER] 🆘 Emergency file search...")
+                
+                emergency_search_paths = [
+                    f"static/stepviews/{analysis_id}",
+                    f"/app/static/stepviews/{analysis_id}",
+                    f"{os.getcwd()}/static/stepviews/{analysis_id}"
+                ]
+                
+                emergency_renders = {}
+                for search_path in emergency_search_paths:
+                    if os.path.exists(search_path):
+                        try:
+                            files = os.listdir(search_path)
+                            print(f"[BG-RENDER] 🔍 Emergency found in {search_path}: {files}")
+                            
+                            for file in files:
+                                if file.endswith('.png'):
+                                    file_full_path = os.path.join(search_path, file)
+                                    if os.path.getsize(file_full_path) > 0:
+                                        # Create emergency render entry
+                                        view_name = file.replace('.png', '').replace(f'{analysis_id}_', '')
+                                        emergency_renders[view_name] = {
+                                            'success': True,
+                                            'file_path': f'/static/stepviews/{analysis_id}/{file}',
+                                            'format': 'png',
+                                            'emergency_found': True
+                                        }
+                                        print(f"[BG-RENDER] 🆘 Emergency render: {view_name}")
+                        except Exception as emergency_error:
+                            print(f"[BG-RENDER] ❌ Emergency search error: {emergency_error}")
+                        break
+                
+                if emergency_renders:
+                    print(f"[BG-RENDER] 🆘 Using emergency renders: {len(emergency_renders)}")
+                    valid_renders = emergency_renders
+                else:
+                    FileAnalysis.update_analysis(analysis_id, {
+                        "render_status": "failed",
+                        "render_error": error_msg
+                    })
+                    return {"success": False, "error": error_msg}
+            
+            # ✅ 7. DATABASE UPDATE
+            processing_time = time.time() - start_time
+            
+            update_data = {
+                "enhanced_renders": valid_renders,
+                "render_status": "completed",
+                "render_quality": "enhanced_fixed",
+                "render_strategy": analysis_strategy,
+                "render_count": len(valid_renders),
+                "last_render_update": time.time(),
+                "render_processing_time": processing_time
+            }
+            
+            # Main views
+            if 'isometric' in valid_renders:
+                update_data["isometric_view"] = valid_renders['isometric'].get('file_path')
+                if valid_renders['isometric'].get('excel_path'):
+                    update_data["isometric_view_clean"] = valid_renders['isometric'].get('excel_path')
+            
+            print(f"[BG-RENDER] 💾 Updating database...")
+            try:
+                db_success = FileAnalysis.update_analysis(analysis_id, update_data)
+                print(f"[BG-RENDER] 💾 Database update: {db_success}")
+                
+                if db_success:
+                    # ✅ VERIFICATION
+                    verification = FileAnalysis.find_by_id(analysis_id)
+                    if verification:
+                        verified_status = verification.get('render_status')
+                        verified_count = len(verification.get('enhanced_renders', {}))
+                        print(f"[BG-RENDER] ✅ Verification: status={verified_status}, count={verified_count}")
+                        
+                        if verified_status == 'completed' and verified_count > 0:
+                            print(f"[BG-RENDER] 🎉 SUCCESS: Enhanced render completed!")
+                            return {
+                                "success": True,
+                                "renders": verified_count,
+                                "processing_time": processing_time,
+                                "render_paths": list(valid_renders.keys())
+                            }
+                    
+                    # If verification failed, still return success if db_success
+                    print(f"[BG-RENDER] ⚠️ Verification issues but DB update succeeded")
+                    return {
+                        "success": True,
+                        "renders": len(valid_renders),
+                        "processing_time": processing_time,
+                        "verification_warning": True,
+                        "render_paths": list(valid_renders.keys())
+                    }
+                else:
+                    error_msg = "Database update failed"
+                    print(f"[BG-RENDER] ❌ {error_msg}")
+                    FileAnalysis.update_analysis(analysis_id, {
+                        "render_status": "failed",
+                        "render_error": error_msg
+                    })
+                    return {"success": False, "error": error_msg}
+                    
+            except Exception as db_error:
+                error_msg = f"Database update exception: {db_error}"
+                print(f"[BG-RENDER] ❌ {error_msg}")
+                import traceback
+                traceback.print_exc()
+                FileAnalysis.update_analysis(analysis_id, {
+                    "render_status": "failed",
+                    "render_error": error_msg
+                })
+                return {"success": False, "error": error_msg}
+        else:
+            error_msg = render_result.get('message', 'Render failed for unknown reason')
+            print(f"[BG-RENDER] ❌ Render unsuccessful: {error_msg}")
+            
+            FileAnalysis.update_analysis(analysis_id, {
+                "render_status": "failed",
+                "render_error": error_msg
+            })
+            return {"success": False, "error": error_msg}
+        
+    except Exception as e:
+        error_msg = f"Background render error: {str(e)}"
+        print(f"[BG-RENDER] ❌ GLOBAL ERROR: {error_msg}")
+        import traceback
+        traceback.print_exc()
         
         try:
             FileAnalysis.update_analysis(analysis_id, {
                 "render_status": "failed",
-                "render_error": error_msg,
-                "render_traceback": traceback_str
+                "render_error": error_msg
             })
-        except Exception as db_error:
-            print(f"[BG-RENDER-ENHANCED] ❌ Failed to update error status: {db_error}")
+            print(f"[BG-RENDER] 💾 Error status updated")
+        except Exception as final_error:
+            print(f"[BG-RENDER] ❌ Could not update error status: {final_error}")
             
         return {"success": False, "error": error_msg}
-
-# ===== RENDER STATUS CHECK ENDPOINT - ENHANCED =====
-
 
 def process_batch_analyses(analysis_ids: List[str], user_id: str):
     """Background batch processing function"""
@@ -3497,3 +3663,144 @@ def calculate_mass_and_cost_for_analysis(analysis):
             'material_used': 'Unknown'
         }
                 
+
+def debug_step_render_issue(analysis_id):
+    """STEP render problemi debug et"""
+    try:
+        from models.file_analysis import FileAnalysis
+        
+        print(f"[STEP-DEBUG] 🔍 Debugging STEP render: {analysis_id}")
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis:
+            print(f"[STEP-DEBUG] ❌ Analysis not found")
+            return
+        
+        print(f"[STEP-DEBUG] 📊 Analysis info:")
+        print(f"   - File type: {analysis.get('file_type')}")
+        print(f"   - Original filename: {analysis.get('original_filename')}")
+        print(f"   - Match score: {analysis.get('match_score')}")
+        print(f"   - Analysis strategy: {analysis.get('analysis_strategy')}")
+        print(f"   - Render status: {analysis.get('render_status')}")
+        print(f"   - Render task ID: {analysis.get('render_task_id')}")
+        
+        # STEP file paths check
+        step_paths = {
+            "matched_step_path": analysis.get('matched_step_path'),
+            "extracted_step_path": analysis.get('extracted_step_path'),
+            "direct_file_path": analysis.get('file_path') if analysis.get('file_type') in ['step', 'stp'] else None
+        }
+        
+        print(f"[STEP-DEBUG] 📂 STEP paths:")
+        available_step = None
+        for path_type, path in step_paths.items():
+            if path:
+                exists = os.path.exists(path)
+                size = os.path.getsize(path) if exists else 0
+                print(f"   - {path_type}: {path}")
+                print(f"     Exists: {exists}, Size: {size} bytes")
+                
+                if exists and size > 0 and not available_step:
+                    available_step = path
+                    print(f"     → Will use this STEP file")
+        
+        if not available_step:
+            print(f"[STEP-DEBUG] ❌ No valid STEP file found!")
+            return
+        
+        # Manual render test
+        print(f"[STEP-DEBUG] 🧪 Testing manual render...")
+        
+        try:
+            from services.step_renderer import StepRendererEnhanced
+            
+            step_renderer = StepRendererEnhanced()
+            
+            print(f"[STEP-DEBUG] 🎨 Starting test render: {available_step}")
+            
+            test_result = step_renderer.generate_comprehensive_views(
+                available_step,
+                analysis_id=analysis_id,
+                include_dimensions=True,
+                include_materials=True,
+                high_quality=False
+            )
+            
+            print(f"[STEP-DEBUG] 📊 Test render result: {test_result.get('success', False)}")
+            
+            if test_result.get('success'):
+                renders = test_result.get('renders', {})
+                print(f"[STEP-DEBUG] ✅ Manual render SUCCESS: {len(renders)} views")
+                for view_name, view_data in renders.items():
+                    print(f"   - {view_name}: {view_data.get('file_path', 'no path')}")
+                
+                # Update database manually
+                print(f"[STEP-DEBUG] 💾 Updating database manually...")
+                
+                update_data = {
+                    "enhanced_renders": renders,
+                    "render_status": "completed",
+                    "render_quality": "manual_debug",
+                    "last_render_update": time.time()
+                }
+                
+                if 'isometric' in renders:
+                    update_data["isometric_view"] = renders['isometric'].get('file_path')
+                    if renders['isometric'].get('excel_path'):
+                        update_data["isometric_view_clean"] = renders['isometric'].get('excel_path')
+                
+                db_success = FileAnalysis.update_analysis(analysis_id, update_data)
+                print(f"[STEP-DEBUG] 💾 Database update: {db_success}")
+                
+                if db_success:
+                    print(f"[STEP-DEBUG] 🎉 MANUAL FIX SUCCESSFUL!")
+                    return "manual_fix_success"
+                else:
+                    print(f"[STEP-DEBUG] ❌ Database update failed")
+                    return "db_update_failed"
+            else:
+                error_msg = test_result.get('message', 'Unknown render error')
+                print(f"[STEP-DEBUG] ❌ Manual render failed: {error_msg}")
+                return f"render_failed: {error_msg}"
+                
+        except Exception as render_error:
+            print(f"[STEP-DEBUG] ❌ Manual render exception: {render_error}")
+            import traceback
+            traceback.print_exc()
+            return f"render_exception: {str(render_error)}"
+        
+    except Exception as e:
+        print(f"[STEP-DEBUG] ❌ Debug failed: {e}")
+        return f"debug_failed: {str(e)}"
+
+# ===== DEBUG ENDPOINT - BURAYA EKLE =====
+
+@upload_bp.route('/debug-step-render/<analysis_id>', methods=['GET'])
+@jwt_required()
+def debug_step_render_endpoint(analysis_id):
+    """Manuel debug endpoint"""
+    try:
+        current_user = get_current_user()
+        
+        analysis = FileAnalysis.find_by_id(analysis_id)
+        if not analysis or analysis['user_id'] != current_user['id']:
+            return jsonify({"success": False, "message": "Unauthorized"}), 403
+        
+        print(f"[DEBUG-ENDPOINT] 🔧 Manual debug for: {analysis_id}")
+        
+        # Debug çalıştır
+        result = debug_step_render_issue(analysis_id)
+        
+        return jsonify({
+            "success": True,
+            "debug_result": result,
+            "message": f"Debug completed: {result}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Debug failed: {str(e)}"
+        }), 500
+
+print("🔧 Debug functions added to file_upload_controller.py!")
