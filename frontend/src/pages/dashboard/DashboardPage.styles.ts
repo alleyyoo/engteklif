@@ -578,7 +578,6 @@ export const DashboardPageStyles = createUseStyles({
   },
   modelSection: {
     width: 200,
-    height: 200,
     backgroundColor: 'white',
     border: '1px solid #e0e0e0',
     borderRadius: 8,
