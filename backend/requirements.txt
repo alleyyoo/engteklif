@@ -1,5 +1,5 @@
-# requirements.txt - EngTeklif API v2.0 - COMPLETE WITH STEP RENDERER
-# Son güncelleme: 2025-01-01 - Enhanced STEP Rendering & Material Analysis Integration
+# requirements.txt - EngTeklif API v2.1 - ENHANCED STEP ANALYSIS
+# Son güncelleme: 2025-01-01 - Advanced Geometric Analysis Integration
 
 # =============================================
 # CORE FRAMEWORK
@@ -46,11 +46,16 @@ opencv-python>=4.8.0,<5.0.0
 pytesseract==0.3.10
 
 # =============================================
-# SCIENTIFIC COMPUTING - CRITICAL FOR ANALYSIS
+# SCIENTIFIC COMPUTING - CRITICAL FOR ENHANCED ANALYSIS
 # =============================================
 numpy>=1.24.0,<2.0.0
-scipy>=1.10.0,<2.0.0
+scipy>=1.10.0,<2.0.0          # ⭐ ENHANCED: Spatial transformations & ConvexHull
 pandas>=2.0.0,<3.0.0
+
+# =============================================
+# MACHINE LEARNING - ENHANCED STEP ANALYSIS
+# =============================================
+scikit-learn>=1.3.0,<2.0.0    # ⭐ NEW: PCA for geometric analysis
 
 # =============================================
 # CAD & 3D PROCESSING - CORE STEP RENDERER DEPENDENCIES
@@ -62,7 +67,7 @@ trimesh>=4.0.0,<5.0.0
 # SVG Processing for CadQuery exports
 cairosvg>=2.7.0,<3.0.0
 
-# Advanced 3D Processing (Optional but recommended)
+# Advanced 3D Processing (Optional but recommended for complex geometries)
 # open3d>=0.18.0  # Commented out - large dependency, enable if needed
 
 # =============================================
@@ -106,13 +111,19 @@ python-dotenv>=1.0.0
 python-dateutil>=2.8.0
 click>=8.0.0
 
-# UUID generation (built-in Python 3.11+)
-# hashlib (built-in Python)
-
 # =============================================
 # PRODUCTION SERVER
 # =============================================
 gunicorn>=21.0.0
+
+# =============================================
+# ENHANCED STEP ANALYSIS ADDITIONAL DEPENDENCIES
+# =============================================
+# Advanced image processing for render optimization
+scikit-image>=0.21.0  # ⭐ ENHANCED: Advanced image operations
+
+# Font handling for technical drawings
+fonttools>=4.40.0  # ⭐ NEW: Better font support for annotations
 
 # =============================================
 # DEVELOPMENT & TESTING (Optional)
@@ -123,17 +134,10 @@ gunicorn>=21.0.0
 # mypy>=1.0.0
 
 # =============================================
-# ENHANCED STEP RENDERER ADDITIONAL DEPENDENCIES
-# =============================================
-# Font handling for annotations
-# fonttools>=4.40.0  # Optional - better font support
-
-# Advanced image processing
-scikit-image>=0.21.0  # Optional - advanced image operations
-
-# =============================================
 # SYSTEM REQUIREMENTS & DEPENDENCIES
 # =============================================
+# ⭐ ENHANCED SYSTEM REQUIREMENTS for Advanced Analysis:
+# 
 # Ubuntu/Debian Installation Commands:
 # sudo apt-get update
 # sudo apt-get install -y \
@@ -148,13 +152,17 @@ scikit-image>=0.21.0  # Optional - advanced image operations
 #     libxrandr2 libxss1 libgtk-3-0 \
 #     libasound2 \
 #     build-essential pkg-config \
-#     gcc g++
+#     gcc g++ \
+#     python3-dev \
+#     libblas-dev liblapack-dev \
+#     gfortran
 
 # macOS Installation Commands:
 # brew install tesseract tesseract-lang
 # brew install poppler
 # brew install libreoffice
-# brew install qt@5  # For CadQuery GUI components
+# brew install qt@5
+# brew install openblas lapack  # For optimized numerical operations
 
 # Windows Installation:
 # Download and install:
@@ -162,116 +170,172 @@ scikit-image>=0.21.0  # Optional - advanced image operations
 # - Poppler: https://github.com/oschwartz10612/poppler-windows
 # - LibreOffice: https://www.libreoffice.org/download/
 # - Visual C++ Redistributable for CadQuery
+# - Intel MKL or OpenBLAS for scipy optimization
 # Add all to PATH environment variable
 
 # =============================================
-# STEP RENDERER SYSTEM REQUIREMENTS
+# ENHANCED STEP ANALYSIS SYSTEM REQUIREMENTS
 # =============================================
-# CadQuery Dependencies:
+# Advanced Analysis Dependencies:
+# - NumPy with BLAS/LAPACK (optimized linear algebra)
+# - SciPy with spatial algorithms
+# - scikit-learn for PCA computations
 # - OpenGL drivers (for 3D rendering)
 # - FreeCAD-based geometry kernel
 # - Qt5/Qt6 (for GUI components if needed)
 # - Python 3.9+ (recommended 3.11+)
 
-# Cairo Dependencies (for SVG to PNG conversion):
-# Ubuntu/Debian: sudo apt-get install libcairo2-dev
-# macOS: brew install cairo
-# Windows: Included with cairosvg pip package
+# Memory Requirements for Enhanced Analysis:
+# - Minimum: 4GB RAM
+# - Recommended: 8GB+ RAM
+# - Complex geometries: 16GB+ RAM
+# - CPU: 4+ cores recommended for parallel processing
 
 # =============================================
 # PERFORMANCE OPTIMIZATION NOTES
 # =============================================
 # For Production Environments:
-# 1. Use compiled NumPy with BLAS/LAPACK
-# 2. Consider Intel MKL for numerical operations
-# 3. Enable CadQuery caching mechanisms
-# 4. Use Redis for session/render caching
+# 1. Use compiled NumPy with Intel MKL or OpenBLAS
+# 2. Enable scipy optimization flags
+# 3. Configure scikit-learn with n_jobs=-1 for parallel processing
+# 4. Use CadQuery caching mechanisms
 # 5. Configure matplotlib non-interactive backend
+# 6. Enable memory mapping for large STEP files
 
-# Environment Variables for Production:
+# Environment Variables for Enhanced Performance:
 # TESSERACT_CMD=/usr/bin/tesseract
 # LIBREOFFICE_PATH=/usr/bin/libreoffice
 # OPENCV_LOG_LEVEL=ERROR
 # CADQUERY_DISABLE_JUPYTER=1
-# MPLBACKEND=Agg  # Non-interactive matplotlib backend
+# MPLBACKEND=Agg
+# OMP_NUM_THREADS=4                    # ⭐ NEW: OpenMP threads for scipy
+# OPENBLAS_NUM_THREADS=4               # ⭐ NEW: BLAS threads for numpy
+# MKL_NUM_THREADS=4                    # ⭐ NEW: Intel MKL threads
+# SKLEARN_ENABLE_WARN_ON_FIT=False     # ⭐ NEW: Reduce sklearn warnings
 
 # =============================================
-# MEMORY & RESOURCE CONSIDERATIONS
+# ENHANCED MEMORY & RESOURCE CONSIDERATIONS
 # =============================================
-# Typical memory usage:
+# Typical memory usage with enhanced analysis:
 # - CadQuery: 100-500MB per STEP file
+# - Enhanced analysis: 50-200MB additional per file
+# - scipy spatial operations: 20-100MB per analysis
+# - scikit-learn PCA: 10-50MB per geometry
 # - matplotlib: 50-200MB per render
 # - PIL/OpenCV: 20-100MB per image
 # - Material Analysis: 10-50MB per document
 # 
-# Recommended server specs:
-# - RAM: 4GB minimum, 8GB+ recommended
-# - CPU: 2+ cores for parallel processing
-# - Storage: 10GB+ for renders and temp files
-# - GPU: Optional, can accelerate OpenGL rendering
+# Recommended server specs for enhanced analysis:
+# - RAM: 8GB minimum, 16GB+ recommended for production
+# - CPU: 4+ cores for parallel geometric processing
+# - Storage: 20GB+ for renders, models and temp files
+# - GPU: Optional, can accelerate OpenGL and some scipy operations
+# - SSD storage recommended for faster I/O
 
 # =============================================
-# VERSION COMPATIBILITY MATRIX
+# ENHANCED VERSION COMPATIBILITY MATRIX
 # =============================================
 # Python 3.11+ (recommended)
 # CadQuery 2.3.1+ (STEP file support)
+# SciPy 1.10+ (spatial transformation features)
+# scikit-learn 1.3+ (efficient PCA implementation)
+# NumPy 1.24+ (optimized array operations)
 # matplotlib 3.7+ (3D plotting features)
 # OpenCV 4.8+ (image processing)
-# NumPy 1.24+ (array operations)
 # Pillow 10.0+ (image manipulation)
 # pymongo 4.6+ (MongoDB driver)
 # Flask 3.0+ (modern web framework)
 
 # =============================================
-# INSTALLATION VERIFICATION COMMANDS
+# ENHANCED INSTALLATION VERIFICATION COMMANDS
 # =============================================
-# Test Core Dependencies:
+# Test Enhanced Analysis Dependencies:
+# python -c "import numpy; print(f'NumPy: {numpy.__version__} OK')"
+# python -c "import scipy; print(f'SciPy: {scipy.__version__} OK')"
+# python -c "import sklearn; print(f'scikit-learn: {sklearn.__version__} OK')"
 # python -c "import cadquery; print('CadQuery: OK')"
 # python -c "import matplotlib; print('Matplotlib: OK')"
 # python -c "import cv2; print('OpenCV: OK')"
-# python -c "import PIL; print('Pillow: OK')"
-# python -c "import numpy; print('NumPy: OK')"
-# python -c "import cairosvg; print('CairoSVG: OK')"
-# python -c "import pytesseract; print('Tesseract: OK')"
 
-# Test STEP File Processing:
+# Test Enhanced STEP Analysis:
+# python -c "
+# from scipy.spatial.transform import Rotation
+# from scipy.spatial import ConvexHull
+# from sklearn.decomposition import PCA
+# import numpy as np
+# print('Enhanced STEP Analysis: All dependencies OK')
+# 
+# # Test PCA
+# data = np.random.rand(100, 3)
+# pca = PCA(n_components=3)
+# pca.fit(data)
+# print(f'PCA test: {pca.explained_variance_ratio_.sum():.3f}')
+# 
+# # Test ConvexHull
+# points = np.random.rand(10, 3)
+# hull = ConvexHull(points)
+# print(f'ConvexHull test: {len(hull.vertices)} vertices')
+# 
+# # Test Rotation
+# r = Rotation.from_rotvec([0, 0, np.pi/4])
+# print(f'Rotation test: {r.as_euler(\"xyz\", degrees=True)}')
+# "
+
+# Test Complete Enhanced STEP Processing:
 # python -c "
 # import cadquery as cq
-# box = cq.Workplane().box(10, 10, 10)
-# print(f'STEP Test: {box.val().Volume()} mm³')
+# import numpy as np
+# from scipy.spatial import ConvexHull
+# from sklearn.decomposition import PCA
+# 
+# # Create test geometry
+# box = cq.Workplane().box(10, 20, 30)
+# print(f'Test geometry volume: {box.val().Volume()} mm³')
+# 
+# # Test vertex extraction
+# vertices = []
+# for vertex in box.vertices():
+#     pnt = vertex.toTuple()
+#     vertices.append([pnt[0], pnt[1], pnt[2]])
+# 
+# print(f'Extracted {len(vertices)} vertices')
+# 
+# # Test ConvexHull
+# if len(vertices) >= 4:
+#     hull = ConvexHull(vertices)
+#     print(f'ConvexHull: {len(hull.vertices)} hull vertices')
+#     
+#     # Test PCA
+#     hull_points = np.array(vertices)[hull.vertices]
+#     pca = PCA(n_components=3)
+#     pca.fit(hull_points)
+#     print(f'PCA explained variance: {pca.explained_variance_ratio_}')
+# 
+# print('Enhanced STEP Analysis: Full pipeline test OK')
 # "
 
-# Test Rendering Pipeline:
-# python -c "
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
-# print('3D Rendering: OK')
-# "
+# =============================================
+# TROUBLESHOOTING ENHANCED ANALYSIS ISSUES
+# =============================================
+# Issue: scipy import error
+# Solution: pip install scipy, check BLAS/LAPACK installation
+
+# Issue: scikit-learn performance warning
+# Solution: Install optimized BLAS, set SKLEARN_ENABLE_WARN_ON_FIT=False
+
+# Issue: ConvexHull memory error on large geometries
+# Solution: Reduce point cloud density, increase system RAM
+
+# Issue: PCA computation timeout
+# Solution: Set n_jobs=1 for large datasets, use incremental PCA
+
+# Issue: Enhanced analysis slower than traditional
+# Solution: Enable parallel processing, check OpenMP configuration
 
 # =============================================
-# TROUBLESHOOTING COMMON ISSUES
+# DOCKER ENHANCED CONFIGURATION
 # =============================================
-# Issue: CadQuery import error
-# Solution: Install FreeCAD dependencies, check OpenGL drivers
-
-# Issue: matplotlib 3D projection error  
-# Solution: Install python3-tk, set MPLBACKEND=Agg
-
-# Issue: cairosvg PNG conversion fails
-# Solution: Install cairo system libraries
-
-# Issue: Tesseract not found
-# Solution: Install tesseract-ocr, set TESSERACT_CMD environment variable
-
-# Issue: Out of memory during STEP processing
-# Solution: Increase swap space, reduce concurrent processing
-
-# =============================================
-# DOCKER CONSIDERATIONS
-# =============================================
-# For Docker deployment, include in Dockerfile:
+# For Docker deployment with enhanced analysis:
 # RUN apt-get update && apt-get install -y \
 #     tesseract-ocr tesseract-ocr-tur \
 #     poppler-utils \
@@ -279,9 +343,17 @@ scikit-image>=0.21.0  # Optional - advanced image operations
 #     libglu1-mesa libglib2.0-0 \
 #     libsm6 libxext6 libxrender-dev \
 #     libgomp1 libfontconfig1 \
-#     xvfb && \
+#     xvfb \
+#     python3-dev \
+#     libblas-dev liblapack-dev \
+#     gfortran && \
 #     rm -rf /var/lib/apt/lists/*
 
-# Start with virtual display:
+# Set enhanced analysis environment variables:
+# ENV OMP_NUM_THREADS=4
+# ENV OPENBLAS_NUM_THREADS=4
+# ENV SKLEARN_ENABLE_WARN_ON_FIT=False
+
+# Start with virtual display and enhanced processing:
 # CMD ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 & python app.py"]
 # =============================================
