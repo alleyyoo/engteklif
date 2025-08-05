@@ -1,4 +1,4 @@
-# services/material_analysis.py - COMPLETE PRODUCTION DATABASE-ONLY VERSION WITH ENHANCED PDF
+# services/material_analysis.py - COMPLETE PRODUCTION DATABASE-ONLY VERSION WITH ENHANCED PDF AND INTEGRATED STEP ANALYSIS
 
 import re
 import os
@@ -19,6 +19,18 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import PyPDF2
 
+# ✅ INTEGRATED ENHANCED STEP ANALYSIS - APP.PY FUNCTIONS MOVED HERE
+try:
+    from scipy.spatial.transform import Rotation
+    from scipy.spatial import ConvexHull
+    from sklearn.decomposition import PCA
+    SCIPY_AVAILABLE = True
+    print("[MATERIAL-ANALYSIS] ✅ Advanced geometric analysis libraries available (scipy + sklearn)")
+except ImportError as e:
+    SCIPY_AVAILABLE = False
+    print(f"[MATERIAL-ANALYSIS] ⚠️ Advanced geometric analysis disabled: {e}")
+    print("[MATERIAL-ANALYSIS] 💡 Install with: pip install scipy scikit-learn")
+
 # ✅ ENHANCED PDF INTEGRATION - MEVCUT SİSTEMİ BOZMAZ
 try:
     from .enhanced_pdf_analysis import (
@@ -32,7 +44,340 @@ except ImportError as e:
     ENHANCED_PDF_AVAILABLE = False
     print(f"[MATERIAL-ANALYSIS] ⚠️ Enhanced PDF analysis not available: {e}")
 
-print("[INFO] ✅ Material Analysis Service - DATABASE-ONLY VERSION WITH ENHANCED PDF")
+print("[INFO] ✅ Material Analysis Service - DATABASE-ONLY VERSION WITH INTEGRATED ENHANCED STEP ANALYSIS")
+
+# =====================================================
+# ✅ INTEGRATED ENHANCED STEP ANALYSIS FUNCTIONS (FROM APP.PY)
+# =====================================================
+
+def calculate_face_based_dimensions(part):
+    """
+    Parçanın yüzlerini analiz ederek en uygun oriented bounding box hesaplar
+    """
+    try:
+        # Tüm yüzleri al
+        faces = part.faces()
+        
+        if not faces:
+            # Fallback: geleneksel bounding box
+            return calculate_traditional_bbox(part)
+        
+        best_config = None
+        min_waste_volume = float('inf')
+        
+        # Her yüz için normal vektörü hesapla
+        for face in faces:
+            try:
+                # Yüzün normal vektörünü al
+                face_normal = face.normalAt()
+                
+                # Normal vektörü Z ekseniyle hizala
+                aligned_part = align_part_to_normal(part, face_normal)
+                
+                # Hizalanmış parçanın boyutlarını hesapla
+                bbox = aligned_part.BoundingBox()
+                dimensions = (bbox.xlen, bbox.ylen, bbox.zlen)
+                
+                # Padding ekle
+                padded_dims = [dim + 10.0 for dim in dimensions]
+                
+                # Prizma hacmi (işleme için gerekli ham malzeme)
+                prism_volume = padded_dims[0] * padded_dims[1] * padded_dims[2]
+                
+                # Gerçek parça hacmi
+                actual_volume = part.Volume()
+                
+                # Talaş hacmi
+                waste_volume = prism_volume - actual_volume
+                
+                if waste_volume < min_waste_volume:
+                    min_waste_volume = waste_volume
+                    best_config = {
+                        'dimensions': dimensions,
+                        'padded_dimensions': padded_dims,
+                        'prism_volume': prism_volume,
+                        'actual_volume': actual_volume,
+                        'waste_volume': waste_volume,
+                        'waste_ratio': (waste_volume / prism_volume * 100) if prism_volume > 0 else 0,
+                        'orientation': face_normal
+                    }
+            except Exception as e:
+                print(f"[WARN] Yüz analizi hatası: {e}")
+                continue
+        
+        # En iyi konfigürasyon bulunamazsa, geleneksel yönteme geç
+        if best_config is None:
+            return calculate_traditional_bbox(part)
+            
+        return best_config
+        
+    except Exception as e:
+        print(f"[ERROR] Face-based analiz hatası: {e}")
+        return calculate_traditional_bbox(part)
+
+def align_part_to_normal(part, normal_vector):
+    """
+    Parçayı verilen normal vektörüne göre hizalar
+    """
+    try:
+        if not SCIPY_AVAILABLE:
+            return part
+            
+        # Normal vektörü normalize et
+        normal = np.array([normal_vector.x, normal_vector.y, normal_vector.z])
+        normal = normal / np.linalg.norm(normal)
+        
+        # Z ekseni ile hizalamak için rotasyon hesapla
+        z_axis = np.array([0, 0, 1])
+        
+        # Rotasyon ekseni (cross product)
+        rotation_axis = np.cross(normal, z_axis)
+        
+        if np.linalg.norm(rotation_axis) < 1e-6:
+            # Zaten hizalı veya tam ters
+            return part
+            
+        rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+        
+        # Rotasyon açısı
+        angle = np.arccos(np.clip(np.dot(normal, z_axis), -1.0, 1.0))
+        
+        # Rotasyon uygula
+        axis_angle = rotation_axis * angle
+        rotation = Rotation.from_rotvec(axis_angle)
+        
+        # CadQuery rotasyonuna çevir
+        rotated_part = part.rotate(
+            (0, 0, 0),
+            tuple(rotation_axis),
+            np.degrees(angle)
+        )
+        
+        return rotated_part
+        
+    except Exception as e:
+        print(f"[WARN] Hizalama hatası: {e}")
+        return part
+
+def calculate_traditional_bbox(part):
+    """
+    Geleneksel bounding box hesaplama (fallback) - ZERO DEFAULTS
+    """
+    min_volume = None
+    best_dims = (0, 0, 0)  # ✅ CHANGED: Default to (0, 0, 0)
+    
+    for rx in [0, 90, 180, 270]:
+        for ry in [0, 90, 180, 270]:
+            for rz in [0, 90, 180, 270]:
+                try:
+                    rotated = part.rotate((0, 0, 0), (1, 0, 0), rx)\
+                                  .rotate((0, 0, 0), (0, 1, 0), ry)\
+                                  .rotate((0, 0, 0), (0, 0, 1), rz)
+                    bbox = rotated.BoundingBox()
+                    volume = bbox.xlen * bbox.ylen * bbox.zlen
+                    
+                    if (min_volume is None) or (volume < min_volume):
+                        min_volume = volume
+                        best_dims = (bbox.xlen, bbox.ylen, bbox.zlen)
+                except Exception as rot_error:
+                    print(f"[WARN] Rotation error: {rot_error}")
+                    continue
+    
+    x, y, z = best_dims
+    x_pad = x + 10.0 if x > 0 else 0  # ✅ CHANGED: Check if x > 0
+    y_pad = y + 10.0 if y > 0 else 0  # ✅ CHANGED: Check if y > 0
+    z_pad = z + 10.0 if z > 0 else 0  # ✅ CHANGED: Check if z > 0
+    volume_padded = x_pad * y_pad * z_pad
+    
+    try:
+        actual_volume = part.Volume()
+    except:
+        actual_volume = 0  # ✅ CHANGED: Default to 0
+    
+    waste_volume = volume_padded - actual_volume if volume_padded > 0 else 0
+    
+    return {
+        'dimensions': best_dims,
+        'padded_dimensions': (x_pad, y_pad, z_pad),
+        'prism_volume': volume_padded,
+        'actual_volume': actual_volume,
+        'waste_volume': waste_volume,
+        'waste_ratio': (waste_volume / volume_padded * 100) if volume_padded > 0 else 0
+    }
+
+def calculate_convex_hull_approach(part):
+    """
+    Convex hull yaklaşımı - daha doğru boyutlar için - ZERO DEFAULTS
+    """
+    try:
+        if not SCIPY_AVAILABLE:
+            return calculate_traditional_bbox(part)
+            
+        # Parçanın köşe noktalarını al
+        vertices = []
+        for vertex in part.vertices():
+            pnt = vertex.toTuple()
+            vertices.append([pnt[0], pnt[1], pnt[2]])
+        
+        if len(vertices) < 4:
+            return calculate_traditional_bbox(part)
+        
+        hull = ConvexHull(vertices)
+        
+        # Convex hull'un minimum bounding box'ını hesapla
+        hull_points = np.array(vertices)[hull.vertices]
+        
+        # PCA ile ana eksenleri bul
+        pca = PCA(n_components=3)
+        pca.fit(hull_points)
+        
+        # Ana eksenlere göre dönüştür
+        transformed_points = pca.transform(hull_points)
+        
+        # Dönüştürülmüş koordinatlardaki min/max değerler
+        min_vals = np.min(transformed_points, axis=0)
+        max_vals = np.max(transformed_points, axis=0)
+        dimensions = max_vals - min_vals
+        
+        # Padding ekle - only if dimensions > 0
+        padded_dims = dimensions + 10.0 if np.all(dimensions > 0) else np.array([0, 0, 0])  # ✅ CHANGED
+        prism_volume = np.prod(padded_dims) if np.all(padded_dims > 0) else 0  # ✅ CHANGED
+        
+        try:
+            actual_volume = part.Volume()
+        except:
+            actual_volume = 0  # ✅ CHANGED: Default to 0
+        
+        waste_volume = prism_volume - actual_volume if prism_volume > 0 else 0
+        
+        return {
+            'dimensions': tuple(dimensions),
+            'padded_dimensions': tuple(padded_dims),
+            'prism_volume': prism_volume,
+            'actual_volume': actual_volume,
+            'waste_volume': waste_volume,
+            'waste_ratio': (waste_volume / prism_volume * 100) if prism_volume > 0 else 0
+        }
+        
+    except Exception as e:
+        print(f"[WARN] Convex hull hatası: {e}")
+        return calculate_traditional_bbox(part)
+
+def improved_step_analysis(step_path):
+    """
+    Geliştirilmiş STEP analizi - ana fonksiyon - ZERO DEFAULTS
+    """
+    try:
+        assembly = cq.importers.importStep(step_path)
+        shapes = assembly.objects
+        sorted_shapes = sorted(shapes, key=lambda s: s.Volume(), reverse=True)
+        main_shape = sorted_shapes[0]
+        
+        # Ana şekil etrafında ilgili şekilleri bul
+        main_bbox = main_shape.BoundingBox()
+        relevant_shapes = [main_shape]
+        
+        for shape in sorted_shapes[1:]:
+            bb = shape.BoundingBox()
+            intersects = (
+                bb.xmax > main_bbox.xmin and bb.xmin < main_bbox.xmax and
+                bb.ymax > main_bbox.ymin and bb.ymin < main_bbox.ymax and
+                bb.zmax > main_bbox.zmin and bb.zmin < main_bbox.zmax
+            )
+            if intersects:
+                relevant_shapes.append(shape)
+        
+        part = cq.Compound.makeCompound(relevant_shapes)
+        
+        # Farklı yöntemleri dene ve en iyisini seç
+        results = []
+        
+        # 1. Face-based analiz (en doğru)
+        try:
+            face_result = calculate_face_based_dimensions(part)
+            if face_result:
+                results.append(("face_based", face_result))
+        except Exception as e:
+            print(f"[WARN] Face-based analiz başarısız: {e}")
+        
+        # 2. Convex hull analiz (alternatif)
+        try:
+            hull_result = calculate_convex_hull_approach(part)
+            if hull_result:
+                results.append(("convex_hull", hull_result))
+        except Exception as e:
+            print(f"[WARN] Convex hull analiz başarısız: {e}")
+        
+        # 3. Geleneksel analiz (fallback)
+        traditional_result = calculate_traditional_bbox(part)
+        results.append(("traditional", traditional_result))
+        
+        # En az talaş oranına sahip olanı seç
+        if not results:
+            # ✅ CHANGED: Return all zeros if no analysis works
+            return {
+                "error": "Hiçbir analiz yöntemi başarılı olmadı",
+                "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                "Toplam Yüzey Alanı (mm²)": 0
+            }
+        
+        best_method, best_result = min(results, key=lambda x: x[1]['waste_ratio'])
+        
+        print(f"[INFO] En iyi yöntem: {best_method}")
+        print(f"[INFO] Talaş oranı: {best_result['waste_ratio']:.2f}%")
+        
+        # Yüzey alanı hesapla
+        try:
+            total_surface_area = part.Area()
+        except:
+            total_surface_area = 0  # ✅ CHANGED: Default to 0
+        
+        x, y, z = best_result['dimensions']
+        x_pad, y_pad, z_pad = best_result['padded_dimensions']
+        
+        # always_round_up fonksiyonu - only if value > 0
+        def always_round_up(value):
+            import math
+            return math.ceil(value) if value > 0 else 0  # ✅ CHANGED
+        
+        step_analysis = {
+            "Method": best_method,
+            "X (mm)": round(x, 3),
+            "Y (mm)": round(y, 3),
+            "Z (mm)": round(z, 3),
+            "Silindirik Çap (mm)": round(max(x, y), 3) if x > 0 and y > 0 else 0,  # ✅ CHANGED
+            "Silindirik Yükseklik (mm)": round(z, 3),
+            "X+Pad (mm)": always_round_up(x_pad),
+            "Y+Pad (mm)": always_round_up(y_pad),
+            "Z+Pad (mm)": always_round_up(z_pad),
+            "Prizma Hacmi (mm³)": round(best_result['prism_volume'], 3),
+            "Ürün Hacmi (mm³)": round(best_result['actual_volume'], 3),
+            "Talaş Hacmi (mm³)": round(best_result['waste_volume'], 3),
+            "Talaş Oranı (%)": round(best_result['waste_ratio'], 2),
+            "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 3),
+            "enhanced_analysis": True,
+            "methods_tested": len(results),
+            "scipy_available": SCIPY_AVAILABLE
+        }
+        
+        return step_analysis
+        
+    except Exception as e:
+        print(f"[ERROR] STEP analiz hatası: {e}")
+        # ✅ CHANGED: Return all zeros on error
+        return {
+            "error": str(e),
+            "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+            "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+            "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+            "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+            "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+            "Toplam Yüzey Alanı (mm²)": 0
+        }
 
 class MaterialAnalysisServiceOptimized:
     def __init__(self):
@@ -313,8 +658,8 @@ class MaterialAnalysisServiceOptimized:
                 print(f"[DEFAULT] ✅ Found default material: {default_material.get('name')} (is_active: {default_material.get('is_active')})")
                 return {
                     'name': default_material['name'],
-                    'density': default_material.get('density', 2.7),
-                    'price_per_kg': default_material.get('price_per_kg', 5.0),
+                    'density': default_material.get('density', 0),  # ✅ CHANGED: Default to 0
+                    'price_per_kg': default_material.get('price_per_kg', 0),  # ✅ CHANGED: Default to 0
                     'category': default_material.get('category', 'Unknown')
                 }
             else:
@@ -330,7 +675,7 @@ class MaterialAnalysisServiceOptimized:
         try:
             print("[EMERGENCY] 🆘 Creating emergency materials from database only...")
             
-            volume_cm3 = max(prizma_hacim_mm3 / 1000, 0.1)
+            volume_cm3 = max(prizma_hacim_mm3 / 1000, 0.1) if prizma_hacim_mm3 > 0 else 0.1  # ✅ CHANGED: Check volume
             
             # Get materials from database (include missing is_active)
             materials_cursor = self.database.materials.find(
@@ -356,11 +701,11 @@ class MaterialAnalysisServiceOptimized:
                     if (material.get('name') and 
                         material.get('density') and 
                         material.get('price_per_kg') is not None and
-                        material.get('density') > 0 and 
-                        material.get('price_per_kg') >= 0):
+                        float(material['density']) > 0 and 
+                        float(material['price_per_kg']) >= 0):
                         
-                        mass_kg = (volume_cm3 * material['density']) / 1000
-                        material_cost = mass_kg * material['price_per_kg']
+                        mass_kg = (volume_cm3 * material['density']) / 1000 if volume_cm3 > 0 else 0  # ✅ CHANGED
+                        material_cost = mass_kg * material['price_per_kg'] if mass_kg > 0 else 0  # ✅ CHANGED
                         
                         emergency_materials.append({
                             "name": material['name'],
@@ -536,23 +881,43 @@ class MaterialAnalysisServiceOptimized:
             if file_type == 'pdf':
                 result = self._analyze_pdf_ultra_fast(file_path, result)
             elif file_type in ['step', 'stp']:
-                result["step_analysis"] = self.analyze_step_file_ultra_fast(file_path)
-                result["processing_log"].append("🔧 STEP analizi tamamlandı")
+                # ✅ INTEGRATED ENHANCED STEP ANALYSIS - Direct usage of integrated functions
+                print(f"[STEP-INTEGRATED] 🧠 Using integrated enhanced STEP analysis")
+                try:
+                    if SCIPY_AVAILABLE:
+                        # Use integrated improved_step_analysis function
+                        enhanced_result = improved_step_analysis(file_path)
+                        if enhanced_result and 'error' not in enhanced_result:
+                            result["step_analysis"] = enhanced_result
+                            result["processing_log"].append("🧠 Integrated enhanced STEP analizi tamamlandı")
+                            print(f"[STEP-INTEGRATED] ✅ Enhanced analysis successful: {enhanced_result.get('Method', 'unknown')}")
+                        else:
+                            print(f"[STEP-INTEGRATED] ⚠️ Enhanced failed, using traditional")
+                            result["step_analysis"] = self.analyze_step_file_ultra_fast(file_path)
+                            result["processing_log"].append("🔧 Traditional STEP analizi tamamlandı")
+                    else:
+                        print(f"[STEP-INTEGRATED] ⚠️ SciPy not available, using traditional")
+                        result["step_analysis"] = self.analyze_step_file_ultra_fast(file_path)
+                        result["processing_log"].append("🔧 Traditional STEP analizi tamamlandı")
+                except Exception as integrated_error:
+                    print(f"[STEP-INTEGRATED] ❌ Integrated enhanced error: {integrated_error}")
+                    result["step_analysis"] = self.analyze_step_file_ultra_fast(file_path)
+                    result["processing_log"].append("🔧 Fallback STEP analizi tamamlandı")
                 
                 if not result.get("material_matches"):
                     # Get default from database
                     default_material = self._get_default_material_from_database()
-                    if default_material:
+                    if default_material and default_material.get('name'):
                         result["material_matches"] = [f"{default_material['name']} (%database_default)"]
                     else:
-                        result["material_matches"] = ["Unknown (%no_database_materials)"]
+                        result["material_matches"] = []  # ✅ CHANGED: Empty array instead of default
                     
             elif file_type in ['doc', 'docx']:
                 result = self._analyze_document_fast(file_path, result)
             
             # ✅ MANDATORY DATABASE-ONLY MATERIAL OPTIONS
             step_analysis = result.get("step_analysis", {})
-            prizma_hacim = step_analysis.get("Prizma Hacmi (mm³)")
+            prizma_hacim = step_analysis.get("Prizma Hacmi (mm³)", 0)  # ✅ CHANGED: Default to 0
             
             print(f"[ULTRA-FAST] 📊 Database-only material options generation...")
             print(f"[ULTRA-FAST] 📐 Prizma hacmi: {prizma_hacim}")
@@ -562,15 +927,13 @@ class MaterialAnalysisServiceOptimized:
                     prizma_hacim, limit=0  # Limit=0 = TÜM materyalleri döndür
                 )
             else:
-                print(f"[ULTRA-FAST] ⚠️ No volume, using default 100cm³")
-                result["material_options"] = self._calculate_top_materials_database_only(
-                    100000, limit=0  # Limit=0 = TÜM materyalleri döndür
-                )
+                print(f"[ULTRA-FAST] ⚠️ No volume (0), using empty material options")
+                result["material_options"] = []  # ✅ CHANGED: Empty array instead of default volume
             
             print(f"[ULTRA-FAST] ✅ Database-only material options generated: {len(result['material_options'])}")
             
             # Found materials calculations
-            if result.get("material_matches") and prizma_hacim:
+            if result.get("material_matches") and prizma_hacim and prizma_hacim > 0:
                 result["all_material_calculations"] = self._calculate_found_materials_database_only(
                     prizma_hacim, result["material_matches"]
                 )
@@ -582,19 +945,24 @@ class MaterialAnalysisServiceOptimized:
             if not result.get("material_options") or len(result.get("material_options", [])) == 0:
                 print(f"[DB-ONLY-CHECK] 🆘 Material options empty, applying database-only emergency...")
                 
-                # Get volume
-                volume_to_use = prizma_hacim or 100000
+                # Get volume - only if > 0
+                volume_to_use = prizma_hacim if prizma_hacim > 0 else 0
                 
-                # Try emergency database materials
-                result["material_options"] = self._create_emergency_materials_from_database(volume_to_use)
-                
-                if len(result["material_options"]) > 0:
-                    print(f"[DB-ONLY-CHECK] ✅ Database emergency fix: {len(result['material_options'])} materials")
-                    result["processing_log"].append(f"🆘 DATABASE emergency materials: {len(result['material_options'])} items")
+                if volume_to_use > 0:
+                    # Try emergency database materials
+                    result["material_options"] = self._create_emergency_materials_from_database(volume_to_use)
+                    
+                    if len(result["material_options"]) > 0:
+                        print(f"[DB-ONLY-CHECK] ✅ Database emergency fix: {len(result['material_options'])} materials")
+                        result["processing_log"].append(f"🆘 DATABASE emergency materials: {len(result['material_options'])} items")
+                    else:
+                        print("[DB-ONLY-CHECK] ❌ No materials available in database")
+                        result["error"] = "No materials found in database"
+                        result["processing_log"].append("❌ CRITICAL: No materials in database")
                 else:
-                    print("[DB-ONLY-CHECK] ❌ No materials available in database")
-                    result["error"] = "No materials found in database"
-                    result["processing_log"].append("❌ CRITICAL: No materials in database")
+                    print("[DB-ONLY-CHECK] ❌ No volume data (0), cannot calculate materials")
+                    result["material_options"] = []
+                    result["processing_log"].append("❌ No volume data for material calculations")
             else:
                 print(f"[DB-ONLY-CHECK] ✅ Material options OK: {len(result.get('material_options', []))} materials from database")
             
@@ -621,9 +989,14 @@ class MaterialAnalysisServiceOptimized:
             print(f"[ULTRA-FAST] ❌ {error_msg}")
             print(f"[ULTRA-FAST] 📋 Traceback: {traceback.format_exc()}")
             
-            # Even in error, try database emergency
+            # Even in error, try database emergency only if we have volume
             result["error"] = error_msg
-            result["material_options"] = self._create_emergency_materials_from_database(100000)
+            step_analysis = result.get("step_analysis", {})
+            prizma_hacim = step_analysis.get("Prizma Hacmi (mm³)", 0)
+            if prizma_hacim > 0:
+                result["material_options"] = self._create_emergency_materials_from_database(prizma_hacim)
+            else:
+                result["material_options"] = []
             result["processing_log"].append(f"❌ ERROR but database emergency materials attempted")
             
             return result
@@ -633,7 +1006,7 @@ class MaterialAnalysisServiceOptimized:
     # =====================================================
     
     def _analyze_pdf_ultra_fast(self, file_path, result):
-        """✅ ENHANCED PDF analysis - SADECE MATERIAL DETECTION GELİŞTİRİLDİ"""
+        """✅ ENHANCED PDF analysis - SADECE MATERIAL DETECTION GELİŞTİRİLDİ - ZERO DEFAULTS"""
         start_time = time.time()
         result["processing_log"].append("📄 Enhanced PDF analizi başlatılıyor")
         
@@ -711,26 +1084,46 @@ class MaterialAnalysisServiceOptimized:
             result["extracted_step_path"] = permanent_step_path
             result["pdf_analysis_id"] = analysis_id
             
-            # ✅ NORMAL STEP ANALYSIS - MEVCUT KOD (3D render için gerekli)
-            result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
-            result["processing_log"].append("🔧 Hızlı STEP analizi tamamlandı")
+            # ✅ INTEGRATED ENHANCED STEP ANALYSIS for extracted STEP
+            if SCIPY_AVAILABLE:
+                try:
+                    print(f"[PDF-STEP-INTEGRATED] 🧠 Using integrated enhanced analysis for extracted STEP")
+                    integrated_step_result = improved_step_analysis(permanent_step_path)
+                    if integrated_step_result and 'error' not in integrated_step_result:
+                        result["step_analysis"] = integrated_step_result
+                        result["processing_log"].append("🧠 Integrated Enhanced STEP analizi (PDF'den) tamamlandı")
+                        print(f"[PDF-STEP-INTEGRATED] ✅ Integrated enhanced analysis successful")
+                    else:
+                        print(f"[PDF-STEP-INTEGRATED] ⚠️ Integrated enhanced failed, using traditional")
+                        result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
+                        result["processing_log"].append("🔧 Traditional STEP analizi (PDF'den) tamamlandı")
+                except Exception as integrated_step_error:
+                    print(f"[PDF-STEP-INTEGRATED] ❌ Integrated enhanced error: {integrated_step_error}")
+                    result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
+                    result["processing_log"].append("🔧 Fallback STEP analizi (PDF'den) tamamlandı")
+            else:
+                # ✅ NORMAL STEP ANALYSIS - MEVCUT KOD (3D render için gerekli)
+                print(f"[PDF-STEP-INTEGRATED] ⚠️ SciPy not available, using traditional")
+                result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
+                result["processing_log"].append("🔧 Traditional STEP analizi tamamlandı")
+            
             result["step_file_hash"] = self._calculate_file_hash_fast(permanent_step_path)
             
             print(f"[PDF-STEP] ✅ STEP analysis completed: {result['step_analysis']}")
             
         else:
-            # ✅ DEFAULT VALUES - MEVCUT KOD (ama daha iyi değerler - 3D render için)
+            # ✅ ZERO DEFAULT VALUES - CHANGED
             result["step_analysis"] = {
-                "X (mm)": 120.0, "Y (mm)": 80.0, "Z (mm)": 25.0,
-                "X+Pad (mm)": 130, "Y+Pad (mm)": 90, "Z+Pad (mm)": 35,
-                "Silindirik Çap (mm)": 120.0, "Silindirik Yükseklik (mm)": 25.0,
-                "Prizma Hacmi (mm³)": 292500, "Ürün Hacmi (mm³)": 240000,
-                "Talaş Hacmi (mm³)": 52500, "Talaş Oranı (%)": 18.0,
-                "Toplam Yüzey Alanı (mm²)": 22400, 
-                "method": "estimated_from_pdf_enhanced"
+                "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,  # ✅ CHANGED: Zero defaults
+                "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,  # ✅ CHANGED: Zero defaults
+                "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,  # ✅ CHANGED: Zero defaults
+                "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,  # ✅ CHANGED: Zero defaults
+                "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,  # ✅ CHANGED: Zero defaults
+                "Toplam Yüzey Alanı (mm²)": 0,   # ✅ CHANGED: Zero defaults
+                "method": "estimated_from_pdf_zero_defaults"
             }
-            result["processing_log"].append("⚠️ STEP bulunamadı, geliştirilmiş varsayılan değerler kullanıldı")
-            print(f"[PDF-STEP] ⚠️ No STEP found, using enhanced default values")
+            result["processing_log"].append("⚠️ STEP bulunamadı, sıfır varsayılan değerler kullanıldı")
+            print(f"[PDF-STEP] ⚠️ No STEP found, using zero default values")
         
         # ✅ MATERIAL SEARCH - Enhanced + Standard kombinasyonu
         materials = []
@@ -770,20 +1163,16 @@ class MaterialAnalysisServiceOptimized:
             result["processing_log"].append(f"🔍 Standard materials eklendi: {len(standard_materials)}")
             print(f"[PDF-STANDARD] ✅ Added standard materials: {len(standard_materials)}")
         
-        # Final materials assignment
+        # Final materials assignment - ZERO DEFAULTS
         if materials:
             result["material_matches"] = materials
             result["processing_log"].append(f"✅ Toplam malzeme: {len(materials)}")
             print(f"[PDF-FINAL] ✅ Total materials: {len(materials)}")
         else:
-            # Get default from database - MEVCUT KOD
-            default_material = self._get_default_material_from_database()
-            if default_material:
-                result["material_matches"] = [f"{default_material['name']} (%database_default)"]
-                result["processing_log"].append("⚠️ Database varsayılan malzeme kullanıldı")
-            else:
-                result["material_matches"] = ["6061-T6 (%system_default)"]
-                result["processing_log"].append("⚠️ System varsayılan malzeme kullanıldı")
+            # ✅ CHANGED: No default materials, use empty array
+            result["material_matches"] = []
+            result["processing_log"].append("⚠️ Hiçbir malzeme bulunamadı")
+            print(f"[PDF-FINAL] ⚠️ No materials found")
         
         # ✅ Enhanced format info ekleme (yeni field - API'yi bozmaz)
         if enhanced_format_info:
@@ -814,9 +1203,14 @@ class MaterialAnalysisServiceOptimized:
     # =====================================================
     
     def _calculate_top_materials_database_only(self, prizma_hacim_mm3, limit=20):
-        """✅ DATABASE-ONLY - Material calculations from database only"""
+        """✅ DATABASE-ONLY - Material calculations from database only - ZERO VOLUME HANDLING"""
         try:
             print(f"[TOP-MATERIALS-DB] 🚀 DATABASE-ONLY calculation for {prizma_hacim_mm3} mm³, limit: {limit}")
+            
+            # ✅ CHANGED: Check for zero or invalid volume
+            if prizma_hacim_mm3 <= 0:
+                print(f"[TOP-MATERIALS-DB] ⚠️ Invalid volume ({prizma_hacim_mm3}), returning empty list")
+                return []
             
             # Get materials from database
             materials_dict = self._get_materials_from_database_direct()
@@ -903,8 +1297,13 @@ class MaterialAnalysisServiceOptimized:
             return []
     
     def _calculate_found_materials_database_only(self, prizma_hacim_mm3, found_materials):
-        """✅ DATABASE-ONLY material calculations using database data only"""
+        """✅ DATABASE-ONLY material calculations using database data only - ZERO VOLUME HANDLING"""
         try:
+            # ✅ CHANGED: Check for zero or invalid volume
+            if prizma_hacim_mm3 <= 0:
+                print(f"[CALC-DB-ONLY] ⚠️ Invalid volume ({prizma_hacim_mm3}), returning empty list")
+                return []
+                
             calculations = []
             materials_cache = self._get_materials_cached()
             
@@ -964,7 +1363,7 @@ class MaterialAnalysisServiceOptimized:
                 category = material.get("category", "Unknown")
                 aliases = material.get("aliases", [])
                 
-                if density <= 0 or price_per_kg <= 0:
+                if density <= 0 or price_per_kg < 0:  # ✅ CHANGED: Allow 0 price but not negative
                     print(f"[CALC-DB-ONLY] ⚠️ Invalid data for {actual_name}: density={density}, price={price_per_kg}")
                     continue
                 
@@ -1007,7 +1406,7 @@ class MaterialAnalysisServiceOptimized:
         return self.analyze_step_file_ultra_fast(step_path)
     
     def analyze_step_file_ultra_fast(self, step_path):
-        """✅ ULTRA-FAST STEP analysis"""
+        """✅ ULTRA-FAST STEP analysis - ZERO DEFAULTS"""
         try:
             start_time = time.time()
             print(f"[STEP-ULTRA] 🔧 Ultra-fast STEP analysis: {os.path.basename(step_path)}")
@@ -1016,15 +1415,42 @@ class MaterialAnalysisServiceOptimized:
             try:
                 assembly = cq.importers.importStep(step_path)
                 if not assembly.objects:
-                    return {"error": "Empty STEP file"}
+                    # ✅ CHANGED: Return zeros instead of error
+                    return {
+                        "error": "Empty STEP file",
+                        "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                        "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                        "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                        "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                        "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                        "Toplam Yüzey Alanı (mm²)": 0
+                    }
             except Exception as import_error:
                 print(f"[STEP-ULTRA] ❌ Import failed: {import_error}")
-                return {"error": f"STEP import failed: {str(import_error)}"}
+                # ✅ CHANGED: Return zeros instead of error
+                return {
+                    "error": f"STEP import failed: {str(import_error)}",
+                    "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                    "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                    "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                    "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                    "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                    "Toplam Yüzey Alanı (mm²)": 0
+                }
             
             # LIGHTNING-FAST ANALYSIS
             shapes = assembly.objects
             if not shapes:
-                return {"error": "No shapes found"}
+                # ✅ CHANGED: Return zeros
+                return {
+                    "error": "No shapes found",
+                    "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                    "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                    "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                    "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                    "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                    "Toplam Yüzey Alanı (mm²)": 0
+                }
             
             # Use largest shape only
             main_shape = max(shapes, key=lambda s: s.Volume())
@@ -1033,25 +1459,25 @@ class MaterialAnalysisServiceOptimized:
             # DIRECT BOUNDING BOX
             x, y, z = main_bbox.xlen, main_bbox.ylen, main_bbox.zlen
             
-            # FAST PADDING CALCULATION
-            x_pad = int(x) + 10 if x % 1 < 0.01 else int(x) + 11
-            y_pad = int(y) + 10 if y % 1 < 0.01 else int(y) + 11
-            z_pad = int(z) + 10 if z % 1 < 0.01 else int(z) + 11
+            # ✅ CHANGED: Only add padding if dimensions > 0
+            x_pad = int(x) + 10 if x > 0 and x % 1 < 0.01 else (int(x) + 11 if x > 0 else 0)
+            y_pad = int(y) + 10 if y > 0 and y % 1 < 0.01 else (int(y) + 11 if y > 0 else 0)
+            z_pad = int(z) + 10 if z > 0 and z % 1 < 0.01 else (int(z) + 11 if z > 0 else 0)
             
             # LIGHTNING CALCULATIONS
-            volume_padded = x_pad * y_pad * z_pad
+            volume_padded = x_pad * y_pad * z_pad if x_pad > 0 and y_pad > 0 and z_pad > 0 else 0  # ✅ CHANGED
             
             try:
                 product_volume = main_shape.Volume()
                 total_surface_area = main_shape.Area()
             except:
-                product_volume = x * y * z * 0.75
-                total_surface_area = 2 * (x*y + y*z + x*z) * 1.2
+                product_volume = x * y * z * 0.75 if x > 0 and y > 0 and z > 0 else 0  # ✅ CHANGED
+                total_surface_area = 2 * (x*y + y*z + x*z) * 1.2 if x > 0 and y > 0 and z > 0 else 0  # ✅ CHANGED
             
-            waste_volume = volume_padded - product_volume
+            waste_volume = volume_padded - product_volume if volume_padded > 0 else 0  # ✅ CHANGED
             waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0.0
             
-            cylindrical_diameter = max(x, y)
+            cylindrical_diameter = max(x, y) if x > 0 and y > 0 else 0  # ✅ CHANGED
             cylindrical_height = z
             
             analysis_time = time.time() - start_time
@@ -1078,7 +1504,16 @@ class MaterialAnalysisServiceOptimized:
             
         except Exception as e:
             print(f"[STEP-ULTRA] ❌ Ultra-fast analysis failed: {str(e)}")
-            return {"error": f"Ultra-fast STEP analysis failed: {str(e)}"}
+            # ✅ CHANGED: Return zeros instead of error message only
+            return {
+                "error": f"Ultra-fast STEP analysis failed: {str(e)}",
+                "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                "Toplam Yüzey Alanı (mm²)": 0
+            }
     
     # =====================================================
     # PDF HELPER METHODS (MEVCUT KODLAR)
@@ -1254,7 +1689,7 @@ class MaterialAnalysisServiceOptimized:
     # =====================================================
     
     def _analyze_document_fast(self, file_path, result):
-        """Fast DOC/DOCX analysis - database only"""
+        """Fast DOC/DOCX analysis - database only - ZERO DEFAULTS"""
         result["processing_log"].append("📝 Fast document analizi (database-only)")
         
         try:
@@ -1269,23 +1704,18 @@ class MaterialAnalysisServiceOptimized:
                 result["material_matches"] = materials
                 result["processing_log"].append(f"🔍 {len(materials)} malzeme bulundu (database)")
             else:
-                # Get default from database
-                default_material = self._get_default_material_from_database()
-                if default_material:
-                    result["material_matches"] = [f"{default_material['name']} (%database_default)"]
-                    result["processing_log"].append("⚠️ Database varsayılan malzeme")
-                else:
-                    result["material_matches"] = ["Unknown (%no_database_materials)"]
-                    result["processing_log"].append("❌ Database'de malzeme bulunamadı")
+                # ✅ CHANGED: No default materials, use empty array
+                result["material_matches"] = []
+                result["processing_log"].append("❌ Database'de malzeme bulunamadı")
             
-            # Default STEP analysis for documents
+            # ✅ CHANGED: Zero default STEP analysis for documents
             result["step_analysis"] = {
-                "X (mm)": 50.0, "Y (mm)": 30.0, "Z (mm)": 20.0,
-                "X+Pad (mm)": 60, "Y+Pad (mm)": 40, "Z+Pad (mm)": 30,
-                "Silindirik Çap (mm)": 50.0, "Silindirik Yükseklik (mm)": 20.0,
-                "Prizma Hacmi (mm³)": 72000, "Ürün Hacmi (mm³)": 56000,
-                "Talaş Hacmi (mm³)": 16000, "Talaş Oranı (%)": 22.2,
-                "Toplam Yüzey Alanı (mm²)": 8800, "method": "estimated_from_document"
+                "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                "Toplam Yüzey Alanı (mm²)": 0, "method": "zero_defaults_from_document"
             }
             
         except Exception as e:
@@ -1340,17 +1770,17 @@ class MaterialAnalysisServiceOptimized:
 
 
 # =====================================================
-# COST ESTIMATION SERVICE - DATABASE-ONLY
+# COST ESTIMATION SERVICE - DATABASE-ONLY - ZERO DEFAULTS
 # =====================================================
 
 class CostEstimationServiceFast:
-    """Database-only cost estimation service"""
+    """Database-only cost estimation service - ZERO DEFAULTS"""
     
     def __init__(self):
         self.database = db.get_db()
     
     def calculate_cost_lightning(self, step_analysis, material_matches):
-        """Lightning-fast cost calculation - database only"""
+        """Lightning-fast cost calculation - database only - ZERO DEFAULTS"""
         try:
             if not step_analysis or step_analysis.get("error"):
                 return {"error": "STEP analysis required"}
@@ -1361,20 +1791,29 @@ class CostEstimationServiceFast:
             # First material
             material_name = material_matches[0].split("(")[0].strip()
             
-            # Quick values
-            volume = step_analysis.get("Prizma Hacmi (mm³)", 100000)
-            waste = step_analysis.get("Talaş Hacmi (mm³)", 25000)
-            surface = step_analysis.get("Toplam Yüzey Alanı (mm²)", 10000)
+            # Quick values - ✅ CHANGED: Use 0 as defaults
+            volume = step_analysis.get("Prizma Hacmi (mm³)", 0)
+            waste = step_analysis.get("Talaş Hacmi (mm³)", 0)
+            surface = step_analysis.get("Toplam Yüzey Alanı (mm²)", 0)
             
             # Dimensions
             x = step_analysis.get("X (mm)", 0)
             y = step_analysis.get("Y (mm)", 0)
             z = step_analysis.get("Z (mm)", 0)
             
+            # ✅ CHANGED: Check for zero volume
+            if volume <= 0:
+                return {
+                    "error": "Invalid volume (zero or negative)",
+                    "material": {"name": material_name, "cost_usd": 0, "mass_kg": 0},
+                    "machining": {"hours": 0, "cost_usd": 0},
+                    "costs": {"material_usd": 0, "labor_usd": 0, "total_usd": 0}
+                }
+            
             # Material cost from database
             material_cost = self._calculate_material_cost_database_only(volume, material_name)
             
-            # Labor
+            # Labor - ✅ CHANGED: Check for zero values
             labor_hours = self._calculate_labor_time_fast(waste, surface)
             labor_cost = labor_hours * 65  # $65/hour
             
@@ -1406,8 +1845,12 @@ class CostEstimationServiceFast:
             return {"error": f"Database-only cost calculation error: {str(e)}"}
     
     def _calculate_material_cost_database_only(self, volume_mm3, material_name):
-        """Database-only material cost calculation"""
+        """Database-only material cost calculation - ZERO DEFAULTS"""
         try:
+            # ✅ CHANGED: Check for zero volume
+            if volume_mm3 <= 0:
+                return {"mass_kg": 0, "cost_usd": 0, "error": "Invalid volume (zero or negative)"}
+                
             # Database lookup only
             material = self.database.materials.find_one({"name": material_name, "is_active": True})
             
@@ -1415,7 +1858,7 @@ class CostEstimationServiceFast:
                 density = material.get("density", 0)
                 price = material.get("price_per_kg", 0)
                 
-                if density <= 0 or price <= 0:
+                if density <= 0 or price < 0:  # ✅ CHANGED: Allow 0 price
                     print(f"[COST-DB] ⚠️ Invalid material data: {material_name}")
                     return {"mass_kg": 0, "cost_usd": 0, "error": "Invalid material data in database"}
                 
@@ -1440,14 +1883,19 @@ class CostEstimationServiceFast:
             return {"mass_kg": 0, "cost_usd": 0, "error": str(e)}
     
     def _calculate_labor_time_fast(self, waste_mm3, surface_mm2):
-        """Fast labor time calculation"""
+        """Fast labor time calculation - ZERO DEFAULTS"""
         try:
-            roughing_time = waste_mm3 / 3000
-            finishing_time = surface_mm2 / 500
+            # ✅ CHANGED: Check for zero values
+            if waste_mm3 <= 0 and surface_mm2 <= 0:
+                return 0.0
+                
+            roughing_time = waste_mm3 / 3000 if waste_mm3 > 0 else 0
+            finishing_time = surface_mm2 / 500 if surface_mm2 > 0 else 0
             total_hours = (roughing_time + finishing_time) / 60
-            return round(max(total_hours, 0.5), 2)
-        except:
-            return 1.0
+            return round(max(total_hours, 0.0), 2)  # ✅ CHANGED: Allow 0.0 minimum
+        except Exception as e:
+            print(f"[LABOR-CALC] ❌ Labor calculation error: {e}")
+            return 0.0  # ✅ CHANGED: Return 0.0 instead of 1.0
 
 
 # =====================================================
@@ -1465,3 +1913,33 @@ def create_service():
 print("[DATABASE-ONLY] ✅ Material Analysis Service Database-Only Version Ready!")
 print("[GUARANTEE] 🛡️ ALL materials come from database - NO hardcoded materials")
 print("[DATABASE] 📊 Zero static/hardcoded materials - Pure database-driven system")
+print("[ZERO-DEFAULTS] 🚫 All default values changed to ZERO - No arbitrary defaults")
+print(f"[INTEGRATED] 🧠 Integrated enhanced STEP analysis: {SCIPY_AVAILABLE}")
+print(f"[ENHANCED] 📄 Enhanced PDF analysis: {ENHANCED_PDF_AVAILABLE}")
+
+if SCIPY_AVAILABLE:
+    print("[INTEGRATED-STEP] 🎯 Available integrated features:")
+    print("[INTEGRATED-STEP]   - Face-based geometric optimization")
+    print("[INTEGRATED-STEP]   - Convex hull + PCA analysis") 
+    print("[INTEGRATED-STEP]   - Intelligent waste ratio minimization")
+    print("[INTEGRATED-STEP]   - Smart method selection algorithm")
+    print("[INTEGRATED-STEP]   - All functions integrated in material_analysis.py")
+    print("[INTEGRATED-STEP]   - ZERO defaults on errors/failures")
+else:
+    print("[INTEGRATED-STEP] ⚠️ Advanced geometric analysis not available")
+    print("[INTEGRATED-STEP] 💡 Install: pip install scipy scikit-learn")
+
+if ENHANCED_PDF_AVAILABLE:
+    print("[ENHANCED-PDF] 📄 Enhanced PDF material detection available")
+else:
+    print("[ENHANCED-PDF] ⚠️ Enhanced PDF analysis not available")
+
+# ✅ ZERO DEFAULTS SUMMARY
+print("\n[ZERO-DEFAULTS] 🚫 All default values changed to ZERO:")
+print("[ZERO-DEFAULTS] 1. STEP analysis failures return all zeros")
+print("[ZERO-DEFAULTS] 2. PDF without STEP uses zero dimensions") 
+print("[ZERO-DEFAULTS] 3. Document analysis uses zero dimensions")
+print("[ZERO-DEFAULTS] 4. Material calculations require volume > 0")
+print("[ZERO-DEFAULTS] 5. Cost calculations handle zero inputs")
+print("[ZERO-DEFAULTS] 6. No hardcoded fallback materials")
+print("[ZERO-DEFAULTS] Status: ✅ IMPLEMENTED - Pure zero-default system")

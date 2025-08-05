@@ -215,7 +215,7 @@ export const useFileUpload = () => {
             );
           }
 
-          if (newStatus === "completed" || newStatus === "failed") {
+          if (newStatus === "completed" || newStatus === "failed" || newStatus === "pending") {
             clearRenderInterval(analysisId);
             retryCountsRef.current.delete(analysisId);
 
