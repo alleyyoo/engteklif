@@ -28,7 +28,7 @@ export const Sidebar = ({ onItemClick }: SidebarProps) => {
     console.log('Logging out...');
     // localStorage.clear(); // veya auth token temizleme
     onItemClick?.(); // Mobilde sidebar'ı kapat
-    navigate('/login'); // veya logout sonrası yönlendirme
+    navigate('/auth'); // veya logout sonrası yönlendirme
   };
 
   return (
