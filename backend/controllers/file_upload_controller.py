@@ -1843,7 +1843,18 @@ def export_multiple_analyses_excel():
                     "X+Pad (mm)": step_analysis.get('X+Pad (mm)', step_analysis.get('X (mm)', 0)),
                     "Y+Pad (mm)": step_analysis.get('Y+Pad (mm)', step_analysis.get('Y (mm)', 0)),
                     "Z+Pad (mm)": step_analysis.get('Z+Pad (mm)', step_analysis.get('Z (mm)', 0)),
-                    "Silindirik Çap (mm)": step_analysis.get('Silindirik Çap (mm)', 0),
+                    "Silindirik Çap (mm)": (
+                        (step_analysis.get('Silindirik Çap (mm)', 0) + 10) 
+                        if step_analysis.get('Silindirik Çap (mm)', 0) > 0 
+                        else 0
+                    ),
+                    
+                    # ✅ YENİ: Silindirik Yükseklik +10mm (YENİ SÜTUN)
+                    "Silindirik Yükseklik (mm)": (
+                        (step_analysis.get('Silindirik Yükseklik (mm)', 0) + 10) 
+                        if step_analysis.get('Silindirik Yükseklik (mm)', 0) > 0 
+                        else 0
+                    ),
                     
                     # ✅ FIXED: Hacim ve kütle - from calculate_mass_and_cost_for_analysis
                     "Hacim (mm³)": calculated_data.get('volume_used_mm3', 0),
@@ -2376,7 +2387,8 @@ def merge_with_excel():
             # Yeni sütun başlıkları ekle
             new_headers = [
                 "Ürün Görseli", "Hammadde", "X+Pad (mm)", "Y+Pad (mm)", "Z+Pad (mm)",
-                "Silindirik Çap (mm)", "Kütle (kg)", "Hammadde Maliyeti (USD)",
+                "Silindirik Çap (mm)", "Silindirik Yükseklik (mm)",
+                "Kütle (kg)", "Hammadde Maliyeti (USD)",
                 "Kaplama", "Helicoil", "Markalama", "İşçilik", "Birim Fiyat", "Toplam",
                 "Eşleşme Skoru", "Analiz Stratejisi"  # Enhanced columns
             ]
@@ -2539,7 +2551,23 @@ def merge_with_excel():
                         step_analysis.get("X+Pad (mm)", 0) or step_analysis.get("X (mm)", 0),
                         step_analysis.get("Y+Pad (mm)", 0) or step_analysis.get("Y (mm)", 0),
                         step_analysis.get("Z+Pad (mm)", 0) or step_analysis.get("Z (mm)", 0),
-                        step_analysis.get("Silindirik Çap (mm)", 0) or step_analysis.get("Çap (mm)", 0),
+                        # ✅ Silindirik Çap +10mm
+                        (
+                            (step_analysis.get("Silindirik Çap (mm)", 0) + 10)
+                            if step_analysis.get("Silindirik Çap (mm)", 0) > 0
+                            else (
+                                (step_analysis.get("Çap (mm)", 0) + 10)
+                                if step_analysis.get("Çap (mm)", 0) > 0
+                                else 0
+                            )
+                        ),
+                        
+                        # ✅ Silindirik Yükseklik +10mm (YENİ)
+                        (
+                            (step_analysis.get("Silindirik Yükseklik (mm)", 0) + 10)
+                            if step_analysis.get("Silindirik Yükseklik (mm)", 0) > 0
+                            else 0
+                        ),
                         calculated_mass_kg if calculated_mass_kg > 0 else None,           # ✅ FIXED: Pre-calculated mass
                         calculated_material_cost if calculated_material_cost > 0 else None,     # ✅ FIXED: Pre-calculated cost  
                         "",  # Kaplama - boş bırak
