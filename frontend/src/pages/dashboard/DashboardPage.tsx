@@ -683,8 +683,8 @@ const formatInteger = (value: any) => {
   </div>
 </div>
 
-        {/* Silindirik Özellikler */}
-        <div className={classes.analyseItemInsideDiv}>
+{/* Silindirik Özellikler */}
+<div className={classes.analyseItemInsideDiv}>
   <div className={classes.analyseSubtitleDiv}>
     <span>🌀</span>
     <p className={classes.titleSmall}>Silindirik Özellikler</p>
@@ -693,7 +693,12 @@ const formatInteger = (value: any) => {
   <div className={classes.analyseInsideItem}>
     <p className={classes.analyseItemTitle}>Silindirik Çap(mm)</p>
     <p className={classes.analyseItemExp}>
-      {formatValue(stepAnalysis?.['Silindirik Çap (mm)'])}
+      {(() => {
+        const cylindricalDiameter = parseFloat(stepAnalysis?.['Silindirik Çap (mm)']) || 0;
+        if (cylindricalDiameter === 0) return '-';
+        // ✅ +10mm eklendi
+        return (cylindricalDiameter + 10).toFixed(1);
+      })()}
     </p>
   </div>
   <div className={classes.lineAnalyseItem}></div>
@@ -701,7 +706,12 @@ const formatInteger = (value: any) => {
   <div className={classes.analyseInsideItem}>
     <p className={classes.analyseItemTitle}>Silindirik Yükseklik(mm)</p>
     <p className={classes.analyseItemExp}>
-      {formatValue(stepAnalysis?.['Silindirik Yükseklik (mm)'])}
+      {(() => {
+        const cylindricalHeight = parseFloat(stepAnalysis?.['Silindirik Yükseklik (mm)']) || 0;
+        if (cylindricalHeight === 0) return '-';
+        // ✅ +10mm eklendi
+        return (cylindricalHeight + 10).toFixed(1);
+      })()}
     </p>
   </div>
 </div>
