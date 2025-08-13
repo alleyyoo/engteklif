@@ -10,7 +10,7 @@ from werkzeug.datastructures import FileStorage
 from typing import List, Dict, Any, Tuple
 from models.user import User
 from models.file_analysis import FileAnalysis, FileAnalysisCreate
-from services.material_analysis import MaterialAnalysisService, CostEstimationService
+from services.material_analysis import MaterialAnalysisService, CostEstimationService, extract_enhanced_ocr_data
 from services.step_renderer import StepRendererEnhanced
 import numpy as np
 import math
@@ -519,11 +519,11 @@ def upload_multiple_files_with_matching():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file_enhanced(analysis_id):
-    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + Instant Response + FIXED RENDER"""
+    """✅ ENHANCED - Analiz + PDF-STEP eşleştirme desteği + Instant Response + RAW OCR OUTPUT"""
     try:
         current_user = get_current_user()
         
-        print(f"[ANALYZE] 🚀 Starting enhanced analysis: {analysis_id}")
+        print(f"[ANALYZE] 🚀 Starting enhanced analysis with OCR output: {analysis_id}")
         
         # ✅ 1. FAST VALIDATION
         analysis = FileAnalysis.find_by_id(analysis_id)
@@ -555,7 +555,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
         print(f"[ANALYZE] 📊 Analysis starting for: {analysis['original_filename']}")
         start_time = time.time()
         
-        # ✅ 3. ENHANCED ANALYSIS WITH PDF-STEP MATCHING
+        # ✅ 3. ENHANCED ANALYSIS WITH PDF-STEP MATCHING + OCR OUTPUT
         try:
             material_service = MaterialAnalysisService()
             
@@ -567,7 +567,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             if matched_step_path:
                 print(f"[ANALYZE] 🔗 Matched STEP: {matched_step_path}")
             
-            # ✅ STANDARD ANALYSIS
+            # ✅ ENHANCED ANALYSIS WITH OCR DATA CAPTURE
             result = material_service.analyze_document_ultra_fast(
                 analysis['file_path'], 
                 analysis['file_type'],
@@ -575,6 +575,12 @@ def analyze_uploaded_file_enhanced(analysis_id):
             )
             
             print(f"[ANALYZE] 📊 Core analysis completed: {bool(result.get('material_matches'))}")
+            
+            # ✅ OCR DATA EXTRACTION AND ENHANCEMENT
+            ocr_data = extract_enhanced_ocr_data(result, analysis['file_path'], analysis['file_type'])
+            
+            print(f"[ANALYZE] 📝 OCR data extracted: {len(ocr_data.get('raw_text', ''))} chars")
+            print(f"[ANALYZE] 🔍 OCR keywords found: {len(ocr_data.get('material_keywords_found', []))}")
             
             # ✅ ENHANCED POST-PROCESSING (matched STEP handling)
             if matched_step_path and os.path.exists(matched_step_path):
@@ -647,7 +653,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             print(f"[ANALYZE] ⏱️ Analysis completed: {processing_time:.2f}s")
             
             if not result.get('error'):
-                # ✅ 4. DATABASE UPDATE WITH ENHANCED DATA
+                # ✅ 4. DATABASE UPDATE WITH ENHANCED DATA + OCR
                 update_data = {
                     "analysis_status": "completed",
                     "processing_time": processing_time,
@@ -667,7 +673,17 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     "render_status": "pending",
                     "enhanced_renders": {},
                     "isometric_view": None,
-                    "stl_generated": False
+                    "stl_generated": False,
+                    # ✅ NEW: OCR DATA FIELDS
+                    "raw_ocr_output": ocr_data.get('raw_text', ''),
+                    "ocr_confidence": ocr_data.get('confidence', 0),
+                    "ocr_method_used": ocr_data.get('method', 'unknown'),
+                    "ocr_processing_time": ocr_data.get('processing_time', 0),
+                    "ocr_normalization_applied": ocr_data.get('normalization_applied', False),
+                    "ocr_debug_info": ocr_data.get('debug_info', {}),
+                    "material_keywords_found": ocr_data.get('material_keywords_found', []),
+                    "ocr_errors_corrected": ocr_data.get('errors_corrected', []),
+                    "ocr_quality_metrics": ocr_data.get('quality_metrics', {})
                 }
                 
                 # PDF specific fields
@@ -679,7 +695,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     })
                 
                 FileAnalysis.update_analysis(analysis_id, update_data)
-                print(f"[ANALYZE] 💾 Database updated successfully")
+                print(f"[ANALYZE] 💾 Database updated successfully with OCR data")
                 
                 # ✅ 5. ENHANCED RENDER DECISION
                 should_render = False
@@ -704,7 +720,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 if should_render and render_path:
                     # ✅ FIXED BACKGROUND RENDER TASK
                     task_id = bg_processor.add_task(
-                        background_render_task_enhanced,  # ✅ FIXED version
+                        background_render_task_enhanced,
                         args=(analysis_id, render_path, analysis_strategy),
                         kwargs={}
                     )
@@ -717,7 +733,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     
                     print(f"[ANALYZE] 🎨 Enhanced render queued: {task_id}")
                 
-                # ✅ 6. ENHANCED INSTANT RESPONSE
+                # ✅ 6. ENHANCED INSTANT RESPONSE WITH OCR DATA
                 updated_analysis = FileAnalysis.find_by_id(analysis_id)
                 
                 response_data = {
@@ -741,10 +757,29 @@ def analyze_uploaded_file_enhanced(analysis_id):
                         "material_calculations_count": len(result.get('all_material_calculations', [])),
                         "render_will_be_available": should_render,
                         "estimated_render_time": "30-60 seconds" if should_render else "N/A"
+                    },
+                    # ✅ NEW: OCR DATA IN RESPONSE
+                    "ocr_data": {
+                        "raw_text_length": len(ocr_data.get('raw_text', '')),
+                        "raw_text_preview": ocr_data.get('raw_text', '')[:500],  # First 500 chars
+                        "full_raw_text": ocr_data.get('raw_text', ''),  # Complete text
+                        "confidence": ocr_data.get('confidence', 0),
+                        "method_used": ocr_data.get('method', 'unknown'),
+                        "processing_time": ocr_data.get('processing_time', 0),
+                        "normalization_applied": ocr_data.get('normalization_applied', False),
+                        "material_keywords_found": ocr_data.get('material_keywords_found', []),
+                        "errors_corrected": ocr_data.get('errors_corrected', []),
+                        "quality_metrics": ocr_data.get('quality_metrics', {}),
+                        "text_blocks": ocr_data.get('text_blocks', []),
+                        "confidence_distribution": ocr_data.get('confidence_distribution', {}),
+                        "language_detected": ocr_data.get('language_detected', 'unknown'),
+                        "has_turkish_content": ocr_data.get('has_turkish_content', False)
                     }
                 }
                 
-                print(f"[ANALYZE] 📤 Enhanced response sent: {processing_time:.2f}s")
+                print(f"[ANALYZE] 📤 Enhanced response sent with OCR data: {processing_time:.2f}s")
+                print(f"[ANALYZE] 📝 OCR text length in response: {len(ocr_data.get('raw_text', ''))}")
+                
                 return jsonify(response_data), 200
             
             else:
@@ -794,7 +829,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
             "success": False,
             "message": f"Beklenmeyen hata: {str(e)}"
         }), 500
-# ===== RENDER ENDPOINTS =====
 
 @upload_bp.route('/render/<analysis_id>', methods=['POST'])
 @jwt_required()
