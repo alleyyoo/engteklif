@@ -435,184 +435,261 @@ const formatInteger = (value: any) => {
     return (
       <div className={classes.analyseItemInsideDiv}>
         <div className={classes.analyseFirstDiv}>
-          <p className={classes.analyseAlias}>
-            {(() => {
-              const match = analysis.material_matches?.[0];
-              return match && !match.includes('default')
-                ? match
-                : 'Malzeme Eşleşmesi Yok';
-            })()}
-          </p>
-          <div className={classes.modelDiv}>
-  <div className={classes.modelSection}>
-    {/* Render işleniyor durumu - sadece processing */}
-    {isRenderProcessing ? (
+  <p className={classes.analyseAlias}>
+    {(() => {
+      const materialCalculations = analysis.all_material_calculations || [];
+      const materialKeywords = analysis.material_keywords_found || [];
+      
+      // all_material_calculations doluysa
+      if (materialCalculations.length > 0) {
+        // Aynı material key'leri tekleştir ve en yüksek confidence'ı al
+        const materialMap = new Map();
+        
+        materialCalculations.forEach(calc => {
+          const materialKey = calc.material || 'Bilinmeyen Malzeme';
+          const confidence = calc.confidence_value || 0;
+          
+          // Sadece %90 ve üzeri olanları al
+          if (confidence >= 90) {
+            if (!materialMap.has(materialKey) || materialMap.get(materialKey).confidence < confidence) {
+              materialMap.set(materialKey, {
+                material: materialKey,
+                confidence: confidence
+              });
+            }
+          }
+        });
+        
+        // Confidence değerine göre sırala (yüksekten düşüğe)
+        const uniqueMaterials = Array.from(materialMap.values())
+          .sort((a, b) => b.confidence - a.confidence);
+        
+        // Eğer %90 üzeri malzeme varsa onları göster
+        if (uniqueMaterials.length > 0) {
+          // İlk 3 malzemeyi göster
+          const topMaterials = uniqueMaterials.slice(0, 3);
+          
+          // Malzemeleri formatla
+          const formattedMaterials = topMaterials.map(material => {
+            return `${material.material} (%${material.confidence})`;
+          });
+          
+          return formattedMaterials.join(', ');
+        }
+      }
+      
+      // all_material_calculations'da %90 üzeri yoksa veya boşsa, material_keywords_found'a bak
+      if (materialKeywords.length > 0) {
+        // %90 üzeri keyword'leri filtrele
+        const highConfidenceKeywords = materialKeywords.filter(keyword => {
+          const value = keyword.value || keyword.confidence || 0;
+          return value >= 90;
+        });
+        
+        // Eğer %90 üzeri keyword varsa onları göster
+        if (highConfidenceKeywords.length > 0) {
+          // Değere göre sırala (yüksekten düşüğe)
+          const sortedKeywords = highConfidenceKeywords.sort((a, b) => {
+            const valueA = a.value || a.confidence || 0;
+            const valueB = b.value || b.confidence || 0;
+            return valueB - valueA;
+          });
+          
+          // Keyword'leri formatla
+          const formattedKeywords = sortedKeywords.map(keyword => {
+            const keywordName = keyword.keyword || keyword.material || 'Bilinmeyen';
+            const value = keyword.value || keyword.confidence || 0;
+            return `${keywordName} (%${Math.round(value)})`;
+          });
+          
+          return formattedKeywords.join(', ');
+        } else {
+          // %90 altı keyword'ler varsa sadece isimleri göster (yüzde olmadan)
+          const keywordNames = materialKeywords.map(keyword => 
+            keyword.keyword || keyword.material || 'Bilinmeyen'
+          );
+          return keywordNames.join(', ');
+        }
+      }
+      
+      // Hiçbiri yoksa fallback
+      const match = analysis.material_matches?.[0];
+      return match && !match.includes('default')
+        ? match
+        : 'Malzeme Eşleşmesi Yok';
+    })()}
+  </p>
+  
+  <div className={classes.modelDiv}>
+    <div className={classes.modelSection}>
+      {/* Render işleniyor durumu - sadece processing */}
+      {isRenderProcessing ? (
+        <div
+          style={{
+            color: '#007bff',
+            textAlign: 'center',
+            padding: '20px',
+            backgroundColor: '#f0f8ff',
+            borderRadius: '8px'
+          }}>
+          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+            ⏳
+          </div>
+          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+            3D Model İşleniyor
+          </div>
+          <div style={{ fontSize: '12px' }}>
+            {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
+            Lütfen bekleyin...
+          </div>
+          <button
+            onClick={() => refreshRenderStatus(analysisId)}
+            style={{
+              marginTop: '8px',
+              fontSize: '11px',
+              padding: '4px 8px',
+              border: '1px solid #007bff',
+              borderRadius: '4px',
+              backgroundColor: 'white',
+              color: '#007bff',
+              cursor: 'pointer'
+            }}>
+            🔄 Durumu Kontrol Et
+          </button>
+        </div>
+      ) : isRenderPending ? (
+        // ✅ YENİ: Pending durumu için özel mesaj
+        <div
+          style={{
+            color: '#dc3545',
+            textAlign: 'center',
+            padding: '20px',
+            backgroundColor: '#fff5f5',
+            borderRadius: '8px'
+          }}>
+          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+            ⚠️
+          </div>
+          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+            3D Render İşlenemedi
+          </div>
+          <div style={{ fontSize: '12px' }}>
+            STEP dosyası bulunamadı veya
+            <br />
+            uygun değil
+          </div>
+        </div>
+      ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
+        <Image
+          src={`${
+            process.env.REACT_APP_API_URL ||
+            'http://188.132.220.35:5051'
+          }${fixImagePath(
+            analysis.enhanced_renders.isometric.file_path
+          )}`}
+          zoomSrc={`${
+            process.env.REACT_APP_API_URL ||
+            'http://188.132.220.35:5051'
+          }${fixImagePath(
+            analysis.enhanced_renders.isometric.file_path
+          )}`}
+          className={classes.modelImage}
+          alt='3D Model'
+          width='200'
+          height='200'
+          preview
+        />
+      ) : isRenderCompleted && !hasEnhancedRenders ? (
+        <div
+          style={{
+            color: '#dc3545',
+            textAlign: 'center',
+            padding: '20px',
+            backgroundColor: '#fff5f5',
+            borderRadius: '8px'
+          }}>
+          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+            ⚠️
+          </div>
+          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+            3D Model Güncel Değil
+          </div>
+          <div style={{ fontSize: '12px' }}>
+            Render tamamlandı ancak
+            <br />
+            görüntü yüklenemedi
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: '#999', textAlign: 'center', padding: '20px' }}>
+          3D Model
+          <br />
+          Mevcut Değil
+        </div>
+      )}
+    </div>
+
+    {/* 3D Viewer Butonları - Sadece render başarılı olduğunda göster */}
+    {(hasEnhancedRenders || isRenderCompleted) && !isRenderPending && (
       <div
         style={{
-          color: '#007bff',
-          textAlign: 'center',
-          padding: '20px',
-          backgroundColor: '#f0f8ff',
-          borderRadius: '8px'
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          marginTop: '12px'
         }}>
-        <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-          ⏳
-        </div>
-        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-          3D Model İşleniyor
-        </div>
-        <div style={{ fontSize: '12px' }}>
-          {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
-          Lütfen bekleyin...
-        </div>
         <button
-          onClick={() => refreshRenderStatus(analysisId)}
-          style={{
-            marginTop: '8px',
-            fontSize: '11px',
-            padding: '4px 8px',
-            border: '1px solid #007bff',
-            borderRadius: '4px',
-            backgroundColor: 'white',
-            color: '#007bff',
-            cursor: 'pointer'
-          }}>
-          🔄 Durumu Kontrol Et
+          className={classes.modelShowButton}
+          onClick={() =>
+            open3DViewer(analysis.id, analysis.original_filename || '')
+          }
+          title="Gelişmiş 3D Görüntüleyici'de aç">
+          🎯 3D Modeli Görüntüle
         </button>
       </div>
-    ) : isRenderPending ? (
-      // ✅ YENİ: Pending durumu için özel mesaj
+    )}
+
+    {/* Processing durumunda farklı buton */}
+    {isRenderProcessing && (
       <div
         style={{
-          color: '#dc3545',
-          textAlign: 'center',
-          padding: '20px',
-          backgroundColor: '#fff5f5',
-          borderRadius: '8px'
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          marginTop: '12px'
         }}>
-        <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-          ⚠️
-        </div>
-        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-          3D Render İşlenemedi
-        </div>
-        <div style={{ fontSize: '12px' }}>
-          STEP dosyası bulunamadı veya
-          <br />
-          uygun değil
-        </div>
+        <button
+          className={classes.modelShowButton}
+          style={{
+            opacity: 0.6,
+            cursor: 'not-allowed',
+            backgroundColor: '#f8f9fa',
+            color: '#6c757d'
+          }}
+          disabled
+          title="3D model henüz hazır değil">
+          ⏳ Model Hazırlanıyor...
+        </button>
       </div>
-    ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
-      <Image
-        src={`${
-          process.env.REACT_APP_API_URL ||
-          'http://188.132.220.35:5051'
-        }${fixImagePath(
-          analysis.enhanced_renders.isometric.file_path
-        )}`}
-        zoomSrc={`${
-          process.env.REACT_APP_API_URL ||
-          'http://188.132.220.35:5051'
-        }${fixImagePath(
-          analysis.enhanced_renders.isometric.file_path
-        )}`}
-        className={classes.modelImage}
-        alt='3D Model'
-        width='200'
-        height='200'
-        preview
-      />
-    ) : isRenderCompleted && !hasEnhancedRenders ? (
+    )}
+
+    {/* Pending durumunda açıklama */}
+    {isRenderPending && (
       <div
         style={{
-          color: '#dc3545',
-          textAlign: 'center',
-          padding: '20px',
-          backgroundColor: '#fff5f5',
-          borderRadius: '8px'
+          marginTop: '12px',
+          padding: '8px',
+          backgroundColor: '#fff3cd',
+          borderRadius: '6px',
+          fontSize: '11px',
+          color: '#856404',
+          textAlign: 'center'
         }}>
-        <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-          ⚠️
-        </div>
-        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-          3D Model Güncel Değil
-        </div>
-        <div style={{ fontSize: '12px' }}>
-          Render tamamlandı ancak
-          <br />
-          görüntü yüklenemedi
-        </div>
-      </div>
-    ) : (
-      <div style={{ color: '#999', textAlign: 'center', padding: '20px' }}>
-        3D Model
-        <br />
-        Mevcut Değil
+        💡 3D görüntüleme için STEP dosyası gereklidir
       </div>
     )}
   </div>
-
-  {/* 3D Viewer Butonları - Sadece render başarılı olduğunda göster */}
-  {(hasEnhancedRenders || isRenderCompleted) && !isRenderPending && (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        marginTop: '12px'
-      }}>
-      <button
-        className={classes.modelShowButton}
-        onClick={() =>
-          open3DViewer(analysis.id, analysis.original_filename || '')
-        }
-        title="Gelişmiş 3D Görüntüleyici'de aç">
-        🎯 3D Modeli Görüntüle
-      </button>
-    </div>
-  )}
-
-  {/* Processing durumunda farklı buton */}
-  {isRenderProcessing && (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        marginTop: '12px'
-      }}>
-      <button
-        className={classes.modelShowButton}
-        style={{
-          opacity: 0.6,
-          cursor: 'not-allowed',
-          backgroundColor: '#f8f9fa',
-          color: '#6c757d'
-        }}
-        disabled
-        title="3D model henüz hazır değil">
-        ⏳ Model Hazırlanıyor...
-      </button>
-    </div>
-  )}
-
-  {/* Pending durumunda açıklama */}
-  {isRenderPending && (
-    <div
-      style={{
-        marginTop: '12px',
-        padding: '8px',
-        backgroundColor: '#fff3cd',
-        borderRadius: '6px',
-        fontSize: '11px',
-        color: '#856404',
-        textAlign: 'center'
-      }}>
-      💡 3D görüntüleme için STEP dosyası gereklidir
-    </div>
-  )}
 </div>
-        </div>
 
         <div className={classes.line}></div>
 
@@ -776,8 +853,8 @@ const formatInteger = (value: any) => {
                     paddingBottom: '20px'
                   }}>
                   <p>
-                    {materialCalculations[0].original_text
-                      ? `Malzeme: ${materialCalculations[0].original_text}`
+                    {materialCalculations[0].material
+                      ? `Malzeme: ${materialCalculations[0].material}`
                       : 'Malzeme bilgisi mevcut değil.'}
                   </p>
                 </div>
