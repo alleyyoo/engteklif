@@ -1,37 +1,96 @@
-// src/pages/dashboard/DashboardPage.tsx - Multiple Excel Export entegrasyonu
-import React, { useState, useRef } from "react";
-import { DashboardPageStyles } from "./DashboardPage.styles";
-import { useFileUpload } from "../../hooks/useFileUpload";
-import { Image } from "primereact/image";
-import { apiService } from "../../services/api";
+import React, { useState, useRef, useEffect } from 'react';
+import { DashboardPageStyles } from './DashboardPage.styles';
+import { useFileUpload } from '../../hooks/useFileUpload';
+import { Image } from 'primereact/image';
+import { apiService } from '../../services/api';
 
 export const DashboardPage = () => {
   const classes = DashboardPageStyles();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
-  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
-  
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [isDragging, setIsDragging] = useState(false);
+
   // Excel merge state
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
   const [isMerging, setIsMerging] = useState(false);
   const [mergeProgress, setMergeProgress] = useState(0);
-  
-  // ✅ YENİ - Excel export state
+
+  // Excel export state
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
-  
+
   const {
     files,
+    fileGroups,
+    matchedPairs,
+    groupMode,
+    setGroupMode,
     isUploading,
     totalProcessingTime,
+    renderStatusMap,
+    renderProgressMap,
     addFiles,
     removeFile,
+    removeGroup,
     clearFiles,
     uploadAndAnalyze,
     retryFile,
-    exportMultipleToExcel, // ✅ YENİ - Çoklu export fonksiyonu
-    exportAllCompletedToExcel, // ✅ YENİ - Otomatik tüm analizleri export
+    exportMultipleToExcel,
+    exportAllCompletedToExcel,
+    exportGroupToExcel,
+    refreshRenderStatus,
+    getFileType
   } = useFileUpload();
+
+  // Grup modunu başlangıçta aktif yap
+  useEffect(() => {
+    setGroupMode(true);
+  }, [setGroupMode]);
+
+  // Drag & Drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const validFiles = droppedFiles.filter((file) => {
+      const ext = file.name.toLowerCase();
+      return (
+        ext.endsWith('.pdf') ||
+        ext.endsWith('.doc') ||
+        ext.endsWith('.docx') ||
+        ext.endsWith('.step') ||
+        ext.endsWith('.stp')
+      );
+    });
+
+    if (validFiles.length > 0) {
+      addFiles(validFiles);
+    } else if (droppedFiles.length > 0) {
+      alert('Lütfen sadece PDF, DOC, DOCX, STEP veya STP dosyaları yükleyin.');
+    }
+  };
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -42,51 +101,72 @@ export const DashboardPage = () => {
     if (selectedFiles.length > 0) {
       addFiles(selectedFiles);
     }
-    // Reset input
     event.target.value = '';
   };
 
-  // ✅ Excel dosya seçimi
   const handleExcelFileSelect = () => {
     excelInputRef.current?.click();
   };
 
-  const handleExcelFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelFileChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Excel dosya tipini kontrol et
       const validTypes = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-        'application/vnd.ms-excel', // .xls
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
         'application/excel'
       ];
-      
-      if (validTypes.includes(file.type) || file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+
+      if (
+        validTypes.includes(file.type) ||
+        file.name.toLowerCase().endsWith('.xlsx') ||
+        file.name.toLowerCase().endsWith('.xls')
+      ) {
         setSelectedExcelFile(file);
         console.log('✅ Excel dosyası seçildi:', file.name);
       } else {
         alert('Lütfen geçerli bir Excel dosyası (.xlsx, .xls) seçin.');
       }
     }
-    // Reset input
     event.target.value = '';
   };
 
-  // ✅ Excel merge işlemi
   const handleExcelMerge = async () => {
     if (!selectedExcelFile) {
       alert('Lütfen önce bir Excel dosyası seçin.');
       return;
     }
 
-    // Tamamlanmış analizleri bul
-    const completedAnalyses = files.filter(f => 
-      f.status === 'completed' && 
-      f.result?.analysis?.id
-    );
+    let completedAnalyses = [];
+
+    // Tüm tamamlanmış analizleri topla (matchedPairs dahil)
+    matchedPairs.forEach((pair) => {
+      if (pair.status === 'completed' && pair.mergedResult?.analysis?.id) {
+        completedAnalyses.push({
+          result: pair.mergedResult
+        });
+      }
+    });
+
+    // Eşleşmeyen dosyaları da ekle
+    files.forEach((file) => {
+      if (
+        file.status === 'completed' &&
+        file.result?.analysis?.id &&
+        !file.isPartOfMatch
+      ) {
+        completedAnalyses.push({
+          result: file.result
+        });
+      }
+    });
 
     if (completedAnalyses.length === 0) {
-      alert('Birleştirilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.');
+      alert(
+        'Birleştirilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.'
+      );
       return;
     }
 
@@ -99,21 +179,22 @@ export const DashboardPage = () => {
         analysisCount: completedAnalyses.length
       });
 
-      // Analysis ID'lerini topla
-      const analysisIds = completedAnalyses.map(f => f.result!.analysis.id);
+      const analysisIds = completedAnalyses.map(
+        (item) => item.result!.analysis.id
+      );
 
       setMergeProgress(30);
 
-      // API çağrısı
-      const result = await apiService.mergeWithExcel(selectedExcelFile, analysisIds);
+      const result = await apiService.mergeWithExcel(
+        selectedExcelFile,
+        analysisIds
+      );
 
       setMergeProgress(80);
 
       if (result.success) {
-        // Başarılı - dosyayı indir
         console.log('✅ Excel merge başarılı');
-        
-        // Blob olarak dönen dosyayı indir
+
         const url = window.URL.createObjectURL(result.blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -125,19 +206,16 @@ export const DashboardPage = () => {
         document.body.removeChild(a);
 
         setMergeProgress(100);
-        
-        // Başarı mesajı
+
         setTimeout(() => {
           alert('✅ Excel dosyası başarıyla birleştirildi ve indirildi!');
           setSelectedExcelFile(null);
           setMergeProgress(0);
           setIsMerging(false);
         }, 500);
-
       } else {
         throw new Error(result.message || 'Excel birleştirme başarısız');
       }
-
     } catch (error: any) {
       console.error('❌ Excel merge hatası:', error);
       alert(`Excel birleştirme hatası: ${error.message || 'Bilinmeyen hata'}`);
@@ -146,20 +224,19 @@ export const DashboardPage = () => {
     }
   };
 
-  // ✅ Excel dosyasını kaldır
   const removeExcelFile = () => {
     setSelectedExcelFile(null);
   };
 
-  // ✅ YENİ - Multiple Excel Export işlemi
   const handleMultipleExcelExport = async () => {
-    const completedFiles = files.filter(f => 
-      f.status === 'completed' && 
-      f.result?.analysis?.id
-    );
+    const completedCount =
+      matchedPairs.filter((p) => p.status === 'completed').length +
+      files.filter((f) => f.status === 'completed' && !f.isPartOfMatch).length;
 
-    if (completedFiles.length === 0) {
-      alert('Export edilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.');
+    if (completedCount === 0) {
+      alert(
+        'Export edilecek analiz sonucu bulunamadı. Önce dosyalarınızı analiz edin.'
+      );
       return;
     }
 
@@ -168,33 +245,30 @@ export const DashboardPage = () => {
 
     try {
       console.log('📊 Multiple Excel export başlıyor...', {
-        analysisCount: completedFiles.length,
-        fileNames: completedFiles.map(f => f.file.name)
+        analysisCount: completedCount
       });
 
       setExportProgress(30);
 
-      // Export fonksiyonunu çağır
       const result = await exportAllCompletedToExcel();
 
       setExportProgress(80);
 
       if (result.success) {
         console.log('✅ Multiple Excel export başarılı:', result.filename);
-        
+
         setExportProgress(100);
-        
-        // Başarı mesajı
+
         setTimeout(() => {
-          alert(`✅ ${completedFiles.length} analiz başarıyla Excel'e aktarıldı ve indirildi!\n\nDosya: ${result.filename}`);
+          alert(
+            `✅ ${completedCount} analiz başarıyla Excel'e aktarıldı ve indirildi!\n\nDosya: ${result.filename}`
+          );
           setExportProgress(0);
           setIsExporting(false);
         }, 500);
-
       } else {
         throw new Error(result.error || 'Excel export başarısız');
       }
-
     } catch (error: any) {
       console.error('❌ Multiple Excel export hatası:', error);
       alert(`Excel export hatası: ${error.message || 'Bilinmeyen hata'}`);
@@ -203,14 +277,49 @@ export const DashboardPage = () => {
     }
   };
 
-  const toggleExpanded = (index: number) => {
+  const handlePairExport = async (pair: any) => {
+    if (!pair.mergedResult) {
+      alert('Bu eşleştirme için export edilecek veri bulunamadı.');
+      return;
+    }
+
+    try {
+      await exportGroupToExcel(pair);
+      alert(
+        `✅ "${pair.displayName}" eşleştirmesi başarıyla Excel'e aktarıldı!`
+      );
+    } catch (error: any) {
+      console.error('❌ Eşleştirme Excel export hatası:', error);
+      alert(`Excel export hatası: ${error.message || 'Bilinmeyen hata'}`);
+    }
+  };
+
+  const toggleExpanded = (id: string) => {
     const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(index)) {
-      newExpanded.delete(index);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
     } else {
-      newExpanded.add(index);
+      newExpanded.add(id);
     }
     setExpandedItems(newExpanded);
+  };
+
+  const formatDimension = (value: any, addPadding = false) => {
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return Math.ceil(addPadding ? numValue + 10 : numValue);
+  };
+
+  const formatValue = (value: any, decimals = 1) => {
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return decimals === 0 ? Math.ceil(numValue) : numValue.toFixed(decimals);
+  };
+
+  const formatInteger = (value: any) => {
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return Math.ceil(numValue).toLocaleString(); // Büyük sayılar için virgül ekler
   };
 
   const getStatusClass = (status: string) => {
@@ -221,6 +330,7 @@ export const DashboardPage = () => {
         return 'red';
       case 'analyzing':
       case 'uploading':
+      case 'processing':
         return 'blue';
       default:
         return 'yellow';
@@ -237,6 +347,8 @@ export const DashboardPage = () => {
         return 'Yüklendi';
       case 'analyzing':
         return 'Analiz ediliyor...';
+      case 'processing':
+        return 'İşleniyor...';
       case 'completed':
         return 'Tamamlandı';
       case 'failed':
@@ -246,123 +358,366 @@ export const DashboardPage = () => {
     }
   };
 
+  const getFileTypeIcon = (fileType: string) => {
+    switch (fileType) {
+      case 'pdf':
+        return '📄';
+      case 'step':
+        return '📐';
+      case 'doc':
+        return '📝';
+      default:
+        return '📎';
+    }
+  };
+
+  const getMatchQualityColor = (quality: string) => {
+    switch (quality?.toLowerCase()) {
+      case 'excellent':
+        return '#28a745';
+      case 'good':
+        return '#17a2b8';
+      case 'fair':
+        return '#ffc107';
+      case 'poor':
+        return '#dc3545';
+      default:
+        return '#6c757d';
+    }
+  };
+
   const accessToken = localStorage.getItem('accessToken');
 
-  // 3D Model görüntüleme - Backend'deki HTML dosyasını aç
   const open3DViewer = (analysisId: string, fileName: string) => {
-    // Backend'deki 3D viewer HTML dosyasını yeni sekmede aç
-    const viewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/3d-viewer/${analysisId}/${accessToken}`;
-    window.open(viewerUrl, '_blank', 'width=1600,height=1200,scrollbars=yes,resizable=yes');
+    const viewerUrl = `${
+      process.env.REACT_APP_API_URL || 'http://188.132.220.35:5051'
+    }/3d-viewer/${analysisId}/${accessToken}`;
+    window.open(
+      viewerUrl,
+      '_blank',
+      'width=1600,height=1200,scrollbars=yes,resizable=yes'
+    );
   };
 
-  // STL dosyasını direkt görüntüle
-  const openSTLViewer = (analysisId: string, fileName: string) => {
-    // Backend'deki STL viewer HTML dosyasını aç
-    const stlViewerUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/static/stepviews/${analysisId}/viewer.html`;
-    window.open(stlViewerUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+  const fixImagePath = (path: string) => {
+    if (path.startsWith('../static/')) {
+      return path.replace('../static/', '/static/');
+    }
+    if (!path.startsWith('/static/') && !path.startsWith('http')) {
+      return `/static/${path}`;
+    }
+    return path;
   };
 
-  const renderAnalysisResults = (file: any, index: number) => {
-    if (!file.result?.analysis) return null;
+  const renderAnalysisDetails = (result: any, id: string) => {
+    if (!result?.analysis) return null;
 
-    const analysis = file.result.analysis;
+    const analysis = result.analysis;
     const stepAnalysis = analysis.step_analysis;
     const materialOptions = analysis.material_options || [];
     const materialCalculations = analysis.all_material_calculations || [];
 
+    // Render durumunu kontrol et
+    const analysisId = analysis.id;
+    const renderStatus =
+      renderStatusMap.get(analysisId) || analysis.render_status || 'none';
+    const renderProgress = renderProgressMap.get(analysisId) || 0;
+    const isRenderProcessing = renderStatus === 'processing';
+    const isRenderCompleted = renderStatus === 'completed';
+    const isRenderPending = renderStatus === 'pending';
+    const hasEnhancedRenders =
+      analysis.enhanced_renders &&
+      Object.keys(analysis.enhanced_renders).length > 0;
+
+    const pendingCount = files.filter((f) => f.status === 'pending').length;
+
     return (
       <div className={classes.analyseItemInsideDiv}>
         <div className={classes.analyseFirstDiv}>
-          <p className={classes.analyseAlias}>
-            {analysis.material_matches?.[0] || '6061(alias:6061, %100)'}
-          </p>
+          <div className={classes.analyseAlias}>
+            {(() => {
+              const materialMatches = analysis.material_matches || [];
+              const materialKeywords = analysis.material_keywords_found || [];
+
+              let content = [];
+
+              // material_matches'den malzemeleri al
+              if (materialMatches.length > 0) {
+                // 'default' içermeyen eşleşmeleri filtrele
+                const validMatches = materialMatches.filter(
+                  (match) => match && !match.includes('default')
+                );
+
+                if (validMatches.length > 0) {
+                  content.push(<p key='matches'>{validMatches[0]}</p>);
+                } else {
+                  content.push(<p key='no-matches'>Malzeme Eşleşmesi Yok</p>);
+                }
+              } else {
+                content.push(<p key='no-matches'>Malzeme Eşleşmesi Yok</p>);
+              }
+
+              // material_keywords_found her zaman görünsün
+              if (materialKeywords.length > 0) {
+                const keywordNames = materialKeywords.map(
+                  (keyword) =>
+                    keyword.keyword || keyword.material || 'Bilinmeyen'
+                );
+                content.push(
+                  <p
+                    key='keywords'
+                    style={{ color: '#666' }}>
+                    Anahtar Kelimeler: {keywordNames.join(', ')}
+                  </p>
+                );
+              }
+
+              return content;
+            })()}
+          </div>
+
           <div className={classes.modelDiv}>
             <div className={classes.modelSection}>
-              {analysis.enhanced_renders?.isometric ? (
+              {/* Render işleniyor durumu - sadece processing */}
+              {isRenderProcessing ? (
+                <div
+                  style={{
+                    color: '#007bff',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#f0f8ff',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⏳
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model İşleniyor
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
+                    Lütfen bekleyin...
+                  </div>
+                  <button
+                    onClick={() => refreshRenderStatus(analysisId)}
+                    style={{
+                      marginTop: '8px',
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      border: '1px solid #007bff',
+                      borderRadius: '4px',
+                      backgroundColor: 'white',
+                      color: '#007bff',
+                      cursor: 'pointer'
+                    }}>
+                    🔄 Durumu Kontrol Et
+                  </button>
+                </div>
+              ) : isRenderPending ? (
+                // ✅ YENİ: Pending durumu için özel mesaj
+                <div
+                  style={{
+                    color: '#dc3545',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#fff5f5',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⚠️
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Render İşlenemedi
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    STEP dosyası bulunamadı veya
+                    <br />
+                    uygun değil
+                  </div>
+                </div>
+              ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
                 <Image
-                  src={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
-                  zoomSrc={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${analysis.enhanced_renders.isometric.file_path}`}
+                  src={`${
+                    process.env.REACT_APP_API_URL ||
+                    'http://188.132.220.35:5051'
+                  }${fixImagePath(
+                    analysis.enhanced_renders.isometric.file_path
+                  )}`}
+                  zoomSrc={`${
+                    process.env.REACT_APP_API_URL ||
+                    'http://188.132.220.35:5051'
+                  }${fixImagePath(
+                    analysis.enhanced_renders.isometric.file_path
+                  )}`}
                   className={classes.modelImage}
-                  alt="3D Model"
-                  width="200"
-                  height="200"
-                  preview 
+                  alt='3D Model'
+                  width='200'
+                  height='200'
+                  preview
                 />
+              ) : isRenderCompleted && !hasEnhancedRenders ? (
+                <div
+                  style={{
+                    color: '#dc3545',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#fff5f5',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⚠️
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model Güncel Değil
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    Render tamamlandı ancak
+                    <br />
+                    görüntü yüklenemedi
+                  </div>
+                </div>
               ) : (
-                <div style={{ color: '#999', textAlign: 'center' }}>
+                <div
+                  style={{
+                    color: '#999',
+                    textAlign: 'center',
+                    padding: '20px'
+                  }}>
                   3D Model
                   <br />
                   Mevcut Değil
                 </div>
               )}
             </div>
-            
-            {/* 3D Viewer Butonları */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-              <button 
-                className={classes.modelShowButton}
-                onClick={() => open3DViewer(analysis.id, file.file.name)}
-                title="Gelişmiş 3D Viewer'da aç"
-              >
-                🎯 3D Model Viewer
-              </button>
-              
-              {analysis.enhanced_renders && (
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
-                    Mevcut Görünümler:
-                  </div>
-                  {Object.entries(analysis.enhanced_renders).map(([viewName, viewData]: [string, any]) => (
-                    viewData.success && (
-                      <a
-                        key={viewName}
-                        href={`${process.env.REACT_APP_API_URL || 'http://localhost:5050'}/${viewData.file_path}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'block',
-                          fontSize: '11px',
-                          color: '#195cd7',
-                          textDecoration: 'none',
-                          padding: '2px 0',
-                        }}
-                      >
-                        📷 {viewName.charAt(0).toUpperCase() + viewName.slice(1)} View
-                      </a>
-                    )
-                  ))}
-                </div>
-              )}
-            </div>
+
+            {/* 3D Viewer Butonları - Sadece render başarılı olduğunda göster */}
+            {(hasEnhancedRenders || isRenderCompleted) && !isRenderPending && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  marginTop: '12px'
+                }}>
+                <button
+                  className={classes.modelShowButton}
+                  onClick={() =>
+                    open3DViewer(analysis.id, analysis.original_filename || '')
+                  }
+                  title="Gelişmiş 3D Görüntüleyici'de aç">
+                  🎯 3D Modeli Görüntüle
+                </button>
+              </div>
+            )}
+
+            {/* Processing durumunda farklı buton */}
+            {isRenderProcessing && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  marginTop: '12px'
+                }}>
+                <button
+                  className={classes.modelShowButton}
+                  style={{
+                    opacity: 0.6,
+                    cursor: 'not-allowed',
+                    backgroundColor: '#f8f9fa',
+                    color: '#6c757d'
+                  }}
+                  disabled
+                  title='3D model henüz hazır değil'>
+                  ⏳ Model Hazırlanıyor...
+                </button>
+              </div>
+            )}
+
+            {/* Pending durumunda açıklama */}
+            {isRenderPending && (
+              <div
+                style={{
+                  marginTop: '12px',
+                  padding: '8px',
+                  backgroundColor: '#fff3cd',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  color: '#856404',
+                  textAlign: 'center'
+                }}>
+                💡 3D görüntüleme için STEP dosyası gereklidir
+              </div>
+            )}
           </div>
         </div>
 
         <div className={classes.line}></div>
 
-        <p className={classes.titleSmall}>Step Dosyası Detaylı Analiz Tablosu</p>
+        <p className={classes.titleSmall}>
+          Step Dosyası Detaylı Analiz Tablosu
+        </p>
 
-        {/* Boyutlar */}
         <div className={classes.analyseItemInsideDiv}>
           <div className={classes.analyseSubtitleDiv}>
             <span>📐</span>
             <p className={classes.titleSmall}>Boyutlar</p>
           </div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>X(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['X (mm)'] || '0.0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Y(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Y (mm)'] || '0.0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Z(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Z (mm)'] || '0.0'}</p>
+
+          <div className={classes.dimensionTable}>
+            <div className={classes.tableHeader}>
+              <div className={classes.tableCell}>Eksen</div>
+              <div className={classes.tableCell}>Boyut (mm)</div>
+              <div className={classes.tableCell}>Paylı Boyut (mm)</div>
+            </div>
+
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>X</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
+                  return xValue === 0 ? '-' : Math.ceil(xValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
+                  return xValue === 0 ? '-' : Math.ceil(xValue + 10);
+                })()}
+              </div>
+            </div>
+
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>Y</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
+                  return yValue === 0 ? '-' : Math.ceil(yValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
+                  return yValue === 0 ? '-' : Math.ceil(yValue + 10);
+                })()}
+              </div>
+            </div>
+
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>Z</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
+                  return zValue === 0 ? '-' : Math.ceil(zValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
+                  return zValue === 0 ? '-' : Math.ceil(zValue + 10);
+                })()}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -372,16 +727,32 @@ export const DashboardPage = () => {
             <span>🌀</span>
             <p className={classes.titleSmall}>Silindirik Özellikler</p>
           </div>
-          
+
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Silindirik Çap(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Silindirik Çap (mm)'] || '0.0'}</p>
+            <p className={classes.analyseItemExp}>
+              {(() => {
+                const cylindricalDiameter =
+                  parseFloat(stepAnalysis?.['Silindirik Çap (mm)']) || 0;
+                if (cylindricalDiameter === 0) return '-';
+                // ✅ +10mm eklendi
+                return (cylindricalDiameter + 10).toFixed(1);
+              })()}
+            </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
-          
+
           <div className={classes.analyseInsideItem}>
             <p className={classes.analyseItemTitle}>Silindirik Yükseklik(mm)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Silindirik Yükseklik (mm)'] || '0.0'}</p>
+            <p className={classes.analyseItemExp}>
+              {(() => {
+                const cylindricalHeight =
+                  parseFloat(stepAnalysis?.['Silindirik Yükseklik (mm)']) || 0;
+                if (cylindricalHeight === 0) return '-';
+                // ✅ +10mm eklendi
+                return (cylindricalHeight + 10).toFixed(1);
+              })()}
+            </p>
           </div>
         </div>
 
@@ -391,52 +762,37 @@ export const DashboardPage = () => {
             <span>📦</span>
             <p className={classes.titleSmall}>Hacimsel Veriler</p>
           </div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Prizma Hacmi 10 mm Paylı(mm³)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Prizma Hacmi (mm³)'] || '0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Ürün Hacmi(mm³)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Ürün Hacmi (mm³)'] || '0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Talaş Hacmi(mm³)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Talaş Hacmi (mm³)'] || '0'}</p>
-          </div>
-          <div className={classes.lineAnalyseItem}></div>
-          
-          <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Talaş Oranı(%)</p>
-            <p className={classes.analyseItemExp}>{stepAnalysis?.['Talaş Oranı (%)'] || '0.0'}</p>
-          </div>
-        </div>
 
-        {/* Step Dosyası Metadata */}
-        <div className={classes.analyseItemInsideDiv}>
-          <div className={classes.analyseSubtitleDiv}>
-            <span>📋</span>
-            <p className={classes.titleSmall}>Step Dosyası Metadata</p>
-          </div>
-          
           <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Malzeme Bilgisi</p>
+            <p className={classes.analyseItemTitle}>
+              Prizma Hacmi 10 mm Paylı(mm³)
+            </p>
             <p className={classes.analyseItemExp}>
-              {analysis.material_matches?.length > 0 
-                ? analysis.material_matches[0] 
-                : 'Malzeme bilgisi step dosyasında bulunmuyor.'}
+              {formatInteger(stepAnalysis?.['Prizma Hacmi (mm³)'])}
             </p>
           </div>
           <div className={classes.lineAnalyseItem}></div>
-          
+
           <div className={classes.analyseInsideItem}>
-            <p className={classes.analyseItemTitle}>Not</p>
+            <p className={classes.analyseItemTitle}>Ürün Hacmi(mm³)</p>
             <p className={classes.analyseItemExp}>
-              Not bilgisi step dosyasında bulunmuyor.
+              {formatInteger(stepAnalysis?.['Ürün Hacmi (mm³)'])}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
+
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Talaş Hacmi(mm³)</p>
+            <p className={classes.analyseItemExp}>
+              {formatInteger(stepAnalysis?.['Talaş Hacmi (mm³)'])}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
+
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Talaş Oranı(%)</p>
+            <p className={classes.analyseItemExp}>
+              {formatValue(stepAnalysis?.['Talaş Oranı (%)'])}
             </p>
           </div>
         </div>
@@ -446,52 +802,76 @@ export const DashboardPage = () => {
           <div className={classes.analyseItemInsideDiv}>
             <div className={classes.analyseSubtitleDiv}>
               <span>⚙️</span>
-              <p className={classes.titleSmall}>Hesaplaşmaya Esas Değerler</p>
+              <p className={classes.titleSmall}>Esas Değerler</p>
             </div>
-            
-            {materialCalculations.map((calc: any, idx: any) => (
-              <React.Fragment key={idx}>
+
+            {materialCalculations.length > 0 && (
+              <>
+                <div
+                  className={classes.analyseInsideItem}
+                  style={{
+                    backgroundColor: '#f8f9fa',
+                    paddingTop: '20px',
+                    paddingBottom: '20px'
+                  }}>
+                  <p>
+                    {materialCalculations[0].material
+                      ? `Malzeme: ${materialCalculations[0].material}`
+                      : 'Malzeme bilgisi mevcut değil.'}
+                  </p>
+                </div>
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Prizma Hacmi(mm³)</p>
-                  <p className={classes.analyseItemExp}>{calc.volume_mm3}</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].volume_mm3}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
-                
+
                 <div className={classes.analyseInsideItem}>
-                  <p className={classes.analyseItemTitle}>Özkütle(g/cm³)({calc.material})</p>
-                  <p className={classes.analyseItemExp}>{calc.density}</p>
+                  <p className={classes.analyseItemTitle}>
+                    Özkütle(g/cm³)({materialCalculations[0].material})
+                  </p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].density}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
-                
+
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Kütle(kg)</p>
-                  <p className={classes.analyseItemExp}>{calc.mass_kg}</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].mass_kg}
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
-                
+
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Hammadde Maliyeti</p>
-                  <p className={classes.analyseItemExp}>{calc.material_cost} USD</p>
+                  <p className={classes.analyseItemExp}>
+                    {materialCalculations[0].material_cost} USD
+                  </p>
                 </div>
                 <div className={classes.lineAnalyseItem}></div>
-                
+
                 <div className={classes.analyseInsideItem}>
                   <p className={classes.analyseItemTitle}>Toplam Yüzey Alanı</p>
                   <p className={classes.analyseItemExp}>
                     {stepAnalysis?.['Toplam Yüzey Alanı (mm²)'] || '0'} mm²
                   </p>
                 </div>
-                {idx < materialCalculations.length - 1 && <div className={classes.lineAnalyseItem}></div>}
-              </React.Fragment>
-            ))}
+              </>
+            )}
           </div>
         )}
 
         {/* Tüm Malzemeler İçin Hesaplanan Değerler */}
-        {materialOptions.length > 0 && (
+        {materialOptions.length > 0 && renderStatus !== 'pending' && (
           <>
-            <p className={classes.titleSmall}>Tüm Malzemeler İçin Hesaplanan Değerler</p>
-            
+            <p className={classes.titleSmall}>
+              Tüm Malzemeler İçin Hesaplanan Değerler
+            </p>
+
             <div className={classes.analyseItemInsideDiv}>
               <div className={classes.analyseMaterialDiv}>
                 <p className={classes.materialTitle}>Malzeme</p>
@@ -499,16 +879,18 @@ export const DashboardPage = () => {
                 <p className={classes.materialTitle}>Kütle(kg)</p>
                 <p className={classes.materialTitle}>Maliyet(USD)</p>
               </div>
-              
-              {materialOptions.slice(0, 10).map((material: any, idx: any) => (
+
+              {materialOptions.map((material: any, idx: any) => (
                 <React.Fragment key={idx}>
                   <div className={classes.analyseMaterialExpDiv}>
                     <p className={classes.materialExp}>{material.name}</p>
                     <p className={classes.materialExp}>{material.density}</p>
                     <p className={classes.materialExp}>{material.mass_kg}</p>
-                    <p className={classes.materialExp}>{material.material_cost}</p>
+                    <p className={classes.materialExp}>
+                      {material.material_cost}
+                    </p>
                   </div>
-                  {idx < materialOptions.slice(0, 10).length - 1 && (
+                  {idx < materialOptions.length - 1 && (
                     <div className={classes.lineAnalyseItem}></div>
                   )}
                 </React.Fragment>
@@ -516,85 +898,230 @@ export const DashboardPage = () => {
             </div>
           </>
         )}
+        {materialOptions.length > 0 && renderStatus === 'pending' && (
+          <div className={classes.analyseItemInsideDiv}>
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: '#fff3cd',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #ffeaa7'
+              }}>
+              <div style={{ fontSize: '20px', marginBottom: '8px' }}>⚠️</div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: '14px',
+                  color: '#856404',
+                  fontWeight: '500'
+                }}>
+                Malzeme Hesaplamaları Mevcut Değil
+              </p>
+              <p
+                style={{
+                  margin: '4px 0 0 0',
+                  fontSize: '12px',
+                  color: '#856404'
+                }}>
+                3D analiz için STEP dosyası gereklidir
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
 
-  return (
-    <div className={classes.container}>
-      <div className={classes.firstSection}>
-        <img
-          src="/background-logo.png"
-          alt="Background Logo"
-          className={classes.backgroundLogo}
-        />
-        <p className={classes.title}>
-          Yapay Zeka ile Teklif Parametrelerinin PDF ve STEP Dosyalarından Analizi
-        </p>
-        <p className={classes.exp}>
-          İşlem sonucunda teklif verilecek ürüne ait tüm analizler tamamlanacak,
-          değerler hesaplanacak, 3D modeli görüntülenebilir duruma gelecek ve
-          sonuçlar excel olarak indirilebilecektir. <br />
-          <span>
-            Step dosyasını ayrıca yüklemenize gerek yok. Sistem PDF'in içinden
-            dosyayı otomatik bulup işlem yapar.
-          </span>
-        </p>
-
-        <div className={classes.uploadSection}>
-          <div className={classes.fileSelection}>
-            <button 
-              className={classes.fileSelectionButton}
-              onClick={handleFileSelect}
-            >
-              Choose Files
-            </button>
-            <span className={classes.fileIcon}>📁</span>
-            <p className={classes.fileSelectionText}>
-              {files.length === 0 
-                ? 'No files selected' 
-                : `${files.length} file${files.length > 1 ? 's' : ''} selected`
-              }
-            </p>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.doc,.docx,.step,.stp"
-            onChange={handleFileChange}
-            className={classes.hiddenFileInput}
-          />
-
-          <button 
-            className={classes.uploadButton}
-            onClick={uploadAndAnalyze}
-            disabled={files.length === 0 || isUploading || !files.some(f => f.status === 'pending')}
-          >
-            {isUploading 
-              ? 'Yükleniyor ve Analiz Ediliyor...' 
-              : files.some(f => f.status === 'pending')
-                ? `Yükle ve Tara (${files.filter(f => f.status === 'pending').length} dosya)`
-                : 'Tüm Dosyalar İşlendi'
-            }
-          </button>
-
-          {(isUploading || files.some(f => f.status === 'pending')) && (
-            <p className={classes.processingInfo}>
-              {isUploading 
-                ? `${files.filter(f => f.status === 'uploading' || f.status === 'analyzing').length} dosya işleniyor, lütfen bekleyin...`
-                : `${files.filter(f => f.status === 'pending').length} dosya işlenmeyi bekliyor`
-              }
-            </p>
-          )}
-
-          {/* Uploaded Files */}
-          {files.map((file, index) => (
-            <div key={index} className={classes.uploadedItem}>
+  // Render file list - Eşleşmeleri ve tek dosyaları göster
+  const renderFileList = () => {
+    return (
+      <>
+        {/* Eşleşmiş PDF-STEP çiftleri */}
+        {matchedPairs.map((pair) => (
+          <div
+            key={pair.id}
+            style={{ marginBottom: '16px' }}>
+            <div
+              className={classes.uploadedItem}
+              style={{ backgroundColor: '#f0f8ff' }}>
               <div className={classes.uploadedItemFirstSection}>
-                <p className={classes.exp}>{file.file.name}</p>
-                <div className={`${classes.uploadedItemStatus} ${getStatusClass(file.status)}`}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                  <span style={{ fontSize: '18px' }}>🔗</span>
+                  <div>
+                    <p
+                      className={classes.exp}
+                      style={{ fontWeight: 'bold' }}>
+                      {pair.displayName}
+                    </p>
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        color: '#666',
+                        marginTop: '4px'
+                      }}>
+                      PDF + STEP Eşleştirmesi
+                    </p>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                  {/* Match score badge */}
+                  <div
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      backgroundColor: '#d4edda',
+                      color: getMatchQualityColor(pair.matchQuality)
+                    }}>
+                    🎯 {pair.matchScore}% - {pair.matchQuality}
+                  </div>
+                  <div
+                    className={`${classes.uploadedItemStatus} ${getStatusClass(
+                      pair.status
+                    )}`}>
+                    <p className={classes.uploadedItemStatusText}>
+                      {getStatusText(pair.status)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className={classes.progressContainer}>
+                <div
+                  className={classes.progressBar}
+                  style={{ width: `${pair.progress}%` }}>
+                  <span className={classes.progressText}>{pair.progress}%</span>
+                </div>
+              </div>
+
+              {/* Eşleşen dosyalar */}
+              <div style={{ marginTop: '12px', paddingLeft: '20px' }}>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: '#666',
+                    marginBottom: '8px'
+                  }}>
+                  <div style={{ marginBottom: '4px' }}>
+                    📄 PDF: {pair.pdfFile.file.name}
+                    <span
+                      style={{
+                        marginLeft: '8px',
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#e8f5e8',
+                        color: '#2e7d32'
+                      }}>
+                      {getStatusText(pair.pdfFile.status)}
+                    </span>
+                  </div>
+                  <div>
+                    📐 STEP: {pair.stepFile.file.name}
+                    <span
+                      style={{
+                        marginLeft: '8px',
+                        fontSize: '11px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#e8f5e8',
+                        color: '#2e7d32'
+                      }}>
+                      {getStatusText(pair.stepFile.status)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kontroller */}
+              {pair.status === 'pending' && (
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => removeGroup(pair.id)}
+                    style={{
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}>
+                    Eşleştirmeyi Kaldır
+                  </button>
+                </div>
+              )}
+
+              {pair.status === 'failed' && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    color: '#dc3545',
+                    fontSize: '12px'
+                  }}>
+                  ⚠️ Eşleştirme analizi başarısız.
+                </div>
+              )}
+
+              {pair.status === 'completed' && pair.mergedResult && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center'
+                  }}>
+                  <span style={{ fontSize: '12px', color: '#28a745' }}>
+                    ✓ Eşleştirme analizi tamamlandı!
+                  </span>
+                  <button
+                    onClick={() => handlePairExport(pair)}
+                    style={{
+                      backgroundColor: '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}>
+                    📊 Excel İndir
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Eşleşmeyen dosyalar */}
+        {files
+          .filter((file) => !file.isPartOfMatch)
+          .map((file, index) => (
+            <div
+              key={`file-${index}`}
+              className={classes.uploadedItem}>
+              <div className={classes.uploadedItemFirstSection}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{getFileTypeIcon(getFileType(file.file.name))}</span>
+                  <p className={classes.exp}>{file.file.name}</p>
+                </div>
+                <div
+                  className={`${classes.uploadedItemStatus} ${getStatusClass(
+                    file.status
+                  )}`}>
                   <p className={classes.uploadedItemStatusText}>
                     {getStatusText(file.status)}
                   </p>
@@ -602,28 +1129,55 @@ export const DashboardPage = () => {
               </div>
 
               <div className={classes.progressContainer}>
-                <div 
+                <div
                   className={classes.progressBar}
-                  style={{ width: `${file.progress}%` }}
-                >
+                  style={{ width: `${file.progress}%` }}>
                   <span className={classes.progressText}>{file.progress}%</span>
                 </div>
               </div>
 
+              {file.status === 'completed' &&
+                file.renderStatus === 'processing' && (
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      marginTop: '8px',
+                      color: '#007bff'
+                    }}>
+                    🎨 3D render işleniyor, lütfen bekleyin...
+                  </div>
+                )}
+
+              {file.status === 'completed' &&
+                file.renderStatus === 'pending' && (
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      marginTop: '8px',
+                      color: '#dc3545'
+                    }}>
+                    ⚠️ 3D render işlenemedi - STEP dosyası bulunamadı
+                  </div>
+                )}
+
               {file.error && (
-                <div style={{ color: '#dc3545', fontSize: '12px', marginTop: '8px' }}>
+                <div
+                  style={{
+                    color: '#dc3545',
+                    fontSize: '12px',
+                    marginTop: '8px'
+                  }}>
                   Hata: {file.error}
-                  <button 
+                  <button
                     className={classes.retryButton}
-                    onClick={() => retryFile(index)}
+                    onClick={() => retryFile(files.indexOf(file))}
                     style={{ marginLeft: '10px' }}
-                    disabled={isUploading}
-                  >
+                    disabled={isUploading}>
                     Tekrar Dene
                   </button>
-                  <button 
-                    onClick={() => removeFile(index)}
-                    style={{ 
+                  <button
+                    onClick={() => removeFile(files.indexOf(file))}
+                    style={{
                       marginLeft: '8px',
                       backgroundColor: '#6c757d',
                       color: 'white',
@@ -632,19 +1186,23 @@ export const DashboardPage = () => {
                       borderRadius: '4px',
                       cursor: 'pointer',
                       fontSize: '11px'
-                    }}
-                  >
+                    }}>
                     Kaldır
                   </button>
                 </div>
               )}
 
               {file.status === 'pending' && (
-                <div style={{ fontSize: '12px', marginTop: '8px', color: '#6c757d' }}>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    marginTop: '8px',
+                    color: '#6c757d'
+                  }}>
                   Dosya analiz için hazır. "Yükle ve Tara" butonuna tıklayın.
-                  <button 
-                    onClick={() => removeFile(index)}
-                    style={{ 
+                  <button
+                    onClick={() => removeFile(files.indexOf(file))}
+                    style={{
                       marginLeft: '10px',
                       backgroundColor: '#6c757d',
                       color: 'white',
@@ -653,233 +1211,388 @@ export const DashboardPage = () => {
                       borderRadius: '4px',
                       cursor: 'pointer',
                       fontSize: '11px'
-                    }}
-                  >
+                    }}>
                     Kaldır
                   </button>
                 </div>
               )}
 
               {file.status === 'completed' && (
-                <div style={{ fontSize: '12px', marginTop: '8px', color: '#28a745' }}>
-                  ✓ Analiz tamamlandı! İşleme süresi: {file.result?.processing_time?.toFixed(1) || '0'} saniye
+                <div
+                  style={{
+                    fontSize: '12px',
+                    marginTop: '8px',
+                    color: '#28a745'
+                  }}>
+                  ✓ Analiz tamamlandı! İşleme süresi:{' '}
+                  {file.result?.processing_time?.toFixed(1) || '0'} saniye
                 </div>
               )}
             </div>
           ))}
+      </>
+    );
+  };
 
-          {/* Analysis Results */}
-          {files.some(f => f.status === 'completed') && (
-            <>
-              <div className={classes.line}></div>
-              
-              <div className={classes.analyseSection}>
-                <div className={classes.iconTextDiv}>
-                  <span>🕒</span>
-                  <p className={classes.titleSmall}>
-                    Toplam geçen süre: {totalProcessingTime.toFixed(1)} saniye
-                  </p>
-                </div>
+  // Render analysis results
+  const renderAnalysisResults = () => {
+    const processedPairIds = new Set<string>();
 
-                <div className={classes.iconTextDiv}>
-                  <span>📊</span>
-                  <p className={classes.title}>Analiz Sonuçları</p>
-                </div>
-
-                {files.map((file, index) => (
-                  file.status === 'completed' && (
-                    <div 
-                      key={index} 
-                      className={`${classes.analyseItem} ${expandedItems.has(index) ? 'active' : ''}`}
-                    >
-                      <div 
-                        className={classes.analyseFirstSection}
-                        onClick={() => toggleExpanded(index)}
-                      >
-                        <p className={classes.exp}>{file.file.name}</p>
-                        <span style={{ transform: expandedItems.has(index) ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s' }}>
-                          <i className="fa fa-arrow-down"></i>
+    return (
+      <>
+        {/* Önce eşleşmiş çiftlerin sonuçlarını göster */}
+        {matchedPairs
+          .filter((pair) => pair.status === 'completed' && pair.mergedResult)
+          .map((pair) => {
+            processedPairIds.add(pair.id);
+            return (
+              <div
+                key={`pair-result-${pair.id}`}
+                className={`${classes.analyseItem} ${
+                  expandedItems.has(pair.id) ? 'active' : ''
+                }`}>
+                <div
+                  className={classes.analyseFirstSection}
+                  onClick={() => toggleExpanded(pair.id)}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px'
+                    }}>
+                    <span style={{ fontSize: '18px' }}>🔗</span>
+                    <div>
+                      <p
+                        className={classes.exp}
+                        style={{ fontWeight: 'bold' }}>
+                        {pair.pdfFile.file.name}
+                      </p>
+                      <p
+                        style={{
+                          fontSize: '12px',
+                          color: '#666',
+                          marginTop: '4px'
+                        }}>
+                        PDF + STEP Eşleştirmesi
+                        <span
+                          style={{
+                            marginLeft: '8px',
+                            padding: '2px 6px',
+                            borderRadius: '8px',
+                            backgroundColor: '#d4edda',
+                            color: getMatchQualityColor(pair.matchQuality),
+                            fontSize: '10px',
+                            fontWeight: 'bold'
+                          }}>
+                          🎯 {pair.matchScore}% - {pair.matchQuality}
                         </span>
-                      </div>
-                      
-                      {expandedItems.has(index) && renderAnalysisResults(file, index)}
-                    </div>
-                  )
-                ))}
-
-                {/* ✅ YENİ - Multiple Excel Export Butonu */}
-                <div style={{ position: 'relative' }}>
-                  {/* Export progress */}
-                  {isExporting && (
-                    <div style={{ marginBottom: '10px' }}>
-                      <div style={{ backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div 
-                          style={{ 
-                            width: `${exportProgress}%`, 
-                            height: '20px', 
-                            backgroundColor: '#28a745', 
-                            transition: 'width 0.3s ease',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'white',
-                            fontSize: '12px'
-                          }}
-                        >
-                          {exportProgress}%
-                        </div>
-                      </div>
-                      <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        Excel dosyası oluşturuluyor...
                       </p>
                     </div>
-                  )}
-
-                  <button 
-                    className={classes.analyseButton}
-                    onClick={handleMultipleExcelExport}
-                    disabled={!files.some(f => f.status === 'completed') || isExporting}
+                  </div>
+                  <span
                     style={{
-                      backgroundColor: isExporting ? '#cccccc' : '#10b86b',
-                      cursor: isExporting ? 'not-allowed' : 'pointer',
-                      opacity: isExporting ? 0.7 : 1
-                    }}
-                  >
-                    <img src="/download-icon.svg" alt="" />
-                    {isExporting 
-                      ? 'Excel Oluşturuluyor...' 
-                      : `Excel İndir (${files.filter(f => f.status === 'completed').length} Analiz)`
-                    }
-                  </button>
-
-                  {/* Bilgi mesajı */}
-                  {files.some(f => f.status === 'completed') && !isExporting && (
-                    <div style={{ 
-                      fontSize: '12px', 
-                      color: '#666', 
-                      marginTop: '10px',
-                      padding: '8px',
-                      backgroundColor: '#e8f5e8',
-                      borderRadius: '4px',
-                      border: '1px solid #c3e6c3'
+                      transform: expandedItems.has(pair.id)
+                        ? 'rotate(180deg)'
+                        : 'rotate(0deg)',
+                      transition: 'transform 0.3s'
                     }}>
-                      📊 <strong>Çoklu Excel Export:</strong> Tüm tamamlanmış analizler tek Excel dosyasında birleştirilecek. 
-                      Her analiz için ayrı satır oluşturulacak ve 3D görseller dahil edilecek.
-                      <br />
-                      <strong>İndirilecek {files.filter(f => f.status === 'completed').length} analiz sonucu mevcut.</strong>
+                    <i className='fa fa-arrow-down'></i>
+                  </span>
+                </div>
+
+                {expandedItems.has(pair.id) &&
+                  renderAnalysisDetails(pair.mergedResult, pair.id)}
+              </div>
+            );
+          })}
+
+        {/* Sonra eşleşmeyen dosyaların sonuçlarını göster */}
+        {files
+          .filter((file) => {
+            // Sadece eşleşme parçası olmayan VE tamamlanmış dosyaları göster
+            if (file.isPartOfMatch) return false;
+            if (file.status !== 'completed') return false;
+
+            // Eğer bu dosya bir eşleşmenin parçasıysa gösterme
+            const isPartOfProcessedPair = matchedPairs.some(
+              (pair) =>
+                (pair.pdfFile.file.name === file.file.name ||
+                  pair.stepFile.file.name === file.file.name) &&
+                pair.status === 'completed'
+            );
+
+            return !isPartOfProcessedPair;
+          })
+          .map((file, index) => (
+            <div
+              key={`file-result-${index}`}
+              className={`${classes.analyseItem} ${
+                expandedItems.has(`file-${index}`) ? 'active' : ''
+              }`}>
+              <div
+                className={classes.analyseFirstSection}
+                onClick={() => toggleExpanded(`file-${index}`)}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{getFileTypeIcon(getFileType(file.file.name))}</span>
+                  <p className={classes.exp}>{file.file.name}</p>
+                </div>
+                <span
+                  style={{
+                    transform: expandedItems.has(`file-${index}`)
+                      ? 'rotate(180deg)'
+                      : 'rotate(0deg)',
+                    transition: 'transform 0.3s'
+                  }}>
+                  <i className='fa fa-arrow-down'></i>
+                </span>
+              </div>
+
+              {expandedItems.has(`file-${index}`) &&
+                renderAnalysisDetails(file.result, `file-${index}`)}
+            </div>
+          ))}
+      </>
+    );
+  };
+
+  const hasCompletedResults =
+    matchedPairs.some((p) => p.status === 'completed') ||
+    files.some((f) => f.status === 'completed' && !f.isPartOfMatch);
+
+  const completedMatchCount = matchedPairs.filter(
+    (p) => p.status === 'completed'
+  ).length;
+
+  const completedSingleFileCount = files.filter((f) => {
+    // Dosya tamamlanmış mı?
+    if (f.status !== 'completed') return false;
+
+    // Dosya bir eşleştirmenin parçası mı?
+    if (f.isPartOfMatch) return false;
+
+    // Bu dosya için tamamlanmış bir eşleştirme var mı?
+    const hasCompletedMatch = matchedPairs.some(
+      (pair) =>
+        pair.status === 'completed' &&
+        (pair.pdfFile.file.name === f.file.name ||
+          pair.stepFile.file.name === f.file.name)
+    );
+
+    return !hasCompletedMatch;
+  }).length;
+
+  const pendingCount = files.filter((f) => f.status === 'pending').length;
+
+  return (
+    <div className={classes.container}>
+      {/* Main Content - Split Layout */}
+      <div className={classes.mainContent}>
+        {/* Left Panel - File Upload and Management */}
+        <div className={classes.leftPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📁 Dosya Yönetimi</h3>
+            <p>Dosyalarınızı buraya sürükleyin veya seçin</p>
+          </div>
+
+          {/* Dropzone */}
+          <div
+            className={`${classes.dropzone} ${
+              isDragging ? classes.dropzoneActive : ''
+            }`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={handleFileSelect}>
+            <div className={classes.dropzoneContent}>
+              <span className={classes.dropzoneIcon}>📤</span>
+              <p className={classes.dropzoneText}>
+                {isDragging
+                  ? 'Dosyaları buraya bırakın'
+                  : 'Dosyaları sürükleyin veya tıklayın'}
+              </p>
+              <p className={classes.dropzoneSubtext}>
+                PDF, DOC, DOCX, STEP, STP
+              </p>
+              {files.length > 0 && (
+                <p className={classes.dropzoneFileCount}>
+                  {files.length} dosya seçildi
+                </p>
+              )}
+            </div>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type='file'
+            multiple
+            accept='.pdf,.doc,.docx,.step,.stp'
+            onChange={handleFileChange}
+            className={classes.hiddenFileInput}
+          />
+
+          {/* Eşleştirme bilgisi */}
+          {files.length > 0 && matchedPairs.length > 0 && (
+            <div className={classes.matchInfo}>
+              <div className={classes.matchInfoContent}>
+                🎯 <strong>{matchedPairs.length} eşleştirme bulundu!</strong>
+                <ul>
+                  {matchedPairs.map((pair) => (
+                    <li key={pair.id}>
+                      {pair.pdfFile.file.name} ↔ {pair.stepFile.file.name} (
+                      <strong>{pair.matchScore}%</strong> - {pair.matchQuality})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Upload Button */}
+          <button
+            className={classes.uploadButton}
+            onClick={uploadAndAnalyze}
+            disabled={files.length === 0 || isUploading || pendingCount === 0}>
+            {isUploading
+              ? 'Yükleniyor ve Analiz Ediliyor...'
+              : pendingCount > 0
+              ? `Yükle ve Tara (${pendingCount} dosya)`
+              : 'Tüm Dosyalar İşlendi'}
+          </button>
+
+          {(isUploading || pendingCount > 0) && (
+            <p className={classes.processingInfo}>
+              {isUploading
+                ? `${
+                    files.filter(
+                      (f) =>
+                        f.status === 'uploading' || f.status === 'analyzing'
+                    ).length
+                  } dosya işleniyor, lütfen bekleyin...`
+                : `${pendingCount} dosya işlenmeyi bekliyor`}
+            </p>
+          )}
+
+          {/* File List */}
+          <div className={classes.fileListSection}>{renderFileList()}</div>
+
+          {/* Excel Operations */}
+          {hasCompletedResults && (
+            <div className={classes.excelOperations}>
+              {/* Multiple Excel Export */}
+              <div className={classes.exportSection}>
+                <h4>📊 Toplu Excel İndirme</h4>
+                {isExporting && (
+                  <div className={classes.exportProgress}>
+                    <div
+                      className={classes.exportProgressBar}
+                      style={{ width: `${exportProgress}%` }}>
+                      {exportProgress}%
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+                <button
+                  className={classes.exportButton}
+                  onClick={handleMultipleExcelExport}
+                  disabled={!hasCompletedResults || isExporting}>
+                  <img
+                    src='/download-icon.svg'
+                    alt=''
+                  />
+                  {isExporting
+                    ? 'Excel Oluşturuluyor...'
+                    : `Excel İndir (${
+                        completedMatchCount + completedSingleFileCount
+                      } Analiz)`}
+                </button>
+              </div>
 
-                <div className={classes.line}></div>
-
-                {/* Excel Merge Bölümü */}
-                <div className={classes.iconTextDiv}>
-                  <span>📤</span>
-                  <p className={classes.title}>Excel Yükle ve Analiz Sonuçlarıyla Birleştir</p>
-                </div>
-
-                {/* Excel dosya seçimi */}
-                <div className={classes.fileSelection}>
-                  <button 
-                    className={classes.fileSelectionButton}
+              {/* Excel Merge */}
+              <div className={classes.mergeSection}>
+                <h4>📤 Excel Birleştirme</h4>
+                <div className={classes.excelFileSelection}>
+                  <button
+                    className={classes.excelSelectButton}
                     onClick={handleExcelFileSelect}
-                    disabled={isMerging}
-                  >
-                    Choose File
+                    disabled={isMerging}>
+                    Excel Seç
                   </button>
-                  <span className={classes.fileIcon}>📊</span>
-                  <p className={classes.fileSelectionText}>
-                    {selectedExcelFile ? selectedExcelFile.name : 'no file selected'}
-                  </p>
+                  <span className={classes.excelFileName}>
+                    {selectedExcelFile
+                      ? selectedExcelFile.name
+                      : 'Dosya seçilmedi'}
+                  </span>
                   {selectedExcelFile && (
-                    <button 
+                    <button
                       onClick={removeExcelFile}
-                      style={{ 
-                        marginLeft: '10px',
-                        backgroundColor: '#dc3545',
-                        color: 'white',
-                        border: 'none',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '11px'
-                      }}
-                      disabled={isMerging}
-                    >
+                      className={classes.removeExcelButton}
+                      disabled={isMerging}>
                       ✕
                     </button>
                   )}
                 </div>
-
-                {/* Excel input (hidden) */}
                 <input
                   ref={excelInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
+                  type='file'
+                  accept='.xlsx,.xls'
                   onChange={handleExcelFileChange}
                   style={{ display: 'none' }}
                 />
-
-                {/* Excel merge progress */}
                 {isMerging && (
-                  <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                    <div style={{ backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div 
-                        style={{ 
-                          width: `${mergeProgress}%`, 
-                          height: '20px', 
-                          backgroundColor: '#28a745', 
-                          transition: 'width 0.3s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'white',
-                          fontSize: '12px'
-                        }}
-                      >
-                        {mergeProgress}%
-                      </div>
+                  <div className={classes.mergeProgress}>
+                    <div
+                      className={classes.mergeProgressBar}
+                      style={{ width: `${mergeProgress}%` }}>
+                      {mergeProgress}%
                     </div>
-                    <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                      Excel dosyası birleştiriliyor...
-                    </p>
                   </div>
                 )}
-
-                {/* Merge butonu */}
-                <button 
-                  className={classes.excelButton}
+                <button
+                  className={classes.mergeButton}
                   onClick={handleExcelMerge}
-                  disabled={!selectedExcelFile || isMerging || !files.some(f => f.status === 'completed')}
-                >
-                  <img src="/upload.svg" alt="" />
-                  {isMerging 
-                    ? 'Birleştiriliyor...' 
-                    : 'Excel Dosyasını Yükle ve Birleştir'
-                  }
+                  disabled={
+                    !selectedExcelFile || isMerging || !hasCompletedResults
+                  }>
+                  <img
+                    src='/upload.svg'
+                    alt=''
+                  />
+                  {isMerging ? 'Birleştiriliyor...' : 'Excel Birleştir'}
                 </button>
-
-                {/* Bilgi mesajı */}
-                {files.some(f => f.status === 'completed') && (
-                  <div style={{ 
-                    fontSize: '12px', 
-                    color: '#666', 
-                    marginTop: '10px',
-                    padding: '8px',
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: '4px',
-                    border: '1px solid #dee2e6'
-                  }}>
-                    💡 <strong>Nasıl çalışır:</strong> Excel dosyanızı seçin ve analiz sonuçlarıyla birleştirin. 
-                    Sistem otomatik olarak ürün kodlarını eşleştirip malzeme bilgilerini, boyutları ve 3D görsellerini ekleyecek.
-                    <br />
-                    <strong>Birleştirilecek {files.filter(f => f.status === 'completed').length} analiz sonucu mevcut.</strong>
-                  </div>
-                )}
               </div>
-            </>
+            </div>
           )}
+        </div>
+
+        {/* Right Panel - Analysis Results */}
+        <div className={classes.rightPanel}>
+          <div className={classes.panelHeader}>
+            <h3>📊 Analiz Sonuçları</h3>
+            {hasCompletedResults && (
+              <p>
+                {completedMatchCount} eşleştirme, {completedSingleFileCount}{' '}
+                tekil dosya
+                {totalProcessingTime > 0 &&
+                  ` • ⏱️ ${totalProcessingTime.toFixed(1)}s`}
+              </p>
+            )}
+          </div>
+
+          <div className={classes.resultsSection}>
+            {hasCompletedResults ? (
+              renderAnalysisResults()
+            ) : (
+              <div className={classes.emptyResults}>
+                <span className={classes.emptyIcon}>📋</span>
+                <p style={{ marginTop: 16 }}>Henüz analiz sonucu yok</p>
+                <p className={classes.emptySubtext}>
+                  Dosyalarınızı yükleyip analiz ettikten sonra sonuçlar burada
+                  görünecek
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
