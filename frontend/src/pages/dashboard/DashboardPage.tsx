@@ -880,7 +880,7 @@ export const DashboardPage = () => {
                 <p className={classes.materialTitle}>Maliyet(USD)</p>
               </div>
 
-              {materialOptions.slice(0, 10).map((material: any, idx: any) => (
+              {materialOptions.map((material: any, idx: any) => (
                 <React.Fragment key={idx}>
                   <div className={classes.analyseMaterialExpDiv}>
                     <p className={classes.materialExp}>{material.name}</p>
@@ -890,7 +890,7 @@ export const DashboardPage = () => {
                       {material.material_cost}
                     </p>
                   </div>
-                  {idx < materialOptions.slice(0, 10).length - 1 && (
+                  {idx < materialOptions.length - 1 && (
                     <div className={classes.lineAnalyseItem}></div>
                   )}
                 </React.Fragment>
