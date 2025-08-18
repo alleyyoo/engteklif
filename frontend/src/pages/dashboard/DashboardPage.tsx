@@ -305,23 +305,22 @@ export const DashboardPage = () => {
   };
 
   const formatDimension = (value: any, addPadding = false) => {
-  const numValue = parseFloat(value) || 0;
-  if (numValue === 0) return '-';
-  return Math.ceil(addPadding ? numValue + 10 : numValue);
-};
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return Math.ceil(addPadding ? numValue + 10 : numValue);
+  };
 
-const formatValue = (value: any, decimals = 1) => {
-  const numValue = parseFloat(value) || 0;
-  if (numValue === 0) return '-';
-  return decimals === 0 ? Math.ceil(numValue) : numValue.toFixed(decimals);
-};
+  const formatValue = (value: any, decimals = 1) => {
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return decimals === 0 ? Math.ceil(numValue) : numValue.toFixed(decimals);
+  };
 
-const formatInteger = (value: any) => {
-  const numValue = parseFloat(value) || 0;
-  if (numValue === 0) return '-';
-  return Math.ceil(numValue).toLocaleString(); // Büyük sayılar için virgül ekler
-};
-
+  const formatInteger = (value: any) => {
+    const numValue = parseFloat(value) || 0;
+    if (numValue === 0) return '-';
+    return Math.ceil(numValue).toLocaleString(); // Büyük sayılar için virgül ekler
+  };
 
   const getStatusClass = (status: string) => {
     switch (status) {
@@ -435,261 +434,223 @@ const formatInteger = (value: any) => {
     return (
       <div className={classes.analyseItemInsideDiv}>
         <div className={classes.analyseFirstDiv}>
-  <p className={classes.analyseAlias}>
-    {(() => {
-      const materialCalculations = analysis.all_material_calculations || [];
-      const materialKeywords = analysis.material_keywords_found || [];
-      
-      // all_material_calculations doluysa
-      if (materialCalculations.length > 0) {
-        // Aynı material key'leri tekleştir ve en yüksek confidence'ı al
-        const materialMap = new Map();
-        
-        materialCalculations.forEach(calc => {
-          const materialKey = calc.material || 'Bilinmeyen Malzeme';
-          const confidence = calc.confidence_value || 0;
-          
-          // Sadece %90 ve üzeri olanları al
-          if (confidence >= 90) {
-            if (!materialMap.has(materialKey) || materialMap.get(materialKey).confidence < confidence) {
-              materialMap.set(materialKey, {
-                material: materialKey,
-                confidence: confidence
-              });
-            }
-          }
-        });
-        
-        // Confidence değerine göre sırala (yüksekten düşüğe)
-        const uniqueMaterials = Array.from(materialMap.values())
-          .sort((a, b) => b.confidence - a.confidence);
-        
-        // Eğer %90 üzeri malzeme varsa onları göster
-        if (uniqueMaterials.length > 0) {
-          // İlk 3 malzemeyi göster
-          const topMaterials = uniqueMaterials.slice(0, 3);
-          
-          // Malzemeleri formatla
-          const formattedMaterials = topMaterials.map(material => {
-            return `${material.material} (%${material.confidence})`;
-          });
-          
-          return formattedMaterials.join(', ');
-        }
-      }
-      
-      // all_material_calculations'da %90 üzeri yoksa veya boşsa, material_keywords_found'a bak
-      if (materialKeywords.length > 0) {
-        // %90 üzeri keyword'leri filtrele
-        const highConfidenceKeywords = materialKeywords.filter(keyword => {
-          const value = keyword.value || keyword.confidence || 0;
-          return value >= 90;
-        });
-        
-        // Eğer %90 üzeri keyword varsa onları göster
-        if (highConfidenceKeywords.length > 0) {
-          // Değere göre sırala (yüksekten düşüğe)
-          const sortedKeywords = highConfidenceKeywords.sort((a, b) => {
-            const valueA = a.value || a.confidence || 0;
-            const valueB = b.value || b.confidence || 0;
-            return valueB - valueA;
-          });
-          
-          // Keyword'leri formatla
-          const formattedKeywords = sortedKeywords.map(keyword => {
-            const keywordName = keyword.keyword || keyword.material || 'Bilinmeyen';
-            const value = keyword.value || keyword.confidence || 0;
-            return `${keywordName} (%${Math.round(value)})`;
-          });
-          
-          return formattedKeywords.join(', ');
-        } else {
-          // %90 altı keyword'ler varsa sadece isimleri göster (yüzde olmadan)
-          const keywordNames = materialKeywords.map(keyword => 
-            keyword.keyword || keyword.material || 'Bilinmeyen'
-          );
-          return keywordNames.join(', ');
-        }
-      }
-      
-      // Hiçbiri yoksa fallback
-      const match = analysis.material_matches?.[0];
-      return match && !match.includes('default')
-        ? match
-        : 'Malzeme Eşleşmesi Yok';
-    })()}
-  </p>
-  
-  <div className={classes.modelDiv}>
-    <div className={classes.modelSection}>
-      {/* Render işleniyor durumu - sadece processing */}
-      {isRenderProcessing ? (
-        <div
-          style={{
-            color: '#007bff',
-            textAlign: 'center',
-            padding: '20px',
-            backgroundColor: '#f0f8ff',
-            borderRadius: '8px'
-          }}>
-          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-            ⏳
-          </div>
-          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-            3D Model İşleniyor
-          </div>
-          <div style={{ fontSize: '12px' }}>
-            {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
-            Lütfen bekleyin...
-          </div>
-          <button
-            onClick={() => refreshRenderStatus(analysisId)}
-            style={{
-              marginTop: '8px',
-              fontSize: '11px',
-              padding: '4px 8px',
-              border: '1px solid #007bff',
-              borderRadius: '4px',
-              backgroundColor: 'white',
-              color: '#007bff',
-              cursor: 'pointer'
-            }}>
-            🔄 Durumu Kontrol Et
-          </button>
-        </div>
-      ) : isRenderPending ? (
-        // ✅ YENİ: Pending durumu için özel mesaj
-        <div
-          style={{
-            color: '#dc3545',
-            textAlign: 'center',
-            padding: '20px',
-            backgroundColor: '#fff5f5',
-            borderRadius: '8px'
-          }}>
-          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-            ⚠️
-          </div>
-          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-            3D Render İşlenemedi
-          </div>
-          <div style={{ fontSize: '12px' }}>
-            STEP dosyası bulunamadı veya
-            <br />
-            uygun değil
-          </div>
-        </div>
-      ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
-        <Image
-          src={`${
-            process.env.REACT_APP_API_URL ||
-            'http://188.132.220.35:5051'
-          }${fixImagePath(
-            analysis.enhanced_renders.isometric.file_path
-          )}`}
-          zoomSrc={`${
-            process.env.REACT_APP_API_URL ||
-            'http://188.132.220.35:5051'
-          }${fixImagePath(
-            analysis.enhanced_renders.isometric.file_path
-          )}`}
-          className={classes.modelImage}
-          alt='3D Model'
-          width='200'
-          height='200'
-          preview
-        />
-      ) : isRenderCompleted && !hasEnhancedRenders ? (
-        <div
-          style={{
-            color: '#dc3545',
-            textAlign: 'center',
-            padding: '20px',
-            backgroundColor: '#fff5f5',
-            borderRadius: '8px'
-          }}>
-          <div style={{ fontSize: '24px', marginBottom: '10px' }}>
-            ⚠️
-          </div>
-          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-            3D Model Güncel Değil
-          </div>
-          <div style={{ fontSize: '12px' }}>
-            Render tamamlandı ancak
-            <br />
-            görüntü yüklenemedi
-          </div>
-        </div>
-      ) : (
-        <div style={{ color: '#999', textAlign: 'center', padding: '20px' }}>
-          3D Model
-          <br />
-          Mevcut Değil
-        </div>
-      )}
-    </div>
+          <div className={classes.analyseAlias}>
+            {(() => {
+              const materialMatches = analysis.material_matches || [];
+              const materialKeywords = analysis.material_keywords_found || [];
 
-    {/* 3D Viewer Butonları - Sadece render başarılı olduğunda göster */}
-    {(hasEnhancedRenders || isRenderCompleted) && !isRenderPending && (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          marginTop: '12px'
-        }}>
-        <button
-          className={classes.modelShowButton}
-          onClick={() =>
-            open3DViewer(analysis.id, analysis.original_filename || '')
-          }
-          title="Gelişmiş 3D Görüntüleyici'de aç">
-          🎯 3D Modeli Görüntüle
-        </button>
-      </div>
-    )}
+              let content = [];
 
-    {/* Processing durumunda farklı buton */}
-    {isRenderProcessing && (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          marginTop: '12px'
-        }}>
-        <button
-          className={classes.modelShowButton}
-          style={{
-            opacity: 0.6,
-            cursor: 'not-allowed',
-            backgroundColor: '#f8f9fa',
-            color: '#6c757d'
-          }}
-          disabled
-          title="3D model henüz hazır değil">
-          ⏳ Model Hazırlanıyor...
-        </button>
-      </div>
-    )}
+              // material_matches'den malzemeleri al
+              if (materialMatches.length > 0) {
+                // 'default' içermeyen eşleşmeleri filtrele
+                const validMatches = materialMatches.filter(
+                  (match) => match && !match.includes('default')
+                );
 
-    {/* Pending durumunda açıklama */}
-    {isRenderPending && (
-      <div
-        style={{
-          marginTop: '12px',
-          padding: '8px',
-          backgroundColor: '#fff3cd',
-          borderRadius: '6px',
-          fontSize: '11px',
-          color: '#856404',
-          textAlign: 'center'
-        }}>
-        💡 3D görüntüleme için STEP dosyası gereklidir
-      </div>
-    )}
-  </div>
-</div>
+                if (validMatches.length > 0) {
+                  content.push(<p key='matches'>{validMatches[0]}</p>);
+                } else {
+                  content.push(<p key='no-matches'>Malzeme Eşleşmesi Yok</p>);
+                }
+              } else {
+                content.push(<p key='no-matches'>Malzeme Eşleşmesi Yok</p>);
+              }
+
+              // material_keywords_found her zaman görünsün
+              if (materialKeywords.length > 0) {
+                const keywordNames = materialKeywords.map(
+                  (keyword) =>
+                    keyword.keyword || keyword.material || 'Bilinmeyen'
+                );
+                content.push(
+                  <p
+                    key='keywords'
+                    style={{ color: '#666' }}>
+                    Anahtar Kelimeler: {keywordNames.join(', ')}
+                  </p>
+                );
+              }
+
+              return content;
+            })()}
+          </div>
+
+          <div className={classes.modelDiv}>
+            <div className={classes.modelSection}>
+              {/* Render işleniyor durumu - sadece processing */}
+              {isRenderProcessing ? (
+                <div
+                  style={{
+                    color: '#007bff',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#f0f8ff',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⏳
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model İşleniyor
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    {renderProgress > 0 && `İlerleme: ${renderProgress}% - `}
+                    Lütfen bekleyin...
+                  </div>
+                  <button
+                    onClick={() => refreshRenderStatus(analysisId)}
+                    style={{
+                      marginTop: '8px',
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      border: '1px solid #007bff',
+                      borderRadius: '4px',
+                      backgroundColor: 'white',
+                      color: '#007bff',
+                      cursor: 'pointer'
+                    }}>
+                    🔄 Durumu Kontrol Et
+                  </button>
+                </div>
+              ) : isRenderPending ? (
+                // ✅ YENİ: Pending durumu için özel mesaj
+                <div
+                  style={{
+                    color: '#dc3545',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#fff5f5',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⚠️
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Render İşlenemedi
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    STEP dosyası bulunamadı veya
+                    <br />
+                    uygun değil
+                  </div>
+                </div>
+              ) : hasEnhancedRenders && analysis.enhanced_renders?.isometric ? (
+                <Image
+                  src={`${
+                    process.env.REACT_APP_API_URL ||
+                    'http://188.132.220.35:5051'
+                  }${fixImagePath(
+                    analysis.enhanced_renders.isometric.file_path
+                  )}`}
+                  zoomSrc={`${
+                    process.env.REACT_APP_API_URL ||
+                    'http://188.132.220.35:5051'
+                  }${fixImagePath(
+                    analysis.enhanced_renders.isometric.file_path
+                  )}`}
+                  className={classes.modelImage}
+                  alt='3D Model'
+                  width='200'
+                  height='200'
+                  preview
+                />
+              ) : isRenderCompleted && !hasEnhancedRenders ? (
+                <div
+                  style={{
+                    color: '#dc3545',
+                    textAlign: 'center',
+                    padding: '20px',
+                    backgroundColor: '#fff5f5',
+                    borderRadius: '8px'
+                  }}>
+                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+                    ⚠️
+                  </div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    3D Model Güncel Değil
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    Render tamamlandı ancak
+                    <br />
+                    görüntü yüklenemedi
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    color: '#999',
+                    textAlign: 'center',
+                    padding: '20px'
+                  }}>
+                  3D Model
+                  <br />
+                  Mevcut Değil
+                </div>
+              )}
+            </div>
+
+            {/* 3D Viewer Butonları - Sadece render başarılı olduğunda göster */}
+            {(hasEnhancedRenders || isRenderCompleted) && !isRenderPending && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  marginTop: '12px'
+                }}>
+                <button
+                  className={classes.modelShowButton}
+                  onClick={() =>
+                    open3DViewer(analysis.id, analysis.original_filename || '')
+                  }
+                  title="Gelişmiş 3D Görüntüleyici'de aç">
+                  🎯 3D Modeli Görüntüle
+                </button>
+              </div>
+            )}
+
+            {/* Processing durumunda farklı buton */}
+            {isRenderProcessing && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  marginTop: '12px'
+                }}>
+                <button
+                  className={classes.modelShowButton}
+                  style={{
+                    opacity: 0.6,
+                    cursor: 'not-allowed',
+                    backgroundColor: '#f8f9fa',
+                    color: '#6c757d'
+                  }}
+                  disabled
+                  title='3D model henüz hazır değil'>
+                  ⏳ Model Hazırlanıyor...
+                </button>
+              </div>
+            )}
+
+            {/* Pending durumunda açıklama */}
+            {isRenderPending && (
+              <div
+                style={{
+                  marginTop: '12px',
+                  padding: '8px',
+                  backgroundColor: '#fff3cd',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  color: '#856404',
+                  textAlign: 'center'
+                }}>
+                💡 3D görüntüleme için STEP dosyası gereklidir
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className={classes.line}></div>
 
@@ -698,142 +659,143 @@ const formatInteger = (value: any) => {
         </p>
 
         <div className={classes.analyseItemInsideDiv}>
-  <div className={classes.analyseSubtitleDiv}>
-    <span>📐</span>
-    <p className={classes.titleSmall}>Boyutlar</p>
-  </div>
+          <div className={classes.analyseSubtitleDiv}>
+            <span>📐</span>
+            <p className={classes.titleSmall}>Boyutlar</p>
+          </div>
 
-  <div className={classes.dimensionTable}>
-    <div className={classes.tableHeader}>
-      <div className={classes.tableCell}>Eksen</div>
-      <div className={classes.tableCell}>Boyut (mm)</div>
-      <div className={classes.tableCell}>Paylı Boyut (mm)</div>
-    </div>
+          <div className={classes.dimensionTable}>
+            <div className={classes.tableHeader}>
+              <div className={classes.tableCell}>Eksen</div>
+              <div className={classes.tableCell}>Boyut (mm)</div>
+              <div className={classes.tableCell}>Paylı Boyut (mm)</div>
+            </div>
 
-    <div className={classes.tableRow}>
-      <div className={classes.tableCell}>X</div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
-          return xValue === 0 ? '-' : Math.ceil(xValue);
-        })()}
-      </div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
-          return xValue === 0 ? '-' : Math.ceil(xValue + 10);
-        })()}
-      </div>
-    </div>
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>X</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
+                  return xValue === 0 ? '-' : Math.ceil(xValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const xValue = parseFloat(stepAnalysis?.['X (mm)']) || 0;
+                  return xValue === 0 ? '-' : Math.ceil(xValue + 10);
+                })()}
+              </div>
+            </div>
 
-    <div className={classes.tableRow}>
-      <div className={classes.tableCell}>Y</div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
-          return yValue === 0 ? '-' : Math.ceil(yValue);
-        })()}
-      </div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
-          return yValue === 0 ? '-' : Math.ceil(yValue + 10);
-        })()}
-      </div>
-    </div>
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>Y</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
+                  return yValue === 0 ? '-' : Math.ceil(yValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const yValue = parseFloat(stepAnalysis?.['Y (mm)']) || 0;
+                  return yValue === 0 ? '-' : Math.ceil(yValue + 10);
+                })()}
+              </div>
+            </div>
 
-    <div className={classes.tableRow}>
-      <div className={classes.tableCell}>Z</div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
-          return zValue === 0 ? '-' : Math.ceil(zValue);
-        })()}
-      </div>
-      <div className={classes.tableCell}>
-        {(() => {
-          const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
-          return zValue === 0 ? '-' : Math.ceil(zValue + 10);
-        })()}
-      </div>
-    </div>
-  </div>
-</div>
+            <div className={classes.tableRow}>
+              <div className={classes.tableCell}>Z</div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
+                  return zValue === 0 ? '-' : Math.ceil(zValue);
+                })()}
+              </div>
+              <div className={classes.tableCell}>
+                {(() => {
+                  const zValue = parseFloat(stepAnalysis?.['Z (mm)']) || 0;
+                  return zValue === 0 ? '-' : Math.ceil(zValue + 10);
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
 
-{/* Silindirik Özellikler */}
-<div className={classes.analyseItemInsideDiv}>
-  <div className={classes.analyseSubtitleDiv}>
-    <span>🌀</span>
-    <p className={classes.titleSmall}>Silindirik Özellikler</p>
-  </div>
+        {/* Silindirik Özellikler */}
+        <div className={classes.analyseItemInsideDiv}>
+          <div className={classes.analyseSubtitleDiv}>
+            <span>🌀</span>
+            <p className={classes.titleSmall}>Silindirik Özellikler</p>
+          </div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>Silindirik Çap(mm)</p>
-    <p className={classes.analyseItemExp}>
-      {(() => {
-        const cylindricalDiameter = parseFloat(stepAnalysis?.['Silindirik Çap (mm)']) || 0;
-        if (cylindricalDiameter === 0) return '-';
-        // ✅ +10mm eklendi
-        return (cylindricalDiameter + 10).toFixed(1);
-      })()}
-    </p>
-  </div>
-  <div className={classes.lineAnalyseItem}></div>
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Silindirik Çap(mm)</p>
+            <p className={classes.analyseItemExp}>
+              {(() => {
+                const cylindricalDiameter =
+                  parseFloat(stepAnalysis?.['Silindirik Çap (mm)']) || 0;
+                if (cylindricalDiameter === 0) return '-';
+                // ✅ +10mm eklendi
+                return (cylindricalDiameter + 10).toFixed(1);
+              })()}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>Silindirik Yükseklik(mm)</p>
-    <p className={classes.analyseItemExp}>
-      {(() => {
-        const cylindricalHeight = parseFloat(stepAnalysis?.['Silindirik Yükseklik (mm)']) || 0;
-        if (cylindricalHeight === 0) return '-';
-        // ✅ +10mm eklendi
-        return (cylindricalHeight + 10).toFixed(1);
-      })()}
-    </p>
-  </div>
-</div>
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Silindirik Yükseklik(mm)</p>
+            <p className={classes.analyseItemExp}>
+              {(() => {
+                const cylindricalHeight =
+                  parseFloat(stepAnalysis?.['Silindirik Yükseklik (mm)']) || 0;
+                if (cylindricalHeight === 0) return '-';
+                // ✅ +10mm eklendi
+                return (cylindricalHeight + 10).toFixed(1);
+              })()}
+            </p>
+          </div>
+        </div>
 
         {/* Hacimsel Veriler */}
         <div className={classes.analyseItemInsideDiv}>
-  <div className={classes.analyseSubtitleDiv}>
-    <span>📦</span>
-    <p className={classes.titleSmall}>Hacimsel Veriler</p>
-  </div>
+          <div className={classes.analyseSubtitleDiv}>
+            <span>📦</span>
+            <p className={classes.titleSmall}>Hacimsel Veriler</p>
+          </div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>
-      Prizma Hacmi 10 mm Paylı(mm³)
-    </p>
-    <p className={classes.analyseItemExp}>
-      {formatInteger(stepAnalysis?.['Prizma Hacmi (mm³)'])}
-    </p>
-  </div>
-  <div className={classes.lineAnalyseItem}></div>
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>
+              Prizma Hacmi 10 mm Paylı(mm³)
+            </p>
+            <p className={classes.analyseItemExp}>
+              {formatInteger(stepAnalysis?.['Prizma Hacmi (mm³)'])}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>Ürün Hacmi(mm³)</p>
-    <p className={classes.analyseItemExp}>
-      {formatInteger(stepAnalysis?.['Ürün Hacmi (mm³)'])}
-    </p>
-  </div>
-  <div className={classes.lineAnalyseItem}></div>
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Ürün Hacmi(mm³)</p>
+            <p className={classes.analyseItemExp}>
+              {formatInteger(stepAnalysis?.['Ürün Hacmi (mm³)'])}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>Talaş Hacmi(mm³)</p>
-    <p className={classes.analyseItemExp}>
-      {formatInteger(stepAnalysis?.['Talaş Hacmi (mm³)'])}
-    </p>
-  </div>
-  <div className={classes.lineAnalyseItem}></div>
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Talaş Hacmi(mm³)</p>
+            <p className={classes.analyseItemExp}>
+              {formatInteger(stepAnalysis?.['Talaş Hacmi (mm³)'])}
+            </p>
+          </div>
+          <div className={classes.lineAnalyseItem}></div>
 
-  <div className={classes.analyseInsideItem}>
-    <p className={classes.analyseItemTitle}>Talaş Oranı(%)</p>
-    <p className={classes.analyseItemExp}>
-      {formatValue(stepAnalysis?.['Talaş Oranı (%)'])}
-    </p>
-  </div>
-</div>
-
+          <div className={classes.analyseInsideItem}>
+            <p className={classes.analyseItemTitle}>Talaş Oranı(%)</p>
+            <p className={classes.analyseItemExp}>
+              {formatValue(stepAnalysis?.['Talaş Oranı (%)'])}
+            </p>
+          </div>
+        </div>
 
         {/* Hesaplaşmaya Esas Değerler */}
         {materialCalculations.length > 0 && (
@@ -904,7 +866,7 @@ const formatInteger = (value: any) => {
         )}
 
         {/* Tüm Malzemeler İçin Hesaplanan Değerler */}
-        {materialOptions.length > 0 && renderStatus !== 'pending' &&  (
+        {materialOptions.length > 0 && renderStatus !== 'pending' && (
           <>
             <p className={classes.titleSmall}>
               Tüm Malzemeler İçin Hesaplanan Değerler
@@ -937,34 +899,36 @@ const formatInteger = (value: any) => {
           </>
         )}
         {materialOptions.length > 0 && renderStatus === 'pending' && (
-  <div className={classes.analyseItemInsideDiv}>
-    <div
-      style={{
-        padding: '16px',
-        backgroundColor: '#fff3cd',
-        borderRadius: '8px',
-        textAlign: 'center',
-        border: '1px solid #ffeaa7'
-      }}>
-      <div style={{ fontSize: '20px', marginBottom: '8px' }}>⚠️</div>
-      <p style={{ 
-        margin: 0, 
-        fontSize: '14px', 
-        color: '#856404',
-        fontWeight: '500' 
-      }}>
-        Malzeme Hesaplamaları Mevcut Değil
-      </p>
-      <p style={{ 
-        margin: '4px 0 0 0', 
-        fontSize: '12px', 
-        color: '#856404' 
-      }}>
-        3D analiz için STEP dosyası gereklidir
-      </p>
-    </div>
-  </div>
-)}
+          <div className={classes.analyseItemInsideDiv}>
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: '#fff3cd',
+                borderRadius: '8px',
+                textAlign: 'center',
+                border: '1px solid #ffeaa7'
+              }}>
+              <div style={{ fontSize: '20px', marginBottom: '8px' }}>⚠️</div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: '14px',
+                  color: '#856404',
+                  fontWeight: '500'
+                }}>
+                Malzeme Hesaplamaları Mevcut Değil
+              </p>
+              <p
+                style={{
+                  margin: '4px 0 0 0',
+                  fontSize: '12px',
+                  color: '#856404'
+                }}>
+                3D analiz için STEP dosyası gereklidir
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1172,27 +1136,29 @@ const formatInteger = (value: any) => {
                 </div>
               </div>
 
-              {file.status === 'completed' && file.renderStatus === 'processing' && (
-                <div
-                  style={{
-                    fontSize: '12px',
-                    marginTop: '8px',
-                    color: '#007bff'
-                  }}>
-                  🎨 3D render işleniyor, lütfen bekleyin...
-                </div>
-              )}
+              {file.status === 'completed' &&
+                file.renderStatus === 'processing' && (
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      marginTop: '8px',
+                      color: '#007bff'
+                    }}>
+                    🎨 3D render işleniyor, lütfen bekleyin...
+                  </div>
+                )}
 
-              {file.status === 'completed' && file.renderStatus === 'pending' && (
-                <div
-                  style={{
-                    fontSize: '12px',
-                    marginTop: '8px',
-                    color: '#dc3545'
-                  }}>
-                  ⚠️ 3D render işlenemedi - STEP dosyası bulunamadı
-                </div>
-              )}
+              {file.status === 'completed' &&
+                file.renderStatus === 'pending' && (
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      marginTop: '8px',
+                      color: '#dc3545'
+                    }}>
+                    ⚠️ 3D render işlenemedi - STEP dosyası bulunamadı
+                  </div>
+                )}
 
               {file.error && (
                 <div
