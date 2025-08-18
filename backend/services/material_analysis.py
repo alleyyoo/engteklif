@@ -344,292 +344,268 @@ def improved_step_analysis(step_path):
 # =====================================================
 
 def get_dynamic_material_patterns():
-    """FIXED: MongoDB'den malzeme verilerini alarak context-aware pattern'lar oluştur"""
+    """ENHANCED: Esnek pattern matching ile OCR artifact'larını handle et"""
     try:
         database = db.get_db()
         
-        print("[DYNAMIC-PATTERNS-FIXED] 🔄 Loading materials from MongoDB...")
+        print("[DYNAMIC-PATTERNS-ENHANCED] 🔄 Loading ALL materials with enhanced patterns...")
         
-        # Aktif malzemeleri al
-        materials_cursor = database.materials.find({
-            "$or": [
-                {"is_active": True},
-                {"is_active": {"$exists": False}}
-            ]
-        })
-        
+        materials_cursor = database.materials.find({})
         materials_list = list(materials_cursor)
-        print(f"[DYNAMIC-PATTERNS-FIXED] 📊 Found {len(materials_list)} materials in database")
+        print(f"[DYNAMIC-PATTERNS-ENHANCED] 📊 Found {len(materials_list)} materials")
         
         patterns = []
         
         for material in materials_list:
             material_name = material.get('name', '').strip()
             aliases = material.get('aliases', [])
-            category = material.get('category', 'Unknown')
+            is_active = material.get('is_active', True)
             
             if not material_name:
                 continue
             
-            # ✅ 1. STRICT MATERIAL NAME PATTERNS (minimum 4 karakter)
-            if len(material_name) >= 4:
-                # Özel karakterleri escape et
+            print(f"[DYNAMIC-PATTERNS-ENHANCED] Processing: {material_name} (active: {is_active})")
+            
+            # ✅ ENHANCED: Esnek pattern'ler (word boundary kaldırıldı)
+            if len(material_name) >= 3:
                 escaped_name = re.escape(material_name)
+                
+                # Pattern 1: Exact match (eski sistem)
                 patterns.append({
                     'pattern': f'\\b{escaped_name}\\b',
-                    'category': f'EXACT_{material_name.upper().replace(" ", "_")}',
                     'material_name': material_name,
-                    'confidence': 95,
-                    'type': 'exact_name',
-                    'source': 'material_name',
-                    'min_context_length': 10  # ✅ Minimum context gereksinimi
+                    'confidence': 90,
+                    'type': 'exact_match',
+                    'source': 'material_name_exact'
+                })
+                
+                # Pattern 2: Flexible match (YENİ - OCR artifacts için)
+                patterns.append({
+                    'pattern': escaped_name,  # Word boundary yok!
+                    'material_name': material_name,
+                    'confidence': 85,
+                    'type': 'flexible_match',
+                    'source': 'material_name_flexible'
                 })
             
-            # ✅ 2. SMART ALIAS PATTERNS (context-aware)
+            # ✅ ENHANCED: Alias patterns (hem exact hem flexible)
             for alias in aliases:
-                if alias and len(str(alias).strip()) >= 3:  # ✅ Minimum 3 karakter
+                if alias and len(str(alias).strip()) >= 3:
                     alias_clean = str(alias).strip()
+                    escaped_alias = re.escape(alias_clean)
                     
-                    # ✅ 2a. NUMERIC ALIASES (4 digit materials - high priority)
-                    if alias_clean.isdigit() and len(alias_clean) == 4:
-                        patterns.append({
-                            'pattern': f'\\b{alias_clean}\\b',
-                            'category': f'NUMERIC_{alias_clean}',
-                            'material_name': material_name,
-                            'confidence': 98,  # Yüksek confidence
-                            'type': 'numeric_alias',
-                            'source': f'alias:{alias_clean}',
-                            'requires_metal_context': True  # ✅ Metal context gerekir
-                        })
+                    # Exact alias pattern
+                    patterns.append({
+                        'pattern': f'\\b{escaped_alias}\\b',
+                        'material_name': material_name,
+                        'confidence': 85,
+                        'type': 'alias_exact',
+                        'source': f'alias_exact:{alias_clean}'
+                    })
                     
-                    # ✅ 2b. STANDARD DESIGNATIONS (T651, AA6061, EN AW, etc.)
-                    elif re.match(r'^(T\d+|AA\s*\d+|EN\s*AW|AISI\s*\d+|SAE\s*\d+)$', alias_clean):
-                        escaped_alias = re.escape(alias_clean)
-                        flexible_alias = escaped_alias.replace('\\ ', '\\s*')
-                        patterns.append({
-                            'pattern': f'\\b{flexible_alias}\\b',
-                            'category': f'STANDARD_{alias_clean.upper().replace(" ", "_")}',
-                            'material_name': material_name,
-                            'confidence': 95,
-                            'type': 'standard_designation',
-                            'source': f'alias:{alias_clean}',
-                            'requires_material_prefix': True  # ✅ MATERIAL/AL prefix gerekir
-                        })
-                    
-                    # ✅ 2c. LONG DESCRIPTIVE ALIASES (minimum 5 karakter)
-                    elif len(alias_clean) >= 5 and re.match(r'^[A-Za-z0-9\s\-_]+$', alias_clean):
-                        escaped_alias = re.escape(alias_clean)
-                        patterns.append({
-                            'pattern': f'\\b{escaped_alias}\\b',
-                            'category': f'DESCRIPTIVE_{alias_clean.upper().replace(" ", "_")}',
-                            'material_name': material_name,
-                            'confidence': 88,
-                            'type': 'descriptive_alias',
-                            'source': f'alias:{alias_clean}',
-                            'min_context_length': 20  # ✅ Daha uzun context
-                        })
-                    
-                    # ✅ 2d. SHORT ALIASES (3-4 karakter) - STRICT RULES
-                    elif 3 <= len(alias_clean) <= 4:
-                        # SHORT ALIASES için ek kontroller
-                        if material_name.lower() in ['pom', 'abs', 'pvc', 'teflon', 'derlin']:  # Plastik malzemeler
-                            # Plastik malzemeler için daha katı kurallar
-                            patterns.append({
-                                'pattern': f'\\b{re.escape(alias_clean)}\\b',
-                                'category': f'PLASTIC_{alias_clean.upper()}',
-                                'material_name': material_name,
-                                'confidence': 75,  # Düşük confidence
-                                'type': 'plastic_short_alias',
-                                'source': f'alias:{alias_clean}',
-                                'requires_plastic_context': True,  # ✅ Plastik context gerekir
-                                'exclude_metal_context': True,    # ✅ Metal context varsa exclude
-                                'min_context_length': 30
-                            })
-                        else:
-                            # Metal/diğer malzemeler için normal short alias
-                            patterns.append({
-                                'pattern': f'\\b{re.escape(alias_clean)}\\b',
-                                'category': f'SHORT_{alias_clean.upper()}',
-                                'material_name': material_name,
-                                'confidence': 82,
-                                'type': 'short_alias',
-                                'source': f'alias:{alias_clean}',
-                                'min_context_length': 15
-                            })
+                    # Flexible alias pattern (YENİ)
+                    patterns.append({
+                        'pattern': escaped_alias,  # Word boundary yok!
+                        'material_name': material_name,
+                        'confidence': 80,
+                        'type': 'alias_flexible',
+                        'source': f'alias_flexible:{alias_clean}'
+                    })
+            
+            # ✅ Special patterns for 6061 (unchanged)
+            if (material_name == "6061" or 
+                any("6061" in str(alias) for alias in aliases)):
+                
+                patterns.extend([
+                    {
+                        'pattern': r'AL\s+6061\s*T?\d*',
+                        'material_name': material_name,
+                        'confidence': 98,
+                        'type': 'aluminum_compound',
+                        'source': 'al_6061_special'
+                    },
+                    {
+                        'pattern': r'MATERIAL:\s*AL\s+6061\s*T?\d*',
+                        'material_name': material_name,
+                        'confidence': 99,
+                        'type': 'material_line',
+                        'source': 'material_line_6061'
+                    }
+                ])
         
-        # ✅ 3. COMPOUND MATERIAL PATTERNS (AL 7075, STAINLESS 304, etc.)
-        compound_patterns = [
-            {
-                'pattern': r'AL\s+(7075|6061|2024|5083|7050)(?:\s*-?\s*T\d+)?',
-                'category': 'ALUMINUM_COMPOUND',
-                'material_name': 'Aluminum Alloy',
-                'confidence': 98,
-                'type': 'aluminum_compound',
-                'source': 'compound_pattern'
-            },
-            {
-                'pattern': r'STAINLESS\s+STEEL\s+(304|316|420)',
-                'category': 'STAINLESS_COMPOUND',
-                'material_name': 'Stainless Steel',
-                'confidence': 95,
-                'type': 'stainless_compound',
-                'source': 'compound_pattern'
-            },
-            {
-                'pattern': r'AISI\s+(304|316|420|4140)',
-                'category': 'AISI_STANDARD',
-                'material_name': 'AISI Steel',
-                'confidence': 95,
-                'type': 'aisi_standard',
-                'source': 'compound_pattern'
-            }
-        ]
+        print(f"[DYNAMIC-PATTERNS-ENHANCED] ✅ Generated {len(patterns)} enhanced patterns")
         
-        patterns.extend(compound_patterns)
-        
-        print(f"[DYNAMIC-PATTERNS-FIXED] ✅ Generated {len(patterns)} context-aware patterns")
-        print(f"[DYNAMIC-PATTERNS-FIXED] 📋 Pattern types:")
-        
-        type_counts = {}
-        for p in patterns:
-            pattern_type = p['type']
-            type_counts[pattern_type] = type_counts.get(pattern_type, 0) + 1
-        
-        for ptype, count in type_counts.items():
-            print(f"[DYNAMIC-PATTERNS-FIXED]   - {ptype}: {count}")
-        
-        # Sample patterns for debugging
-        print("[DYNAMIC-PATTERNS-FIXED] 🔍 Sample patterns:")
-        for i, pattern in enumerate(patterns[:5]):
-            print(f"[DYNAMIC-PATTERNS-FIXED]   {i+1}. {pattern['pattern']} -> {pattern['material_name']} ({pattern['confidence']}%)")
+        # Debug: Show BRASS patterns
+        brass_patterns = [p for p in patterns if 'brass' in p['pattern'].lower()]
+        print(f"[DYNAMIC-PATTERNS-ENHANCED] 🔍 BRASS patterns found: {len(brass_patterns)}")
+        for pattern in brass_patterns:
+            print(f"[DYNAMIC-PATTERNS-ENHANCED]   - {pattern['pattern']} -> {pattern['material_name']} ({pattern['type']})")
         
         return patterns
         
     except Exception as e:
-        print(f"[DYNAMIC-PATTERNS-FIXED] ❌ Error loading patterns from MongoDB: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Fallback minimal patterns
-        return [
-            {
-                'pattern': r'\b\d{4}\b',
-                'category': 'FALLBACK_NUMERIC',
-                'material_name': 'Unknown Material',
-                'confidence': 70,
-                'type': 'fallback',
-                'source': 'error_fallback'
-            }
-        ]
+        print(f"[DYNAMIC-PATTERNS-ENHANCED] ❌ Error: {e}")
+        return []
 
 def extract_material_keywords_from_text_fixed(text):
-    """FIXED: Context-aware material keyword extraction"""
+    """ENHANCED: OCR artifact cleaning + esnek pattern matching - SAME FUNCTION NAME"""
     if not text:
         return []
     
-    # MongoDB'den malzeme patterns'ını dinamik olarak oluştur
+    print(f"[EXTRACT-ENHANCED] 🔍 Processing text: {len(text)} chars")
+    
+    # ✅ 1. OCR Artifact Cleaning (YENİ)
+    cleaned_text = clean_ocr_artifacts(text)
+    text_upper = cleaned_text.upper()
+    
+    if cleaned_text != text:
+        print(f"[EXTRACT-ENHANCED] 🧹 Text cleaned: {len(text)} -> {len(cleaned_text)} chars")
+        print(f"[EXTRACT-ENHANCED] 📝 Cleaned sample: {cleaned_text[:200]}...")
+    
+    # ✅ 2. Pattern matching (enhanced patterns)
     patterns = get_dynamic_material_patterns()
-    
     found_keywords = []
-    text_upper = text.upper()
     
-    # ✅ CONTEXT ANALYSIS
-    has_aluminum_context = bool(re.search(r'\bAL\s+\d{4}|\bALUMIN(IU|U)M|\bAA\s+\d{4}', text_upper))
-    has_plastic_context = bool(re.search(r'\bPLASTIC|\bPOLYMER|\bACETAL|\bPOLY\w+', text_upper))
-    has_steel_context = bool(re.search(r'\bSTEEL|\bAISI|\bSTAINLESS', text_upper))
-    
-    print(f"[CONTEXT-ANALYSIS] Aluminum: {has_aluminum_context}, Plastic: {has_plastic_context}, Steel: {has_steel_context}")
+    print(f"[EXTRACT-ENHANCED] 📊 Testing {len(patterns)} enhanced patterns...")
     
     for pattern_data in patterns:
         pattern = pattern_data['pattern']
-        category = pattern_data['category']
         material_name = pattern_data['material_name']
         confidence = pattern_data['confidence']
         pattern_type = pattern_data['type']
         
-        # ✅ CONTEXT-BASED FILTERING
-        
-        # Skip plastic materials if aluminum context is strong
-        if (pattern_data.get('exclude_metal_context') and 
-            has_aluminum_context and 
-            material_name.lower() in ['pom', 'abs', 'pvc', 'teflon', 'derlin']):
-            print(f"[CONTEXT-FILTER] Skipping {material_name} due to aluminum context")
-            continue
-        
-        # Require plastic context for plastic materials
-        if (pattern_data.get('requires_plastic_context') and 
-            not has_plastic_context):
-            print(f"[CONTEXT-FILTER] Skipping {material_name} - no plastic context")
-            continue
-        
-        # Require metal context for numeric aliases
-        if (pattern_data.get('requires_metal_context') and 
-            not (has_aluminum_context or has_steel_context)):
-            print(f"[CONTEXT-FILTER] Skipping {material_name} - no metal context")
-            continue
-        
         try:
             matches = re.finditer(pattern, text_upper, re.IGNORECASE)
             for match in matches:
-                # ✅ CONTEXT LENGTH CHECK
-                min_context = pattern_data.get('min_context_length', 10)
-                start_pos = max(0, match.start() - min_context)
-                end_pos = min(len(text), match.end() + min_context)
-                context = text[start_pos:end_pos]
+                match_text = match.group(0)
                 
-                if len(context) < min_context:
-                    print(f"[CONTEXT-FILTER] Skipping {match.group(0)} - insufficient context")
-                    continue
-                
-                # ✅ MATERIAL PREFIX CHECK
-                if pattern_data.get('requires_material_prefix'):
-                    prefix_context = text[max(0, match.start() - 20):match.start()]
-                    if not re.search(r'\b(MATERIAL|AL|ALUMINUM|STEEL)\s*:?\s*$', prefix_context, re.IGNORECASE):
-                        print(f"[PREFIX-FILTER] Skipping {match.group(0)} - no material prefix")
-                        continue
-                
-                found_keywords.append({
-                    'keyword': match.group(0),
-                    'category': category,
-                    'material_name': material_name,
-                    'position': match.start(),
-                    'confidence': confidence,
-                    'pattern_type': pattern_type,
-                    'context': context,
-                    'context_flags': {
-                        'has_aluminum': has_aluminum_context,
-                        'has_plastic': has_plastic_context,
-                        'has_steel': has_steel_context
-                    }
-                })
-                print(f"[KEYWORD-FOUND] ✅ {match.group(0)} -> {material_name} ({confidence}% - {pattern_type})")
+                # ✅ False positive filtering (YENİ)
+                if should_accept_match(match_text, pattern_type, text_upper, match.start()):
+                    found_keywords.append({
+                        'keyword': match_text,
+                        'material_name': material_name,
+                        'position': match.start(),
+                        'confidence': confidence,
+                        'pattern_type': pattern_type,
+                        'context': cleaned_text[max(0, match.start()-20):match.end()+20]
+                    })
+                    print(f"[EXTRACT-ENHANCED] ✅ FOUND: {match_text} -> {material_name} ({confidence}% - {pattern_type})")
+                else:
+                    print(f"[EXTRACT-ENHANCED] ❌ FILTERED: {match_text} -> {material_name} (false positive)")
                 
         except re.error as regex_error:
-            print(f"[PATTERN-ERROR] ❌ Regex error for pattern '{pattern}': {regex_error}")
+            print(f"[EXTRACT-ENHANCED] ❌ Regex error for pattern '{pattern}': {regex_error}")
             continue
     
-    # ✅ DUPLICATE REMOVAL with CONTEXT PRIORITY
+    # ✅ 3. Deduplication (priority: exact > flexible)
     unique_keywords = []
-    seen_positions = set()
+    seen = {}
     
-    # Sort by confidence, then by context relevance
-    found_keywords.sort(key=lambda x: (
-        x['confidence'], 
-        x['context_flags']['has_aluminum'] or x['context_flags']['has_steel']
-    ), reverse=True)
+    # Sort by confidence and type priority
+    sorted_keywords = sorted(found_keywords, key=lambda x: (
+        -x['confidence'],  # Higher confidence first
+        0 if 'exact' in x['pattern_type'] else 1  # Exact matches first
+    ))
     
-    for keyword in found_keywords:
-        pos_key = f"{keyword['position']}_{keyword['keyword']}"
-        if pos_key not in seen_positions:
-            seen_positions.add(pos_key)
+    for keyword in sorted_keywords:
+        material_key = keyword['material_name'].lower()
+        if material_key not in seen:
+            seen[material_key] = keyword
             unique_keywords.append(keyword)
+        else:
+            # Keep higher confidence match
+            if keyword['confidence'] > seen[material_key]['confidence']:
+                # Replace in unique_keywords
+                for i, uk in enumerate(unique_keywords):
+                    if uk['material_name'].lower() == material_key:
+                        unique_keywords[i] = keyword
+                        seen[material_key] = keyword
+                        break
     
-    print(f"[EXTRACT-FIXED] ✅ Final keywords: {len(unique_keywords)}")
+    print(f"[EXTRACT-ENHANCED] ✅ Final result: {len(unique_keywords)} unique materials")
+    for kw in unique_keywords:
+        print(f"[EXTRACT-ENHANCED]   - {kw['keyword']} -> {kw['material_name']} ({kw['confidence']}% - {kw['pattern_type']})")
+    
     return unique_keywords
 
 # =====================================================
 # ✅ ENHANCED OCR DATA EXTRACTION FUNCTIONS
 # =====================================================
+
+def should_accept_match(match_text, pattern_type, full_text, position):
+    """False positive'leri filtrele"""
+    
+    # ✅ 1. Minimum length check
+    if len(match_text) < 3:
+        return False
+    
+    # ✅ 2. Context-based filtering
+    context_start = max(0, position - 30)
+    context_end = min(len(full_text), position + len(match_text) + 30)
+    context = full_text[context_start:context_end]
+    
+    # ✅ 3. Flexible pattern'ler için ek kontroller
+    if 'flexible' in pattern_type:
+        # Flexible pattern'de word boundary check
+        if position > 0:
+            prev_char = full_text[position - 1]
+            if prev_char.isalpha():  # Önceki karakter harf ise skip
+                # Exception: bilinen OCR artifacts
+                if not any(artifact in full_text[max(0, position-5):position] 
+                          for artifact in ['A4', 'SAYFA', 'SECTION', 'OLCEK']):
+                    return False
+        
+        if position + len(match_text) < len(full_text):
+            next_char = full_text[position + len(match_text)]
+            if next_char.isalpha():  # Sonraki karakter harf ise skip
+                return False
+    
+    # ✅ 4. Material-specific rules
+    match_upper = match_text.upper()
+    
+    # BRASS için özel kontrol
+    if match_upper == 'BRASS':
+        # Context'te material indicator var mı?
+        material_indicators = ['MATERIAL', 'MALZEME', 'MAT:', 'SPEC:', 'A4']
+        if any(indicator in context for indicator in material_indicators):
+            return True
+        # Standalone BRASS kabul et
+        return True
+    
+    # Number-based materials (6061, 7075, etc.)
+    if match_upper.isdigit() and len(match_upper) == 4:
+        # Common false positives
+        if match_upper in ['2024', '2025', '2026', '2027', '2028', '2029', '2030']:  # Years
+            # Check if it's really a year
+            if any(year_indicator in context for year_indicator in ['/', 'YEAR', 'YIL', 'TARIH']):
+                return False
+        return True
+    
+    return True
+
+def clean_ocr_artifacts(text):
+    """OCR artifact'larını temizle - A4BRASS → BRASS gibi durumlar için"""
+    if not text:
+        return text
+    
+    # Common OCR artifacts patterns
+    cleaning_patterns = [
+        # Format codes + material names - DAHA HASSAS
+        (r'([A-Z0-9]{1,3})(BRASS|STEEL|ALUMINUM)', r'\1 \2'),  # A4BRASS → A4 BRASS
+        (r'([A-Z0-9]{1,3})(BRONZE|COPPER|TITANIUM)', r'\1 \2'),
+        
+        # ❌ Bu satırı kaldır - çok agresif:
+        # (r'([A-Z0-9]{1,4})([A-Z]{3,})', r'\1 \2'),  # Bu "BRASS"ı "B RASS" yapıyor
+        
+        # Multiple spaces to single space
+        (r'\s+', ' '),
+    ]
+    
+    cleaned_text = text
+    for pattern, replacement in cleaning_patterns:
+        cleaned_text = re.sub(pattern, replacement, cleaned_text)
+    
+    return cleaned_text.strip()
 
 def extract_enhanced_ocr_data(analysis_result, file_path, file_type):
     """Material analysis sonuçlarından OCR verilerini çıkar ve genişlet"""
@@ -938,22 +914,18 @@ class MaterialAnalysisServiceOptimized:
             self._advanced_ocr_aliases = {}
     
     def _preload_materials(self):
-        """DATABASE-ONLY - Preload materials from database"""
+        """DATABASE-ONLY - Preload materials from database - is_active kontrolü KALDIRILDI"""
         try:
             print("[CACHE] 🔄 Loading materials from database...")
             
+            # ✅ FIX: is_active kontrolü tamamen kaldırıldı
             materials_cursor = self.database.materials.find(
-                {
-                    "$or": [
-                        {"is_active": True},
-                        {"is_active": {"$exists": False}}
-                    ]
-                },
+                {},  # HİÇ FİLTER YOK!
                 {"name": 1, "density": 1, "price_per_kg": 1, "category": 1, "aliases": 1, "is_active": 1}
             ).limit(100)
             
             materials_list = list(materials_cursor)
-            print(f"[CACHE] 📊 Found {len(materials_list)} materials in database")
+            print(f"[CACHE] 📊 Found {len(materials_list)} materials in database (ALL materials)")
             
             with self._cache_lock:
                 self._material_cache = {}
@@ -965,25 +937,31 @@ class MaterialAnalysisServiceOptimized:
                     price_per_kg = material.get('price_per_kg')
                     category = material.get('category')
                     
-                    if (material_name and str(material_name).strip() != "" and
-                        density is not None and 
-                        price_per_kg is not None and
-                        float(density) > 0 and
-                        float(price_per_kg) >= 0):
+                    if material_name and str(material_name).strip() != "":
+                        # ✅ FIX: Sadece boş olmayan name kontrolü - is_active kontrolü yok
+                        
+                        # Default values for missing data
+                        if density is None or density <= 0:
+                            density = 2.7  # Default aluminum density
+                        if price_per_kg is None or price_per_kg < 0:
+                            price_per_kg = 10  # Default price
                         
                         if '_id' in material:
                             material['id'] = str(material['_id'])
                             del material['_id']
                         
                         material['category'] = category if category else 'Uncategorized'
+                        material['density'] = float(density)
+                        material['price_per_kg'] = float(price_per_kg)
+                        
                         self._material_cache[material_name] = material
                         cached_count += 1
             
-            print(f"[CACHE] ✅ Cache loaded: {cached_count} materials")
+            print(f"[CACHE] ✅ Cache loaded: {cached_count} materials (INCLUDING inactive)")
             
         except Exception as e:
             print(f"[CACHE] ❌ Preload failed: {e}")
-    
+
     def _preload_material_keywords(self):
         """Preload material keywords for fast searching"""
         try:
@@ -1214,61 +1192,59 @@ class MaterialAnalysisServiceOptimized:
         return final_numbers
 
     def _find_materials_in_text_database_only_fixed(self, text):
-        """FIXED: Context-aware database material search"""
+        """ENHANCED: Context-aware + OCR artifact handling - SAME FUNCTION NAME"""
         if not text or len(text.strip()) < 5:
-            print("[MAT-DB-FIXED] ❌ Text too short or empty")
+            print("[MAT-DB-ENHANCED] ❌ Text too short or empty")
             return []
         
-        print("[MAT-DB-FIXED] 🔍 CONTEXT-AWARE Enhanced search...")
-        print(f"[MAT-DB-FIXED] 📝 Input text sample: {text[:200]}...")
+        print("[MAT-DB-ENHANCED] 🔍 ENHANCED search with OCR artifact handling...")
+        print(f"[MAT-DB-ENHANCED] 📝 Input text sample: {text[:200]}...")
         
         # Apply normalization
         normalized_text = self._comprehensive_turkish_normalization(text)
         
         if not normalized_text:
-            print("[MAT-DB-FIXED] ❌ Normalization resulted in empty text")
+            print("[MAT-DB-ENHANCED] ❌ Normalization resulted in empty text")
             return []
         
-        # ✅ FIXED: Use context-aware keyword extraction
+        # ✅ Use ENHANCED keyword extraction (SAME FUNCTION NAME)
         material_keywords = extract_material_keywords_from_text_fixed(normalized_text)
-        print(f"[MAT-DB-FIXED] 🔢 Context-aware keywords: {len(material_keywords)}")
+        print(f"[MAT-DB-ENHANCED] 🔢 Enhanced keywords: {len(material_keywords)}")
         
         if not material_keywords:
-            print("[MAT-DB-FIXED] ❌ No keywords found after context filtering")
+            print("[MAT-DB-ENHANCED] ❌ No keywords found after enhanced filtering")
             return []
         
-        # Continue with database lookup...
+        # Continue with database lookup (rest unchanged)...
         materials_cache = self._get_materials_cached()
         if not materials_cache:
             materials_cache = self._get_materials_from_database_direct()
         
         if not materials_cache:
-            print("[MAT-DB-FIXED] ❌ No materials in database")
+            print("[MAT-DB-ENHANCED] ❌ No materials in database")
             return []
         
         found_materials = {}
         
-        # Process context-aware keywords
         for keyword_info in material_keywords:
             keyword = keyword_info['keyword']
             material_name = keyword_info['material_name']
             confidence = keyword_info['confidence']
             pattern_type = keyword_info['pattern_type']
             
-            print(f"[MAT-DB-FIXED] 🔍 Processing: {keyword} -> {material_name}")
+            print(f"[MAT-DB-ENHANCED] 🔍 Processing: {keyword} -> {material_name}")
             
-            # Database lookup
             if material_name in materials_cache:
                 found_materials[material_name] = {
                     'confidence': confidence,
-                    'matched_term': f"context_aware_{keyword}",
+                    'matched_term': f"enhanced_{keyword}",
                     'material': materials_cache[material_name],
-                    'strategy': 'context_aware_mongodb_pattern',
+                    'strategy': 'enhanced_ocr_artifact_handling',
                     'source_keyword': keyword,
                     'pattern_type': pattern_type,
-                    'context_validated': True
+                    'enhanced': True
                 }
-                print(f"[MAT-DB-FIXED] ✅ CONTEXT MATCH: {keyword} -> {material_name} ({confidence}%)")
+                print(f"[MAT-DB-ENHANCED] ✅ ENHANCED MATCH: {keyword} -> {material_name} ({confidence}%)")
         
         # Format results
         if found_materials:
@@ -1276,17 +1252,17 @@ class MaterialAnalysisServiceOptimized:
                                     key=lambda x: x[1]['confidence'], reverse=True)
             
             result_materials = []
-            for material_name, match_info in sorted_materials[:5]:  # Top 5
+            for material_name, match_info in sorted_materials[:5]:
                 confidence = match_info['confidence']
                 formatted_material = f"{material_name} (%{confidence})"
                 result_materials.append(formatted_material)
-                print(f"[MAT-DB-FIXED] 📋 Result: {formatted_material}")
+                print(f"[MAT-DB-ENHANCED] 📋 Result: {formatted_material}")
             
             return result_materials
         
-        print("[MAT-DB-FIXED] ❌ No context-validated materials found")
+        print("[MAT-DB-ENHANCED] ❌ No enhanced materials found")
         return []
-    
+
     def _create_synthetic_materials_for_found_numbers(self, material_keywords):
         """EMERGENCY: Create synthetic materials when database fails"""
         print("[SYNTHETIC] 🚨 EMERGENCY: Creating synthetic materials")
@@ -1717,9 +1693,75 @@ class MaterialAnalysisServiceOptimized:
     # =====================================================
     # ✅ ENHANCED PDF ANALYSIS METHOD - CONTEXT-AWARE PATTERN MATCHING
     # =====================================================
+
+    def clean_material_format(material_text):
+        """Clean material formatting from enhanced PDF analysis"""
+        if not material_text:
+            return None
+        
+        try:
+            # Convert to string if not already
+            material_str = str(material_text).strip()
+            
+            if not material_str:
+                return None
+            
+            print(f"[MATERIAL-CLEAN] 🔧 Cleaning: {material_str}")
+            
+            # ✅ Remove enhanced PDF specific formatting
+            # Remove "(specification_source, %XX)" patterns
+            material_str = re.sub(r'\s*\(specification_source,\s*%\d+\)', '', material_str)
+            
+            # Remove "ERE MATER" artifacts
+            material_str = re.sub(r'\s+ERE\s+MATER\b', '', material_str, flags=re.IGNORECASE)
+            
+            # Remove extra spaces
+            material_str = re.sub(r'\s+', ' ', material_str).strip()
+            
+            # ✅ Extract actual material name and confidence
+            material_name = material_str
+            confidence = 85  # Default confidence
+            
+            # Try to extract confidence from various patterns
+            confidence_patterns = [
+                r'%(\d+)',
+                r'\((\d+)%\)',
+                r'confidence[:\s]*(\d+)',
+            ]
+            
+            for pattern in confidence_patterns:
+                match = re.search(pattern, material_str, re.IGNORECASE)
+                if match:
+                    confidence = int(match.group(1))
+                    # Remove confidence part from material name
+                    material_name = re.sub(pattern, '', material_str, flags=re.IGNORECASE).strip()
+                    break
+            
+            # Clean up material name
+            material_name = material_name.strip()
+            
+            # Remove any remaining parentheses content
+            material_name = re.sub(r'\([^)]*\)', '', material_name).strip()
+            
+            # Final cleanup
+            material_name = re.sub(r'\s+', ' ', material_name).strip()
+            
+            if not material_name:
+                return None
+            
+            # ✅ Format as standard: "MaterialName (%confidence)"
+            cleaned_result = f"{material_name} (%{confidence})"
+            
+            print(f"[MATERIAL-CLEAN] ✅ Cleaned: {material_str} -> {cleaned_result}")
+            
+            return cleaned_result
+            
+        except Exception as e:
+            print(f"[MATERIAL-CLEAN] ❌ Error cleaning material: {e}")
+            return None
     
     def _analyze_pdf_ultra_fast_fixed(self, file_path, result):
-        """CONTEXT-AWARE PDF analysis with multi-OCR fusion + guaranteed material detection"""
+        """CONTEXT-AWARE PDF analysis with multi-OCR fusion + guaranteed material detection + NORMALIZED DATABASE NAMES"""
         start_time = time.time()
         result["processing_log"].append("📄 CONTEXT-AWARE Enhanced multi-OCR PDF analysis starting")
         
@@ -1728,7 +1770,7 @@ class MaterialAnalysisServiceOptimized:
         # Initialize materials list at the beginning
         materials = []
         
-        # ✅ ENHANCED MATERIAL DETECTION - MULTI-OCR FUSION WITH CONTEXT-AWARE PATTERN MATCHING
+        # ✅ ENHANCED MATERIAL DETECTION - Multi-OCR fusion WITH NORMALIZED NAMES
         enhanced_materials = None
         enhanced_format_info = None
         
@@ -1752,6 +1794,23 @@ class MaterialAnalysisServiceOptimized:
                         if enhanced_result.get("format_specific_materials"):
                             enhanced_materials = enhanced_result["format_specific_materials"]
                             enhanced_format_info = format_info
+                            
+                            # ✅ CRITICAL FIX: Clean and normalize enhanced materials
+                            cleaned_enhanced_materials = []
+                            for material in enhanced_materials:
+                                cleaned_material = self._clean_material_format(material)
+                                if cleaned_material:
+                                    normalized_material = self._normalize_material_to_database_name(cleaned_material)
+                                    if normalized_material:
+                                        # Extract confidence
+                                        confidence = 85
+                                        confidence_match = re.search(r'%(\d+)', cleaned_material)
+                                        if confidence_match:
+                                            confidence = int(confidence_match.group(1))
+                                        final_material = f"{normalized_material} (%{confidence})"
+                                        cleaned_enhanced_materials.append(final_material)
+                            
+                            enhanced_materials = cleaned_enhanced_materials
                             
                             result["processing_log"].append(f"✅ Enhanced materials: {len(enhanced_materials)}")
                             print(f"[PDF-ENHANCED-DEBUG] ✅ Enhanced materials found: {len(enhanced_materials)}")
@@ -1825,10 +1884,10 @@ class MaterialAnalysisServiceOptimized:
             }
             result["processing_log"].append("⚠️ No STEP found, using zero defaults")
         
-        # ✅ CONTEXT-AWARE MATERIAL SEARCH - Multi-OCR Fusion WITH CONTEXT FILTERING
+        # ✅ CONTEXT-AWARE MATERIAL SEARCH - Multi-OCR Fusion WITH NORMALIZED NAMES
         print("[PDF-ENHANCED-DEBUG] 🔍 Starting CONTEXT-AWARE comprehensive material search...")
         
-        # Enhanced materials first
+        # Enhanced materials first (already normalized)
         if enhanced_materials:
             materials.extend(enhanced_materials)
             result["processing_log"].append(f"🔍 Enhanced materials added: {len(enhanced_materials)}")
@@ -1842,15 +1901,30 @@ class MaterialAnalysisServiceOptimized:
             if fusion_materials:
                 print(f"[PDF-ENHANCED-DEBUG] ✅ Multi-OCR fusion returned: {len(fusion_materials)} materials")
                 
+                # Clean, normalize and deduplicate fusion materials
+                normalized_fusion_materials = []
+                for fusion_mat in fusion_materials:
+                    cleaned_material = self._clean_material_format(fusion_mat)
+                    if cleaned_material:
+                        normalized_name = self._normalize_material_to_database_name(cleaned_material)
+                        if normalized_name:
+                            # Extract confidence
+                            confidence = 85
+                            confidence_match = re.search(r'%(\d+)', cleaned_material)
+                            if confidence_match:
+                                confidence = int(confidence_match.group(1))
+                            final_material = f"{normalized_name} (%{confidence})"
+                            normalized_fusion_materials.append(final_material)
+                
                 # Deduplicate with enhanced materials
                 added_count = 0
-                for fusion_mat in fusion_materials:
+                for fusion_mat in normalized_fusion_materials:
                     fusion_clean = fusion_mat.split('(')[0].strip().lower()
                     is_duplicate = False
                     
                     for existing_mat in materials:
                         existing_clean = existing_mat.split('(')[0].strip().lower()
-                        if fusion_clean == existing_clean or fusion_clean in existing_clean or existing_clean in fusion_clean:
+                        if fusion_clean == existing_clean:
                             is_duplicate = True
                             print(f"[PDF-ENHANCED-DEBUG] 🗑️ Duplicate: {fusion_mat}")
                             break
@@ -1920,24 +1994,36 @@ class MaterialAnalysisServiceOptimized:
         except Exception as ocr_debug_error:
             print(f"[PDF-ENHANCED-DEBUG] ⚠️ OCR debug extraction error: {ocr_debug_error}")
         
-        # ✅ CRITICAL FIX: GUARANTEED MATERIAL ASSIGNMENT WITH CONTEXT VALIDATION
+        # ✅ CRITICAL FIX: GUARANTEED MATERIAL ASSIGNMENT + NORMALIZED DATABASE NAMES
         if materials:
-            # Remove duplicates and clean up
+            # Remove duplicates and ensure database names
             unique_materials = []
             seen_materials = set()
             
             for material in materials:
-                material_key = material.split('(')[0].strip().lower()
+                # Material already should be normalized at this point, but double-check
+                material_name = material.split('(')[0].strip()
+                confidence_part = material.split('(')[1] if '(' in material else '%85)'
+                
+                # Ensure confidence format
+                if not confidence_part.startswith('%'):
+                    confidence_part = f"%{confidence_part.replace(')', '')}"
+                if not confidence_part.endswith(')'):
+                    confidence_part = f"{confidence_part})"
+                
+                material_key = material_name.lower()
                 if material_key not in seen_materials:
                     seen_materials.add(material_key)
-                    unique_materials.append(material)
+                    final_material = f"{material_name} ({confidence_part}"
+                    unique_materials.append(final_material)
+                    print(f"[MATERIAL-FINAL] ✅ Final: {material} -> {final_material}")
             
             result["material_matches"] = unique_materials
             result["material_confidence"] = 95 if len(unique_materials) > 0 else 0
             result["best_material_block"] = unique_materials[0] if unique_materials else ""
             
-            result["processing_log"].append(f"✅ CONTEXT-AWARE: Total materials found: {len(unique_materials)}")
-            print(f"[PDF-ENHANCED-DEBUG] ✅ CONTEXT-AWARE FINAL RESULT: {len(unique_materials)} materials found")
+            result["processing_log"].append(f"✅ NORMALIZED: Total materials found: {len(unique_materials)}")
+            print(f"[PDF-ENHANCED-DEBUG] ✅ NORMALIZED FINAL RESULT: {len(unique_materials)} materials found")
             for i, mat in enumerate(unique_materials):
                 print(f"[PDF-ENHANCED-DEBUG] Material #{i+1}: {mat}")
         else:
@@ -1969,7 +2055,9 @@ class MaterialAnalysisServiceOptimized:
             "turkish_normalization_fixed": True,
             "guaranteed_detection": True,  # ✅ NEW FLAG
             "context_aware_patterns": True,  # ✅ NEW FLAG - CONTEXT-AWARE
-            "dynamic_mongodb_patterns": True  # ✅ NEW FLAG
+            "dynamic_mongodb_patterns": True,  # ✅ NEW FLAG
+            "cleaned_formatting": True,  # ✅ NEW FLAG
+            "normalized_database_names": True  # ✅ NEW FLAG
         }
         
         # Cleanup
@@ -1988,12 +2076,211 @@ class MaterialAnalysisServiceOptimized:
         print("[PDF-ENHANCED-DEBUG] 🛡️ GUARANTEED detection enabled")
         print("[PDF-ENHANCED-DEBUG] 🎯 CONTEXT-AWARE pattern matching active")
         print("[PDF-ENHANCED-DEBUG] 🗄️ Dynamic MongoDB patterns active")
+        print("[PDF-ENHANCED-DEBUG] 🧹 Material formatting cleaned")
+        print("[PDF-ENHANCED-DEBUG] 🔗 Database names normalized")
         
         # ✅ CRITICAL: Ensure material_matches is always a list
         if "material_matches" not in result:
             result["material_matches"] = []
         
         return result
+
+
+    def _normalize_material_to_database_name(self, material_text):
+        """Normalize material text to actual database material name"""
+        if not material_text:
+            return None
+        
+        try:
+            # Clean the input
+            material_str = str(material_text).strip()
+            
+            # Remove confidence part
+            material_name = re.sub(r'\s*\(%\d+\)', '', material_str).strip()
+            
+            print(f"[MATERIAL-NORMALIZE] 🔍 Normalizing: {material_name}")
+            
+            # Get all materials from database
+            materials_cache = self._get_materials_cached()
+            if not materials_cache:
+                materials_cache = self._get_materials_from_database_direct()
+            
+            if not materials_cache:
+                print("[MATERIAL-NORMALIZE] ❌ No materials in cache")
+                return material_name
+            
+            # ✅ Strategy 1: Extract core material numbers
+            core_numbers = self._extract_core_material_numbers(material_name)
+            
+            for core_number in core_numbers:
+                # Direct match
+                if core_number in materials_cache:
+                    print(f"[MATERIAL-NORMALIZE] ✅ Direct match: {material_name} -> {core_number}")
+                    return core_number
+                
+                # Case insensitive match
+                for db_name in materials_cache.keys():
+                    if db_name.lower() == core_number.lower():
+                        print(f"[MATERIAL-NORMALIZE] ✅ Case-insensitive match: {material_name} -> {db_name}")
+                        return db_name
+            
+            # ✅ Strategy 2: Alias matching
+            material_upper = material_name.upper()
+            for db_name, material_data in materials_cache.items():
+                aliases = material_data.get('aliases', [])
+                for alias in aliases:
+                    if str(alias).upper() in material_upper or material_upper in str(alias).upper():
+                        print(f"[MATERIAL-NORMALIZE] ✅ Alias match: {material_name} -> {db_name} (via {alias})")
+                        return db_name
+            
+            # ✅ Strategy 3: Pattern matching for aluminum
+            aluminum_patterns = [
+                (r'AL\s*6061', '6061'),
+                (r'6061.*?T6', '6061'),
+                (r'AL\s*7075', '7075'),
+                (r'7075.*?T6', '7075'),
+                (r'AL\s*2024', '2024'),
+                (r'AL\s*5754', '5754'),
+                (r'AL\s*7050', '7050'),
+            ]
+            
+            for pattern, target_material in aluminum_patterns:
+                if re.search(pattern, material_upper, re.IGNORECASE):
+                    if target_material in materials_cache:
+                        print(f"[MATERIAL-NORMALIZE] ✅ Pattern match: {material_name} -> {target_material}")
+                        return target_material
+            
+            # ✅ Strategy 4: Stainless steel patterns
+            steel_patterns = [
+                (r'AISI\s*304', 'aisi304'),
+                (r'AISI\s*316', 'aisi316'),
+                (r'AISI\s*303', 'AISI 303'),
+                (r'17-4\s*PH', '17-4PH'),
+                (r'STAINLESS.*304', 'aisi304'),
+                (r'PASLANMAZ.*CELIK', 'Paslanmaz Çelik'),
+            ]
+            
+            for pattern, target_material in steel_patterns:
+                if re.search(pattern, material_upper, re.IGNORECASE):
+                    if target_material in materials_cache:
+                        print(f"[MATERIAL-NORMALIZE] ✅ Steel pattern match: {material_name} -> {target_material}")
+                        return target_material
+            
+            print(f"[MATERIAL-NORMALIZE] ⚠️ No database match found: {material_name}")
+            return material_name
+            
+        except Exception as e:
+            print(f"[MATERIAL-NORMALIZE] ❌ Error: {e}")
+            return material_text
+
+    def _extract_core_material_numbers(self, material_text):
+        """Extract core material numbers like 6061, 7075, etc."""
+        if not material_text:
+            return []
+        
+        # Common material number patterns
+        patterns = [
+            r'\b(6061)\b',
+            r'\b(7075)\b', 
+            r'\b(2024)\b',
+            r'\b(7050)\b',
+            r'\b(5754)\b',
+            r'\b(304)\b',
+            r'\b(316)\b',
+            r'\b(303)\b',
+            r'\b(4140)\b',
+            r'\b(4340)\b',
+            r'\b(17-4PH)\b',
+        ]
+        
+        numbers = []
+        text_upper = material_text.upper()
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text_upper, re.IGNORECASE)
+            numbers.extend(matches)
+        
+        # Remove duplicates while preserving order
+        unique_numbers = []
+        for num in numbers:
+            if num not in unique_numbers:
+                unique_numbers.append(num)
+        
+        return unique_numbers
+
+    def _clean_material_format(self, material_text):
+        """Clean material formatting from enhanced PDF analysis and other sources"""
+        if not material_text:
+            return None
+        
+        try:
+            # Convert to string if not already
+            material_str = str(material_text).strip()
+            
+            if not material_str:
+                return None
+            
+            print(f"[MATERIAL-CLEAN] 🔧 Cleaning: {material_str}")
+            
+            # ✅ Remove enhanced PDF specific formatting
+            # Remove "(specification_source, %XX)" patterns
+            material_str = re.sub(r'\s*\(specification_source,\s*%\d+\)', '', material_str)
+            
+            # Remove "ERE MATER" artifacts
+            material_str = re.sub(r'\s+ERE\s+MATER\b', '', material_str, flags=re.IGNORECASE)
+            
+            # Remove other common artifacts
+            material_str = re.sub(r'\s+ERE\b', '', material_str, flags=re.IGNORECASE)
+            material_str = re.sub(r'\bMATER\b', '', material_str, flags=re.IGNORECASE)
+            
+            # Remove extra spaces
+            material_str = re.sub(r'\s+', ' ', material_str).strip()
+            
+            # ✅ Extract actual material name and confidence
+            material_name = material_str
+            confidence = 85  # Default confidence
+            
+            # Try to extract confidence from various patterns
+            confidence_patterns = [
+                r'%(\d+)',
+                r'\((\d+)%\)',
+                r'confidence[:\s]*(\d+)',
+                r'\(.*?%(\d+).*?\)',
+            ]
+            
+            for pattern in confidence_patterns:
+                match = re.search(pattern, material_str, re.IGNORECASE)
+                if match:
+                    confidence = int(match.group(1))
+                    # Remove confidence part from material name
+                    material_name = re.sub(pattern, '', material_str, flags=re.IGNORECASE).strip()
+                    break
+            
+            # Clean up material name
+            material_name = material_name.strip()
+            
+            # Remove any remaining parentheses content that looks like metadata
+            material_name = re.sub(r'\([^)]*(?:source|specification|confidence)[^)]*\)', '', material_name, flags=re.IGNORECASE).strip()
+            
+            # Final cleanup
+            material_name = re.sub(r'\s+', ' ', material_name).strip()
+            
+            # Remove trailing/leading punctuation
+            material_name = material_name.strip('.,;:-_')
+            
+            if not material_name:
+                return None
+            
+            # ✅ Format as standard: "MaterialName (%confidence)"
+            cleaned_result = f"{material_name} (%{confidence})"
+            
+            print(f"[MATERIAL-CLEAN] ✅ Cleaned: {material_str} -> {cleaned_result}")
+            
+            return cleaned_result
+            
+        except Exception as e:
+            print(f"[MATERIAL-CLEAN] ❌ Error cleaning material: {e}")
+            return None
 
     # =====================================================
     # MAIN ANALYSIS METHODS - CONTEXT-AWARE INTERFACE
@@ -2153,22 +2440,18 @@ class MaterialAnalysisServiceOptimized:
             return self._material_cache.copy()
     
     def _get_materials_from_database_direct(self):
-        """Get materials directly from database - UNCHANGED"""
+        """Get materials directly from database - is_active kontrolü KALDIRILDI"""
         try:
             print("[DB-DIRECT] 📊 Getting materials directly from database...")
             
+            # ✅ FIX: is_active kontrolü tamamen kaldırıldı
             materials_cursor = self.database.materials.find(
-                {
-                    "$or": [
-                        {"is_active": True},
-                        {"is_active": {"$exists": False}}
-                    ]
-                },
+                {},  # HİÇ FİLTER YOK!
                 {"name": 1, "density": 1, "price_per_kg": 1, "category": 1, "aliases": 1, "is_active": 1}
             )
             
             materials_list = list(materials_cursor)
-            print(f"[DB-DIRECT] ✅ Found {len(materials_list)} materials in database")
+            print(f"[DB-DIRECT] ✅ Found {len(materials_list)} materials in database (ALL materials)")
             
             materials_dict = {}
             for material in materials_list:
@@ -2177,9 +2460,14 @@ class MaterialAnalysisServiceOptimized:
                 price_per_kg = material.get('price_per_kg')
                 category = material.get('category')
                 
-                if (material_name and str(material_name).strip() != "" and
-                    density is not None and price_per_kg is not None and
-                    float(density) > 0 and float(price_per_kg) >= 0):
+                if material_name and str(material_name).strip() != "":
+                    # ✅ FIX: Sadece boş olmayan name kontrolü - is_active kontrolü yok
+                    
+                    # Default values for missing data
+                    if density is None or density <= 0:
+                        density = 2.7  # Default aluminum density
+                    if price_per_kg is None or price_per_kg < 0:
+                        price_per_kg = 10  # Default price
                     
                     materials_dict[material_name] = {
                         'name': material_name,
@@ -2187,24 +2475,21 @@ class MaterialAnalysisServiceOptimized:
                         'price_per_kg': float(price_per_kg),
                         'category': category if category else 'Uncategorized',
                         'aliases': material.get('aliases', []),
-                        'is_active': material.get('is_active')
+                        'is_active': material.get('is_active')  # Store but don't filter by it
                     }
             
-            print(f"[DB-DIRECT] ✅ Final result: {len(materials_dict)} valid materials")
+            print(f"[DB-DIRECT] ✅ Final result: {len(materials_dict)} valid materials (INCLUDING inactive)")
             return materials_dict
             
         except Exception as e:
             print(f"[DB-DIRECT] ❌ Direct database query failed: {e}")
             return {}
-    
+
     def _get_default_material_from_database(self):
-        """Get a default material from database - UNCHANGED"""
+        """Get a default material from database - is_active kontrolü KALDIRILDI"""
         try:
+            # ✅ FIX: is_active kontrolü kaldırıldı
             default_material = self.database.materials.find_one({
-                "$or": [
-                    {"is_active": True},
-                    {"is_active": {"$exists": False}}
-                ],
                 "$or": [
                     {"name": {"$regex": "6061", "$options": "i"}},
                     {"name": {"$regex": "aluminum", "$options": "i"}},
@@ -2214,18 +2499,23 @@ class MaterialAnalysisServiceOptimized:
             })
             
             if not default_material:
-                default_material = self.database.materials.find_one({
-                    "$or": [
-                        {"is_active": True},
-                        {"is_active": {"$exists": False}}
-                    ]
-                })
+                # ✅ FIX: is_active kontrolü kaldırıldı - herhangi bir material al
+                default_material = self.database.materials.find_one({})
             
             if default_material:
+                density = default_material.get('density', 2.7)
+                price_per_kg = default_material.get('price_per_kg', 10)
+                
+                # Ensure positive values
+                if density <= 0:
+                    density = 2.7
+                if price_per_kg < 0:
+                    price_per_kg = 10
+                    
                 return {
                     'name': default_material['name'],
-                    'density': default_material.get('density', 0),
-                    'price_per_kg': default_material.get('price_per_kg', 0),
+                    'density': density,
+                    'price_per_kg': price_per_kg,
                     'category': default_material.get('category', 'Unknown')
                 }
             else:
@@ -2234,20 +2524,14 @@ class MaterialAnalysisServiceOptimized:
         except Exception as e:
             print(f"[DEFAULT] ❌ Failed to get default material: {e}")
             return None
-    
+
     def _create_emergency_materials_from_database(self, prizma_hacim_mm3):
-        """Create emergency materials only from database - UNCHANGED"""
+        """Create emergency materials only from database - is_active kontrolü KALDIRILDI"""
         try:
             volume_cm3 = max(prizma_hacim_mm3 / 1000, 0.1) if prizma_hacim_mm3 > 0 else 0.1
             
-            materials_cursor = self.database.materials.find(
-                {
-                    "$or": [
-                        {"is_active": True},
-                        {"is_active": {"$exists": False}}
-                    ]
-                }
-            ).limit(50)
+            # ✅ FIX: is_active kontrolü kaldırıldı
+            materials_cursor = self.database.materials.find({}).limit(50)  # HİÇ FİLTER YOK!
             
             db_materials = list(materials_cursor)
             
@@ -2258,38 +2542,46 @@ class MaterialAnalysisServiceOptimized:
             
             for material in db_materials:
                 try:
-                    if (material.get('name') and 
-                        material.get('density') and 
-                        material.get('price_per_kg') is not None and
-                        float(material['density']) > 0 and 
-                        float(material['price_per_kg']) >= 0):
+                    material_name = material.get('name')
+                    density = material.get('density')
+                    price_per_kg = material.get('price_per_kg')
+                    
+                    if material_name and str(material_name).strip() != "":
+                        # ✅ FIX: is_active kontrolü yok - sadece data validation
                         
-                        mass_kg = (volume_cm3 * material['density']) / 1000 if volume_cm3 > 0 else 0
-                        material_cost = mass_kg * material['price_per_kg'] if mass_kg > 0 else 0
+                        # Default values for missing data
+                        if density is None or density <= 0:
+                            density = 2.7
+                        if price_per_kg is None or price_per_kg < 0:
+                            price_per_kg = 10
+                        
+                        mass_kg = (volume_cm3 * density) / 1000 if volume_cm3 > 0 else 0
+                        material_cost = mass_kg * price_per_kg if mass_kg > 0 else 0
                         
                         emergency_materials.append({
-                            "name": material['name'],
+                            "name": material_name,
                             "category": material.get('category', 'Uncategorized'),
-                            "density": material['density'],
+                            "density": density,
                             "mass_kg": round(mass_kg, 3),
-                            "price_per_kg": material['price_per_kg'],
+                            "price_per_kg": price_per_kg,
                             "material_cost": round(material_cost, 2),
                             "volume_mm3": prizma_hacim_mm3,
-                            "is_active": material.get('is_active', 'undefined')
+                            "is_active": material.get('is_active', 'undefined')  # Store but don't filter
                         })
                         
                 except Exception as calc_error:
                     continue
             
             emergency_materials.sort(key=lambda x: x["material_cost"])
+            print(f"[EMERGENCY] ✅ Created {len(emergency_materials)} emergency materials (INCLUDING inactive)")
             return emergency_materials
             
         except Exception as emergency_error:
             print(f"[EMERGENCY] ❌ Database-only emergency failed: {emergency_error}")
             return []
-    
+
     def _calculate_top_materials_database_only(self, prizma_hacim_mm3, limit=20):
-        """Material calculations from database only - UNCHANGED"""
+        """Material calculations from database only - is_active kontrolü KALDIRILDI"""
         try:
             if prizma_hacim_mm3 <= 0:
                 return []
@@ -2305,12 +2597,15 @@ class MaterialAnalysisServiceOptimized:
             
             for material_name, material in materials_dict.items():
                 try:
-                    density = float(material.get("density", 0))
-                    price_per_kg = float(material.get("price_per_kg", 0))
+                    density = float(material.get("density", 2.7))
+                    price_per_kg = float(material.get("price_per_kg", 10))
                     category = material.get("category") or "Uncategorized"
                     
-                    if density <= 0 or price_per_kg < 0:
-                        continue
+                    # ✅ FIX: is_active kontrolü kaldırıldı - sadece positive value kontrolü
+                    if density <= 0:
+                        density = 2.7
+                    if price_per_kg < 0:
+                        price_per_kg = 10
                     
                     volume_cm3 = prizma_hacim_mm3 / 1000
                     mass_kg = (volume_cm3 * density) / 1000
@@ -2324,7 +2619,8 @@ class MaterialAnalysisServiceOptimized:
                         "price_per_kg": round(price_per_kg, 2),
                         "material_cost": round(material_cost, 2),
                         "volume_mm3": prizma_hacim_mm3,
-                        "source": "database"
+                        "source": "database",
+                        "is_active": material.get('is_active', 'undefined')  # Store but don't filter
                     })
                     
                 except Exception as mat_error:
@@ -2337,12 +2633,13 @@ class MaterialAnalysisServiceOptimized:
             else:
                 result = top_materials[:limit]
             
+            print(f"[TOP-MATERIALS] ✅ Calculated {len(result)} materials (INCLUDING inactive)")
             return result
             
         except Exception as e:
             print(f"[TOP-MATERIALS-DB] ❌ DATABASE-ONLY calculation failed: {e}")
             return []
-    
+
     def _calculate_found_materials_database_only(self, prizma_hacim_mm3, found_materials):
         """Calculate found materials using database data only - UNCHANGED"""
         try:
