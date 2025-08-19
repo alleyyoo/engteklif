@@ -590,7 +590,7 @@ export const DashboardPageStyles = createUseStyles({
   },
   modelImage: {
     width: '100%',
-    height: '100%',
+    height: 'auto',
     objectFit: 'contain'
   },
   modelShowButton: {
