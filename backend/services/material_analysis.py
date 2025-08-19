@@ -1760,12 +1760,55 @@ class MaterialAnalysisServiceOptimized:
             print(f"[MATERIAL-CLEAN] ❌ Error cleaning material: {e}")
             return None
     
-    def _analyze_pdf_ultra_fast_fixed(self, file_path, result):
+
+    def _analyze_pdf_ultra_fast_fixed(self, file_path, result, matched_step_path=None):
         """CONTEXT-AWARE PDF analysis with multi-OCR fusion + guaranteed material detection + NORMALIZED DATABASE NAMES"""
         start_time = time.time()
         result["processing_log"].append("📄 CONTEXT-AWARE Enhanced multi-OCR PDF analysis starting")
         
         print(f"[PDF-ENHANCED-DEBUG] 🚀 Starting CONTEXT-AWARE enhanced PDF analysis for: {os.path.basename(file_path)}")
+        
+        # ✅ NEW: Check for matched STEP first
+        if matched_step_path and os.path.exists(matched_step_path):
+            print(f"[PDF-ENHANCED-DEBUG] 🎯 Using matched STEP: {matched_step_path}")
+            result["processing_log"].append(f"🔗 Using matched STEP: {os.path.basename(matched_step_path)}")
+            
+            # Analyze matched STEP
+            try:
+                print(f"[PDF-ENHANCED-DEBUG] 🧠 Analyzing matched STEP...")
+                if SCIPY_AVAILABLE:
+                    try:
+                        enhanced_result = improved_step_analysis(matched_step_path)
+                        if enhanced_result and 'error' not in enhanced_result:
+                            result["step_analysis"] = enhanced_result
+                            result["processing_log"].append("🧠 Matched STEP enhanced analysis completed")
+                            print(f"[PDF-ENHANCED-DEBUG] ✅ Enhanced matched STEP analysis completed")
+                        else:
+                            result["step_analysis"] = self.analyze_step_file_ultra_fast(matched_step_path)
+                            result["processing_log"].append("🔧 Matched STEP traditional analysis completed")
+                            print(f"[PDF-ENHANCED-DEBUG] ✅ Traditional matched STEP analysis completed")
+                    except Exception as e:
+                        print(f"[PDF-ENHANCED-DEBUG] ❌ Enhanced analysis error: {e}")
+                        result["step_analysis"] = self.analyze_step_file_ultra_fast(matched_step_path)
+                        result["processing_log"].append("🔧 Fallback matched STEP analysis completed")
+                else:
+                    result["step_analysis"] = self.analyze_step_file_ultra_fast(matched_step_path)
+                    result["processing_log"].append("🔧 Standard matched STEP analysis completed")
+                
+                result["matched_step_used"] = True
+                result["step_source"] = "matched"
+                result["extracted_step_path"] = matched_step_path  # For render
+                result["pdf_step_extracted"] = False  # Matched, not extracted
+                result["step_file_hash"] = self._calculate_file_hash_fast(matched_step_path)
+                
+                print(f"[PDF-ENHANCED-DEBUG] ✅ Matched STEP analyzed successfully")
+                print(f"[PDF-ENHANCED-DEBUG] 📊 Prizma Hacmi: {result['step_analysis'].get('Prizma Hacmi (mm³)', 0)}")
+                
+            except Exception as e:
+                print(f"[PDF-ENHANCED-DEBUG] ❌ Matched STEP analysis failed: {e}")
+                result["processing_log"].append(f"❌ Matched STEP analysis failed: {str(e)}")
+                # Continue with PDF extraction as fallback
+                matched_step_path = None  # Reset to trigger extraction
         
         # Initialize materials list at the beginning
         materials = []
@@ -1819,70 +1862,83 @@ class MaterialAnalysisServiceOptimized:
                 print(f"[PDF-ENHANCED-DEBUG] ❌ Enhanced detection error: {e}")
                 result["processing_log"].append(f"⚠️ Enhanced error: {str(e)}")
         
-        # Quick STEP extraction with DEBUG
-        print("[PDF-ENHANCED-DEBUG] 🔄 STEP extraction...")
-        step_paths = self._extract_step_from_pdf_fast(file_path)
-        extracted_step_path = None
-        permanent_step_path = None
-        
-        if step_paths:
-            extracted_step_path = step_paths[0]
-            step_filename = os.path.basename(extracted_step_path)
-            result["processing_log"].append(f"📎 STEP extracted: {step_filename}")
-            print(f"[PDF-ENHANCED-DEBUG] 📎 STEP extracted: {step_filename}")
+        # ✅ ONLY TRY EXTRACTION if no matched STEP or matched STEP failed
+        if not result.get("step_analysis") or result.get("step_analysis", {}).get("Prizma Hacmi (mm³)", 0) == 0:
+            print("[PDF-ENHANCED-DEBUG] 🔄 Attempting STEP extraction from PDF...")
+            step_paths = self._extract_step_from_pdf_fast(file_path)
+            extracted_step_path = None
+            permanent_step_path = None
             
-            # Save permanently
-            analysis_id = f"pdf_{int(time.time())}_{hashlib.md5(file_path.encode()).hexdigest()[:6]}"
-            permanent_dir = os.path.join("static", "stepviews", analysis_id)
-            os.makedirs(permanent_dir, exist_ok=True)
-            
-            permanent_step_filename = f"extracted_{analysis_id}.step"
-            permanent_step_path = os.path.join(permanent_dir, permanent_step_filename)
-            
-            import shutil
-            shutil.copy2(extracted_step_path, permanent_step_path)
-            
-            result["extracted_step_path"] = permanent_step_path
-            result["pdf_analysis_id"] = analysis_id
-            result["pdf_step_extracted"] = True  # Mark that STEP was extracted
-            
-            # ✅ INTEGRATED ENHANCED STEP ANALYSIS WITH DEBUG
-            print("[PDF-ENHANCED-DEBUG] 🧠 STEP analysis starting...")
-            if SCIPY_AVAILABLE:
-                try:
-                    print("[PDF-ENHANCED-DEBUG] 🧠 Using integrated enhanced analysis")
-                    integrated_step_result = improved_step_analysis(permanent_step_path)
-                    if integrated_step_result and 'error' not in integrated_step_result:
-                        result["step_analysis"] = integrated_step_result
-                        result["processing_log"].append("🧠 Integrated Enhanced STEP analysis completed")
-                        print("[PDF-ENHANCED-DEBUG] ✅ Enhanced STEP analysis completed")
-                    else:
+            if step_paths:
+                extracted_step_path = step_paths[0]
+                step_filename = os.path.basename(extracted_step_path)
+                result["processing_log"].append(f"📎 STEP extracted: {step_filename}")
+                print(f"[PDF-ENHANCED-DEBUG] 📎 STEP extracted: {step_filename}")
+                
+                # Save permanently
+                analysis_id = f"pdf_{int(time.time())}_{hashlib.md5(file_path.encode()).hexdigest()[:6]}"
+                permanent_dir = os.path.join("static", "stepviews", analysis_id)
+                os.makedirs(permanent_dir, exist_ok=True)
+                
+                permanent_step_filename = f"extracted_{analysis_id}.step"
+                permanent_step_path = os.path.join(permanent_dir, permanent_step_filename)
+                
+                import shutil
+                shutil.copy2(extracted_step_path, permanent_step_path)
+                
+                result["extracted_step_path"] = permanent_step_path
+                result["pdf_analysis_id"] = analysis_id
+                result["pdf_step_extracted"] = True  # Mark that STEP was extracted
+                result["step_source"] = "extracted"
+                
+                # ✅ INTEGRATED ENHANCED STEP ANALYSIS WITH DEBUG
+                print("[PDF-ENHANCED-DEBUG] 🧠 STEP analysis starting...")
+                if SCIPY_AVAILABLE:
+                    try:
+                        print("[PDF-ENHANCED-DEBUG] 🧠 Using integrated enhanced analysis")
+                        integrated_step_result = improved_step_analysis(permanent_step_path)
+                        if integrated_step_result and 'error' not in integrated_step_result:
+                            result["step_analysis"] = integrated_step_result
+                            result["processing_log"].append("🧠 Integrated Enhanced STEP analysis completed")
+                            print("[PDF-ENHANCED-DEBUG] ✅ Enhanced STEP analysis completed")
+                        else:
+                            result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
+                            result["processing_log"].append("🔧 Traditional STEP analysis completed")
+                            print("[PDF-ENHANCED-DEBUG] ✅ Traditional STEP analysis completed")
+                    except Exception as e:
+                        print(f"[PDF-ENHANCED-DEBUG] ❌ Integrated enhanced error: {e}")
                         result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
-                        result["processing_log"].append("🔧 Traditional STEP analysis completed")
-                        print("[PDF-ENHANCED-DEBUG] ✅ Traditional STEP analysis completed")
-                except Exception as e:
-                    print(f"[PDF-ENHANCED-DEBUG] ❌ Integrated enhanced error: {e}")
+                        result["processing_log"].append("🔧 Fallback STEP analysis completed")
+                else:
                     result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
-                    result["processing_log"].append("🔧 Fallback STEP analysis completed")
+                    result["processing_log"].append("🔧 Standard STEP analysis completed")
+                
+                result["step_file_hash"] = self._calculate_file_hash_fast(permanent_step_path)
+                
             else:
-                result["step_analysis"] = self.analyze_step_file_ultra_fast(permanent_step_path)
-                result["processing_log"].append("🔧 Standard STEP analysis completed")
+                print("[PDF-ENHANCED-DEBUG] ⚠️ No STEP found in PDF")
+                result["pdf_step_extracted"] = False
+                result["step_source"] = "none"
+                
+                # Only use zero defaults if no matched STEP was analyzed
+                if not result.get("step_analysis"):
+                    result["step_analysis"] = {
+                        "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
+                        "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
+                        "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
+                        "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
+                        "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
+                        "Toplam Yüzey Alanı (mm²)": 0,
+                        "method": "zero_defaults_no_step"
+                    }
+                    result["processing_log"].append("⚠️ No STEP found, using zero defaults")
             
-            result["step_file_hash"] = self._calculate_file_hash_fast(permanent_step_path)
-            
-        else:
-            print("[PDF-ENHANCED-DEBUG] ⚠️ No STEP found, using zero defaults")
-            result["pdf_step_extracted"] = False  # Mark that no STEP was extracted
-            result["step_analysis"] = {
-                "X (mm)": 0, "Y (mm)": 0, "Z (mm)": 0,
-                "X+Pad (mm)": 0, "Y+Pad (mm)": 0, "Z+Pad (mm)": 0,
-                "Silindirik Çap (mm)": 0, "Silindirik Yükseklik (mm)": 0,
-                "Prizma Hacmi (mm³)": 0, "Ürün Hacmi (mm³)": 0,
-                "Talaş Hacmi (mm³)": 0, "Talaş Oranı (%)": 0,
-                "Toplam Yüzey Alanı (mm²)": 0,
-                "method": "zero_defaults_no_step"
-            }
-            result["processing_log"].append("⚠️ No STEP found, using zero defaults")
+            # Cleanup
+            if extracted_step_path and extracted_step_path != permanent_step_path:
+                try:
+                    os.remove(extracted_step_path)
+                except:
+                    pass
         
         # ✅ CONTEXT-AWARE MATERIAL SEARCH - Multi-OCR Fusion WITH NORMALIZED NAMES
         print("[PDF-ENHANCED-DEBUG] 🔍 Starting CONTEXT-AWARE comprehensive material search...")
@@ -2044,7 +2100,7 @@ class MaterialAnalysisServiceOptimized:
             }
         
         # ✅ Store analysis strategy for debugging
-        result["analysis_strategy"] = "pdf_only_extract_step" if step_paths else "pdf_only_ocr"
+        result["analysis_strategy"] = result.get("step_source", "pdf_only_ocr")
         
         # Multi-OCR info
         result["ocr_methods_used"] = {
@@ -2053,31 +2109,21 @@ class MaterialAnalysisServiceOptimized:
             "enhanced_pdf": ENHANCED_PDF_AVAILABLE,
             "multi_fusion": True,
             "turkish_normalization_fixed": True,
-            "guaranteed_detection": True,  # ✅ NEW FLAG
-            "context_aware_patterns": True,  # ✅ NEW FLAG - CONTEXT-AWARE
-            "dynamic_mongodb_patterns": True,  # ✅ NEW FLAG
-            "cleaned_formatting": True,  # ✅ NEW FLAG
-            "normalized_database_names": True  # ✅ NEW FLAG
+            "guaranteed_detection": True,
+            "context_aware_patterns": True,
+            "dynamic_mongodb_patterns": True,
+            "cleaned_formatting": True,
+            "normalized_database_names": True,
+            "matched_step_support": matched_step_path is not None  # ✅ NEW FLAG
         }
-        
-        # Cleanup
-        if extracted_step_path and extracted_step_path != permanent_step_path:
-            try:
-                os.remove(extracted_step_path)
-            except:
-                pass
         
         total_pdf_time = time.time() - start_time
         result["processing_log"].append(f"⏱️ CONTEXT-AWARE Enhanced OCR + Turkish analysis time: {total_pdf_time:.2f}s")
         
         print(f"[PDF-ENHANCED-DEBUG] ✅ CONTEXT-AWARE enhanced multi-OCR PDF analysis completed: {total_pdf_time:.3f}s")
         print(f"[PDF-ENHANCED-DEBUG] 📊 Final materials count: {len(result.get('material_matches', []))}")
-        print("[PDF-ENHANCED-DEBUG] 🇹🇷 CONTEXT-AWARE Turkish normalization applied successfully")
-        print("[PDF-ENHANCED-DEBUG] 🛡️ GUARANTEED detection enabled")
-        print("[PDF-ENHANCED-DEBUG] 🎯 CONTEXT-AWARE pattern matching active")
-        print("[PDF-ENHANCED-DEBUG] 🗄️ Dynamic MongoDB patterns active")
-        print("[PDF-ENHANCED-DEBUG] 🧹 Material formatting cleaned")
-        print("[PDF-ENHANCED-DEBUG] 🔗 Database names normalized")
+        print(f"[PDF-ENHANCED-DEBUG] 📊 Step source: {result.get('step_source', 'none')}")
+        print(f"[PDF-ENHANCED-DEBUG] 📊 Prizma Hacmi: {result.get('step_analysis', {}).get('Prizma Hacmi (mm³)', 0)}")
         
         # ✅ CRITICAL: Ensure material_matches is always a list
         if "material_matches" not in result:
@@ -2286,11 +2332,12 @@ class MaterialAnalysisServiceOptimized:
     # MAIN ANALYSIS METHODS - CONTEXT-AWARE INTERFACE
     # =====================================================
     
-    def analyze_document_comprehensive(self, file_path, file_type, user_id):
+    def analyze_document_comprehensive(self, file_path, file_type, user_id, matched_step_path=None):
         """Main comprehensive analysis method - CONTEXT-AWARE INTERFACE"""
-        return self.analyze_document_ultra_fast(file_path, file_type, user_id)
+        return self.analyze_document_ultra_fast(file_path, file_type, user_id, matched_step_path)
     
-    def analyze_document_ultra_fast(self, file_path, file_type, user_id):
+
+    def analyze_document_ultra_fast(self, file_path, file_type, user_id, matched_step_path=None):
         """CONTEXT-AWARE - DATABASE-ONLY - GUARANTEED OCR DETECTION - DYNAMIC MONGODB"""
         result = {
             "material_matches": [],
@@ -2307,10 +2354,14 @@ class MaterialAnalysisServiceOptimized:
             start_time = time.time()
             print(f"[ULTRA-FAST-DEBUG] ⚡ CONTEXT-AWARE Enhanced OCR + guaranteed detection + dynamic MongoDB analysis: {file_path} ({file_type})")
             
+            # ✅ NEW: Log matched STEP if provided
+            if matched_step_path:
+                print(f"[ULTRA-FAST-DEBUG] 🔗 Matched STEP provided: {matched_step_path}")
+            
             if file_type == 'pdf':
-                # ✅ CONTEXT-AWARE ENHANCED PDF ANALYSIS WITH MULTI-OCR + GUARANTEED DETECTION + DYNAMIC MONGODB
+                # ✅ MODIFIED: Pass matched_step_path to PDF analysis
                 print("[ULTRA-FAST-DEBUG] 📄 Processing PDF with CONTEXT-AWARE enhanced analysis...")
-                result = self._analyze_pdf_ultra_fast_fixed(file_path, result)
+                result = self._analyze_pdf_ultra_fast_fixed(file_path, result, matched_step_path)
                 
             elif file_type in ['step', 'stp']:
                 # ✅ INTEGRATED ENHANCED STEP ANALYSIS
@@ -2421,7 +2472,7 @@ class MaterialAnalysisServiceOptimized:
             result["processing_log"].append("❌ ERROR but database emergency materials attempted")
             
             return result
-    
+
     # =====================================================
     # EXISTING METHODS - UNCHANGED
     # =====================================================
