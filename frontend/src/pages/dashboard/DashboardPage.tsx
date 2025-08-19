@@ -552,7 +552,7 @@ export const DashboardPage = () => {
                   className={classes.modelImage}
                   alt='3D Model'
                   width='200'
-                  height='200'
+                  height='auto'
                   preview
                 />
               ) : isRenderCompleted && !hasEnhancedRenders ? (
