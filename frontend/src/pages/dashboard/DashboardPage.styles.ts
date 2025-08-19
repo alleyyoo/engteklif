@@ -591,7 +591,8 @@ export const DashboardPageStyles = createUseStyles({
   modelImage: {
     width: '100%',
     height: 'auto',
-    objectFit: 'contain'
+    objectFit: 'contain',
+    padding: '1rem'
   },
   modelShowButton: {
     padding: '10px 24px',
