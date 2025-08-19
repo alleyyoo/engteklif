@@ -567,12 +567,81 @@ def analyze_uploaded_file_enhanced(analysis_id):
             if matched_step_path:
                 print(f"[ANALYZE] 🔗 Matched STEP: {matched_step_path}")
             
-            # ✅ ENHANCED ANALYSIS WITH OCR DATA CAPTURE
-            result = material_service.analyze_document_ultra_fast(
-                analysis['file_path'], 
-                analysis['file_type'],
-                current_user['id']
-            )
+            # ✅ FIX: PDF analizi için özel durum - MATCHED STEP KULLANIMI
+            if analysis['file_type'] == 'pdf' and matched_step_path and os.path.exists(matched_step_path):
+                print(f"[ANALYZE] 🎯 PDF with matched STEP - using special analysis")
+                
+                # PDF analizi yap (material extraction için)
+                result = material_service.analyze_document_ultra_fast(
+                    analysis['file_path'], 
+                    'pdf',
+                    current_user['id']
+                )
+                
+                # ✅ FIX: Matched STEP'i manuel olarak analiz et ve sonuçları birleştir
+                if not result.get('step_analysis') or result.get('step_analysis', {}).get('Prizma Hacmi (mm³)', 0) == 0:
+                    print(f"[ANALYZE] 🔄 Analyzing matched STEP separately: {matched_step_path}")
+                    
+                    try:
+                        # STEP analizi yap
+                        step_result = material_service.analyze_step_file_ultra_fast(matched_step_path)
+                        
+                        if step_result and not step_result.get('error'):
+                            # STEP sonuçlarını PDF sonuçlarına ekle
+                            result['step_analysis'] = step_result
+                            result['step_source'] = 'matched'
+                            result['matched_step_used'] = True
+                            result['extracted_step_path'] = matched_step_path  # For render
+                            
+                            # Material options'ı yeniden hesapla
+                            prizma_hacim = step_result.get('Prizma Hacmi (mm³)', 0)
+                            if prizma_hacim > 0:
+                                print(f"[ANALYZE] 🔄 Recalculating material options with volume: {prizma_hacim}")
+                                
+                                # Material options hesapla
+                                result["material_options"] = material_service._calculate_top_materials_database_only(
+                                    prizma_hacim, limit=0
+                                )
+                                
+                                # Found materials calculations
+                                if result.get("material_matches") and prizma_hacim > 0:
+                                    result["all_material_calculations"] = material_service._calculate_found_materials_database_only(
+                                        prizma_hacim, result["material_matches"]
+                                    )
+                                
+                                # Cost estimation
+                                if result.get("material_matches"):
+                                    cost_service = CostEstimationService()
+                                    result["cost_estimation"] = cost_service.calculate_cost_lightning(
+                                        step_result, result["material_matches"]
+                                    )
+                                
+                                print(f"[ANALYZE] ✅ Material options recalculated: {len(result.get('material_options', []))}")
+                                print(f"[ANALYZE] 📊 Material calculations: {len(result.get('all_material_calculations', []))}")
+                            
+                            print(f"[ANALYZE] ✅ Matched STEP analysis integrated successfully")
+                            print(f"[ANALYZE] 📊 Step analysis summary:")
+                            print(f"   - X+Pad: {step_result.get('X+Pad (mm)', 0)} mm")
+                            print(f"   - Y+Pad: {step_result.get('Y+Pad (mm)', 0)} mm")
+                            print(f"   - Z+Pad: {step_result.get('Z+Pad (mm)', 0)} mm")
+                            print(f"   - Prizma Hacmi: {prizma_hacim} mm³")
+                        else:
+                            print(f"[ANALYZE] ❌ Matched STEP analysis failed: {step_result.get('error', 'Unknown error')}")
+                            
+                    except Exception as step_error:
+                        print(f"[ANALYZE] ❌ Matched STEP analysis error: {step_error}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print(f"[ANALYZE] ✅ PDF already has valid STEP analysis from extraction")
+                
+            else:
+                # Normal analiz (PDF olmayan veya matched STEP olmayan durumlar)
+                result = material_service.analyze_document_ultra_fast(
+                    analysis['file_path'], 
+                    analysis['file_type'],
+                    current_user['id']
+                )
             
             print(f"[ANALYZE] 📊 Core analysis completed: {bool(result.get('material_matches'))}")
             
@@ -581,73 +650,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
             
             print(f"[ANALYZE] 📝 OCR data extracted: {len(ocr_data.get('raw_text', ''))} chars")
             print(f"[ANALYZE] 🔍 OCR keywords found: {len(ocr_data.get('material_keywords_found', []))}")
-            
-            # ✅ ENHANCED POST-PROCESSING (matched STEP handling)
-            if matched_step_path and os.path.exists(matched_step_path):
-                if not result.get('step_analysis') or not result.get('step_file_hash'):
-                    print(f"[ANALYZE] 🔄 Using matched STEP: {matched_step_path}")
-                    
-                    try:
-                        import cadquery as cq
-                        
-                        assembly = cq.importers.importStep(matched_step_path)
-                        shapes = assembly.objects
-                        
-                        if shapes:
-                            main_shape = max(shapes, key=lambda s: s.Volume())
-                            main_bbox = main_shape.BoundingBox()
-                            
-                            x, y, z = main_bbox.xlen, main_bbox.ylen, main_bbox.zlen
-                            
-                            x_pad = int(x) + 10 if x % 1 < 0.01 else int(x) + 11
-                            y_pad = int(y) + 10 if y % 1 < 0.01 else int(y) + 11
-                            z_pad = int(z) + 10 if z % 1 < 0.01 else int(z) + 11
-                            
-                            volume_padded = x_pad * y_pad * z_pad
-                            product_volume = main_shape.Volume()
-                            waste_volume = volume_padded - product_volume
-                            waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0.0
-                            total_surface_area = main_shape.Area()
-                            
-                            result['step_analysis'] = {
-                                "X (mm)": round(x, 3),
-                                "Y (mm)": round(y, 3),
-                                "Z (mm)": round(z, 3),
-                                "Silindirik Çap (mm)": round(max(x, y), 3),
-                                "Silindirik Yükseklik (mm)": round(z, 3),
-                                "X+Pad (mm)": x_pad,
-                                "Y+Pad (mm)": y_pad,
-                                "Z+Pad (mm)": z_pad,
-                                "Prizma Hacmi (mm³)": round(volume_padded, 3),
-                                "Ürün Hacmi (mm³)": round(product_volume, 3),
-                                "Talaş Hacmi (mm³)": round(waste_volume, 3),
-                                "Talaş Oranı (%)": round(waste_ratio, 2),
-                                "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 3)
-                            }
-                            
-                            result['step_source'] = 'matched'
-                            result['matched_step_used'] = True
-                            
-                            print(f"[ANALYZE] ✅ Matched STEP analysis completed")
-                        else:
-                            print(f"[ANALYZE] ⚠️ Matched STEP has no shapes")
-                            result['step_source'] = 'none'
-                            result['matched_step_used'] = False
-                            
-                    except Exception as matched_step_error:
-                        print(f"[ANALYZE] ❌ Matched STEP error: {matched_step_error}")
-                        result['step_source'] = 'none'
-                        result['matched_step_used'] = False
-                else:
-                    print(f"[ANALYZE] ✅ PDF STEP extraction successful, matched not needed")
-                    result['step_source'] = 'extracted'
-                    result['matched_step_used'] = False
-            else:
-                if result.get('step_analysis'):
-                    result['step_source'] = 'extracted'
-                else:
-                    result['step_source'] = 'none'
-                result['matched_step_used'] = False
             
             processing_time = time.time() - start_time
             print(f"[ANALYZE] ⏱️ Analysis completed: {processing_time:.2f}s")
@@ -736,6 +738,11 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 # ✅ 6. ENHANCED INSTANT RESPONSE WITH OCR DATA
                 updated_analysis = FileAnalysis.find_by_id(analysis_id)
                 
+                # Debug: Check material_options
+                print(f"[ANALYZE] 📊 Final material_options count: {len(updated_analysis.get('material_options', []))}")
+                if updated_analysis.get('material_options'):
+                    print(f"[ANALYZE] 📋 Sample material option: {updated_analysis['material_options'][0]}")
+                
                 response_data = {
                     "success": True,
                     "message": "Gelişmiş analiz başarıyla tamamlandı",
@@ -755,6 +762,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                         "step_analysis_available": bool(result.get('step_analysis')),
                         "cost_estimation_available": bool(result.get('cost_estimation')),
                         "material_calculations_count": len(result.get('all_material_calculations', [])),
+                        "material_options_count": len(updated_analysis.get('material_options', [])),  # Added
                         "render_will_be_available": should_render,
                         "estimated_render_time": "30-60 seconds" if should_render else "N/A"
                     },
@@ -779,6 +787,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 
                 print(f"[ANALYZE] 📤 Enhanced response sent with OCR data: {processing_time:.2f}s")
                 print(f"[ANALYZE] 📝 OCR text length in response: {len(ocr_data.get('raw_text', ''))}")
+                print(f"[ANALYZE] ✅ Material options in response: {len(updated_analysis.get('material_options', []))}")
                 
                 return jsonify(response_data), 200
             
@@ -829,6 +838,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             "success": False,
             "message": f"Beklenmeyen hata: {str(e)}"
         }), 500
+
 
 @upload_bp.route('/render/<analysis_id>', methods=['POST'])
 @jwt_required()
