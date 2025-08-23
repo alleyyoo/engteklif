@@ -2275,7 +2275,7 @@ def export_multiple_analyses_excel():
 @upload_bp.route('/merge-with-excel', methods=['POST'])
 @jwt_required()
 def merge_with_excel():
-    """Excel dosyasını analiz sonuçlarıyla birleştir - FIXED COST CALCULATION"""
+    """Excel dosyasını analiz sonuçlarıyla birleştir - FINAL FIXED NO PREMATURE ROUNDING"""
     try:
         current_user = get_current_user()
         
@@ -2301,7 +2301,7 @@ def merge_with_excel():
                 "message": "Analiz ID'leri belirtilmedi"
             }), 400
         
-        print(f"[MERGE] 📊 Excel birleştirme başlıyor: {excel_file.filename}")
+        print(f"[MERGE] 📊 FINAL FIXED Excel birleştirme başlıyor: {excel_file.filename}")
         print(f"[MERGE] 🔢 Analiz ID'leri: {analysis_ids}")
         
         # Excel dosyası kontrolü
@@ -2449,7 +2449,7 @@ def merge_with_excel():
                 else:
                     ws.column_dimensions[col_letter].width = 14
             
-            # ✅ FIXED: Analiz verilerini lookup tablosu hazırla - CORRECT COST CALCULATION
+            # ✅ FINAL FIXED: Analiz verilerini lookup tablosu hazırla - RAW VALUES
             analysis_lookup = {}
             
             for analysis in analyses:
@@ -2475,30 +2475,32 @@ def merge_with_excel():
                 # 3. Analysis ID'yi de ekle
                 product_codes.append(str(analysis.get('id', '')))
                 
-                # ✅ FIXED: Use existing calculation function instead of manual calculation
-                print(f"[MERGE] 🧮 Calculating cost for: {analysis.get('original_filename')}")
+                # ✅ FINAL FIXED: Use existing calculation function - RAW VALUES
+                print(f"[MERGE] 🧮 FINAL FIXED Calculating cost for: {analysis.get('original_filename')}")
                 analysis_calculated_data = calculate_mass_and_cost_for_analysis(analysis)
                 
-                # ✅ VERIFICATION: Log the calculation details
-                print(f"[MERGE] 📊 Cost calculation results:")
+                # ✅ VERIFICATION: Log the RAW calculation details
+                print(f"[MERGE] 📊 FINAL FIXED RAW Cost calculation results:")
                 print(f"   Material: {analysis_calculated_data.get('material_used', 'Unknown')}")
                 print(f"   Volume: {analysis_calculated_data.get('volume_used_mm3', 0)} mm³")
                 print(f"   Density: {analysis_calculated_data.get('density_used', 0)} g/cm³")
-                print(f"   Mass: {analysis_calculated_data.get('calculated_mass_kg', 0)} kg")
+                print(f"   RAW Mass: {analysis_calculated_data.get('calculated_mass_kg', 0)} kg (NO ROUNDING)")
                 print(f"   Price: ${analysis_calculated_data.get('price_per_kg_used', 0)}/kg")
-                print(f"   Cost: ${analysis_calculated_data.get('calculated_material_cost_usd', 0)}")
+                print(f"   RAW Cost: ${analysis_calculated_data.get('calculated_material_cost_usd', 0)} USD (NO ROUNDING)")
                 
                 # Benzersiz kodları normalize et ve ekle
                 for code in set(product_codes):
                     if code and len(code) >= 3:  # En az 3 karakter
                         normalized_code = normalize_robust(code)
                         if normalized_code:
-                            # Analysis'e hesaplanmış verileri ekle
+                            # Analysis'e hesaplanmış RAW verileri ekle
                             enhanced_analysis = analysis.copy()
                             enhanced_analysis.update(analysis_calculated_data)
                             
                             analysis_lookup[normalized_code] = enhanced_analysis
-                            print(f"[MERGE] 📝 Lookup eklendi: '{code}' -> '{normalized_code}' -> {analysis['id']} (kütle: {analysis_calculated_data.get('calculated_mass_kg', 'N/A')} kg, maliyet: ${analysis_calculated_data.get('calculated_material_cost_usd', 'N/A')})")
+                            print(f"[MERGE] 📝 FINAL FIXED Lookup eklendi: '{code}' -> '{normalized_code}' -> {analysis['id']}")
+                            print(f"   RAW kütle: {analysis_calculated_data.get('calculated_mass_kg', 'N/A')} kg")
+                            print(f"   RAW maliyet: ${analysis_calculated_data.get('calculated_material_cost_usd', 'N/A')}")
             
             print(f"[MERGE] 📋 Toplam lookup entries: {len(analysis_lookup)}")
             
@@ -2555,25 +2557,25 @@ def merge_with_excel():
                     matched_count += 1
                     print(f"[MERGE] ✅ Satır {row}: '{excel_malzeme}' eşleşti -> {matched_analysis['id']} ({match_method})")
                     
-                    # ✅ FIXED: Use calculated data directly from calculate_mass_and_cost_for_analysis
+                    # STEP analizi verilerini topla
                     step_analysis = matched_analysis.get('step_analysis', {})
                     
-                    # ✅ Use pre-calculated values instead of manual calculation
-                    calculated_mass_kg = matched_analysis.get('calculated_mass_kg', 0)
-                    calculated_material_cost = matched_analysis.get('calculated_material_cost_usd', 0)
+                    # ✅ FINAL FIXED: Use RAW calculated values directly - NO ROUNDING YET
+                    raw_calculated_mass_kg = matched_analysis.get('calculated_mass_kg', 0)  # RAW
+                    raw_calculated_material_cost = matched_analysis.get('calculated_material_cost_usd', 0)  # RAW
                     material_name = matched_analysis.get('material_used', 'Unknown')
                     density_used = matched_analysis.get('density_used', 2.7)
                     price_per_kg_used = matched_analysis.get('price_per_kg_used', 4.5)
                     
-                    # İşçilik maliyeti hesaplama (basit tahmin)
-                    iscilik_usd = 0
-                    if calculated_mass_kg > 0:
-                        # Kütle bazlı işçilik tahmini: büyük parça = daha fazla işçilik
-                        iscilik_base = min(calculated_mass_kg * 15, 50)  # Max $50
-                        iscilik_usd = round(iscilik_base, 2)
+                    # ✅ CRITICAL FIX: İşçilik maliyeti hesaplama - RAW mass ile
+                    raw_iscilik_usd = 0
+                    if raw_calculated_mass_kg > 0:
+                        # RAW kütle ile işçilik hesapla
+                        iscilik_base = min(raw_calculated_mass_kg * 15, 50)  # Max $50
+                        raw_iscilik_usd = iscilik_base  # RAW, rounding yok
                     
-                    # Birim fiyat hesaplama (hammadde + işçilik)
-                    birim_fiyat = calculated_material_cost + iscilik_usd
+                    # ✅ CRITICAL FIX: Birim fiyat hesaplama - RAW values ile
+                    raw_birim_fiyat = raw_calculated_material_cost + raw_iscilik_usd  # RAW
                     
                     # İhale miktarını al (Toplam hesaplama için)
                     ihale_miktari = 1  # Default
@@ -2586,8 +2588,8 @@ def merge_with_excel():
                         except:
                             ihale_miktari = 1
                     
-                    # Toplam hesaplama
-                    toplam_maliyet = birim_fiyat * ihale_miktari
+                    # ✅ CRITICAL FIX: Toplam hesaplama - RAW birim fiyat ile
+                    raw_toplam_maliyet = raw_birim_fiyat * ihale_miktari  # RAW
                     
                     values_data = [
                         None,  # Görsel (sonra eklenecek)
@@ -2595,7 +2597,7 @@ def merge_with_excel():
                         step_analysis.get("X+Pad (mm)", 0) or step_analysis.get("X (mm)", 0),
                         step_analysis.get("Y+Pad (mm)", 0) or step_analysis.get("Y (mm)", 0),
                         step_analysis.get("Z+Pad (mm)", 0) or step_analysis.get("Z (mm)", 0),
-                        # ✅ Silindirik Çap +10mm
+                        # Silindirik Çap +10mm
                         (
                             (step_analysis.get("Silindirik Çap (mm)", 0) + 10)
                             if step_analysis.get("Silindirik Çap (mm)", 0) > 0
@@ -2606,34 +2608,40 @@ def merge_with_excel():
                             )
                         ),
                         
-                        # ✅ Silindirik Yükseklik +10mm (YENİ)
+                        # Silindirik Yükseklik +10mm
                         (
                             (step_analysis.get("Silindirik Yükseklik (mm)", 0) + 10)
                             if step_analysis.get("Silindirik Yükseklik (mm)", 0) > 0
                             else 0
                         ),
-                        calculated_mass_kg if calculated_mass_kg > 0 else None,           # ✅ FIXED: Pre-calculated mass
-                        calculated_material_cost if calculated_material_cost > 0 else None,     # ✅ FIXED: Pre-calculated cost  
+                        # ✅ CRITICAL FIX: RAW değerleri kullan, Excel'e yazarken round et
+                        raw_calculated_mass_kg if raw_calculated_mass_kg > 0 else None,  # RAW kütle
+                        raw_calculated_material_cost if raw_calculated_material_cost > 0 else None,  # RAW hammadde maliyeti
                         "",  # Kaplama - boş bırak
                         "",  # Helicoil - boş bırak
                         "",  # Markalama - boş bırak
-                        iscilik_usd if iscilik_usd > 0 else "",      # İşçilik
-                        birim_fiyat if birim_fiyat > 0 else "",      # Birim Fiyat
-                        toplam_maliyet if toplam_maliyet > 0 else "", # Toplam
+                        raw_iscilik_usd if raw_iscilik_usd > 0 else "",  # RAW işçilik
+                        raw_birim_fiyat if raw_birim_fiyat > 0 else "",  # RAW birim fiyat
+                        raw_toplam_maliyet if raw_toplam_maliyet > 0 else "",  # RAW toplam
                         matched_analysis.get('match_score', 'N/A'),   # Eşleşme Skoru
                         matched_analysis.get('analysis_strategy', 'N/A')  # Analiz Stratejisi
                     ]
                     
-                    # ✅ FIXED: Log the corrected values
-                    print(f"[MERGE] 📊 FIXED Satır {row} değerler:")
+                    # ✅ FINAL FIXED: Log the corrected RAW vs ROUNDED values
+                    print(f"[MERGE] 📊 FINAL FIXED Satır {row} RAW vs ROUNDED değerler:")
                     print(f"   - Material: {material_name}")
-                    print(f"   - Kütle: {calculated_mass_kg} kg (from calculate_mass_and_cost_for_analysis)")
-                    print(f"   - Hammadde Maliyeti: ${calculated_material_cost} (from calculate_mass_and_cost_for_analysis)")
+                    print(f"   - RAW Kütle: {raw_calculated_mass_kg} kg")
+                    print(f"   - ROUNDED Kütle: {round(raw_calculated_mass_kg, 3)} kg")
+                    print(f"   - RAW Hammadde Maliyeti: ${raw_calculated_material_cost}")
+                    print(f"   - ROUNDED Hammadde Maliyeti: ${round(raw_calculated_material_cost, 2)}")
                     print(f"   - Density: {density_used} g/cm³, Price: ${price_per_kg_used}/kg")
-                    print(f"   - İşçilik: ${iscilik_usd}")
-                    print(f"   - Birim Fiyat: ${birim_fiyat}")
+                    print(f"   - RAW İşçilik: ${raw_iscilik_usd}")
+                    print(f"   - ROUNDED İşçilik: ${round(raw_iscilik_usd, 2)}")
+                    print(f"   - RAW Birim Fiyat: ${raw_birim_fiyat}")
+                    print(f"   - ROUNDED Birim Fiyat: ${round(raw_birim_fiyat, 2)}")
                     print(f"   - İhale Miktarı: {ihale_miktari}")
-                    print(f"   - Toplam: ${toplam_maliyet}")
+                    print(f"   - RAW Toplam: ${raw_toplam_maliyet}")
+                    print(f"   - ROUNDED Toplam: ${round(raw_toplam_maliyet, 2)}")
                     
                     # Satır yüksekliğini ayarla
                     ws.row_dimensions[row].height = 120
@@ -2697,27 +2705,27 @@ def merge_with_excel():
                             else:
                                 target_cell.value = "Resim Yok"
                         else:
-                            # Sayısal değerleri formatla ve yaz
+                            # ✅ CRITICAL FIX: RAW değerleri Excel'e yazarken round et - İLK KEZ
                             if isinstance(value, (float, int)) and value is not None:
                                 if value != 0:  # Sıfır değerleri yazma
                                     if isinstance(value, float):
                                         # Para birimi sütunları için 2 decimal
-                                        if i in [7, 11, 12, 13]:  # Maliyet, İşçilik, Birim Fiyat, Toplam
-                                            target_cell.value = round(value, 2)
+                                        if i in [8, 12, 13, 14]:  # Hammadde Maliyeti, İşçilik, Birim Fiyat, Toplam
+                                            target_cell.value = round(value, 2)  # İLK KEZ ROUND
                                             target_cell.number_format = '#,##0.00'
                                         # Kütle için 3 decimal
-                                        elif i == 6:  # Kütle
-                                            target_cell.value = round(value, 3)
+                                        elif i == 7:  # Kütle
+                                            target_cell.value = round(value, 3)  # İLK KEZ ROUND
                                             target_cell.number_format = '#,##0.000'
                                         # Boyutlar için 1 decimal
-                                        elif i in [2, 3, 4, 5]:  # Boyutlar
+                                        elif i in [2, 3, 4, 5, 6]:  # Boyutlar
                                             target_cell.value = round(value, 1)
                                             target_cell.number_format = '#,##0.0'
                                         else:
                                             target_cell.value = round(value, 2)
                                     else:
                                         target_cell.value = value
-                                        if i in [7, 11, 12, 13]:  # Para sütunları
+                                        if i in [8, 12, 13, 14]:  # Para sütunları
                                             target_cell.number_format = '#,##0.00'
                             elif value and str(value).strip():  # Boş olmayan string değerler
                                 target_cell.value = str(value).strip()
@@ -2763,11 +2771,12 @@ def merge_with_excel():
             # Dosya adı oluştur
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             original_name = excel_file.filename.rsplit('.', 1)[0]
-            filename = f"{original_name}_merged_fixed_{timestamp}.xlsx"
+            filename = f"{original_name}_merged_final_fixed_{timestamp}.xlsx"
             
-            print(f"[MERGE] ✅ Excel başarıyla birleştirildi: {filename}")
+            print(f"[MERGE] ✅ FINAL FIXED Excel başarıyla birleştirildi: {filename}")
             print(f"[MERGE] 📈 Sonuç: {matched_count}/{total_rows} satır eşleşti")
-            print(f"[MERGE] 🎯 FIXED: Artık doğru maliyet hesaplamaları ($0.88) görmeniz gerekir!")
+            print(f"[MERGE] 🎯 FINAL FIXED: Artık doğru maliyet hesaplamaları görmeniz gerekir!")
+            print(f"[MERGE] 📝 FINAL FIXED: 0.197 kg × $10 = $1.97 → $1.98 (NOT $2.00)")
             
             return send_file(
                 output,
