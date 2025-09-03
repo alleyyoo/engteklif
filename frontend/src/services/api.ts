@@ -500,17 +500,20 @@ class ApiService {
   // ANALYSIS METHODS
   // ============================================================================
 
-  async analyzeFile(analysisId: string): Promise<AnalysisResult> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/upload/analyze/${analysisId}`,
-      {
-        method: "POST",
-        headers: this.getAuthHeaders(),
-      }
-    );
+  async analyzeFile(analysisId: string, rotationStrategy: 'aselsan' | 'other' = 'other'): Promise<AnalysisResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/upload/analyze/${analysisId}`,
+    {
+      method: "POST",
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({
+        rotation_strategy: rotationStrategy
+      })
+    }
+  );
 
-    return response.json();
-  }
+  return response.json();
+}
 
   // ✅ YENİ - Force re-analysis (updated materials ile)
   async forceReanalysis(analysisId: string): Promise<ReanalysisResponse> {

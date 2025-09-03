@@ -20,6 +20,9 @@ export const DashboardPage = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
 
+  // Rotation strategy state - hidden from user but set to default
+  const [rotationStrategy] = useState<'aselsan' | 'other'>('other');
+
   const {
     files,
     fileGroups,
@@ -131,6 +134,11 @@ export const DashboardPage = () => {
       }
     }
     event.target.value = '';
+  };
+
+  const handleUploadAndAnalyze = async () => {
+    // rotationStrategy'yi uploadAndAnalyze'e pass et
+    await uploadAndAnalyze(rotationStrategy);
   };
 
   const handleExcelMerge = async () => {
@@ -514,7 +522,6 @@ export const DashboardPage = () => {
                   </button>
                 </div>
               ) : isRenderPending ? (
-                // ✅ YENİ: Pending durumu için özel mesaj
                 <div
                   style={{
                     color: '#dc3545',
@@ -735,7 +742,6 @@ export const DashboardPage = () => {
                 const cylindricalDiameter =
                   parseFloat(stepAnalysis?.['Silindirik Çap (mm)']) || 0;
                 if (cylindricalDiameter === 0) return '-';
-                // ✅ +10mm eklendi
                 return (cylindricalDiameter + 10).toFixed(1);
               })()}
             </p>
@@ -749,7 +755,6 @@ export const DashboardPage = () => {
                 const cylindricalHeight =
                   parseFloat(stepAnalysis?.['Silindirik Yükseklik (mm)']) || 0;
                 if (cylindricalHeight === 0) return '-';
-                // ✅ +10mm eklendi
                 return (cylindricalHeight + 10).toFixed(1);
               })()}
             </p>
@@ -1452,7 +1457,7 @@ export const DashboardPage = () => {
           {/* Upload Button */}
           <button
             className={classes.uploadButton}
-            onClick={uploadAndAnalyze}
+            onClick={handleUploadAndAnalyze}
             disabled={files.length === 0 || isUploading || pendingCount === 0}>
             {isUploading
               ? 'Yükleniyor ve Analiz Ediliyor...'

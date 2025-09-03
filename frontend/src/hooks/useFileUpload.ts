@@ -617,270 +617,270 @@ export const useFileUpload = () => {
     []
   );
 
-  // Upload and analyze with multiple endpoint
-  const uploadAndAnalyze = useCallback(async () => {
-    if (files.length === 0) return;
+  const uploadAndAnalyze = useCallback(async (rotationStrategy: 'aselsan' | 'other' = 'other') => {
+  if (files.length === 0) return;
 
-    const pendingFiles = files.filter((file) => file.status === "pending");
+  const pendingFiles = files.filter((file) => file.status === "pending");
 
-    if (pendingFiles.length === 0) {
-      console.log("Tüm dosyalar zaten işlenmiş veya işleniyor");
-      return;
-    }
+  if (pendingFiles.length === 0) {
+    console.log("Tüm dosyalar zaten işlenmiş veya işleniyor");
+    return;
+  }
 
-    setIsUploading(true);
-    const startTime = Date.now();
+  setIsUploading(true);
+  const startTime = Date.now();
 
-    try {
-      // Mark all pending files as uploading
-      pendingFiles.forEach((file) => {
-        const index = files.indexOf(file);
-        updateFileStatus(index, {
-          status: "uploading",
-          progress: 20,
+  try {
+    // Mark all pending files as uploading
+    pendingFiles.forEach((file) => {
+      const index = files.indexOf(file);
+      updateFileStatus(index, {
+        status: "uploading",
+        progress: 20,
+      });
+    });
+
+    // Upload multiple files
+    const filesToUpload = pendingFiles.map((f) => f.file);
+    console.log(`📤 Multiple upload başlıyor: ${filesToUpload.length} dosya`);
+
+    const uploadResponse: MultipleUploadResponse =
+      await apiService.uploadMultipleFiles(filesToUpload);
+
+    if (uploadResponse.success && uploadResponse.analyses) {
+      console.log(
+        "✅ Multiple upload başarılı:",
+        uploadResponse.upload_summary
+      );
+
+      // Process matched pairs BEFORE updating file statuses
+      const matchedFileNames = new Set<string>();
+      const newMatchedPairs: MatchedPair[] = [];
+
+      // Process PDF-STEP matches
+      uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
+        const pdfFileIndex = pendingFiles.findIndex(
+          (f) => f.file.name === match.pdf_file
+        );
+        const stepFileIndex = pendingFiles.findIndex(
+          (f) => f.file.name === match.step_file
+        );
+
+        if (pdfFileIndex !== -1 && stepFileIndex !== -1) {
+          const pairId = `pair_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          // Track matched file names
+          matchedFileNames.add(match.pdf_file);
+          matchedFileNames.add(match.step_file);
+
+          // Update the pending files with match info
+          pendingFiles[pdfFileIndex].isPartOfMatch = true;
+          pendingFiles[pdfFileIndex].matchPairId = pairId;
+          pendingFiles[stepFileIndex].isPartOfMatch = true;
+          pendingFiles[stepFileIndex].matchPairId = pairId;
+
+          const matchedPair: MatchedPair = {
+            id: pairId,
+            pdfFile: { ...pendingFiles[pdfFileIndex] },
+            stepFile: { ...pendingFiles[stepFileIndex] },
+            matchScore: match.match_score,
+            matchQuality: match.match_quality,
+            displayName: pendingFiles[pdfFileIndex].file.name.replace(
+              /\.[^/.]+$/,
+              ""
+            ),
+            status: "pending",
+            progress: 0,
+          };
+
+          newMatchedPairs.push(matchedPair);
+        }
+      });
+
+      if (newMatchedPairs.length > 0) {
+        setMatchedPairs((prev) => [...prev, ...newMatchedPairs]);
+        console.log(
+          `🔗 ${newMatchedPairs.length} PDF-STEP eşleştirmesi oluşturuldu`
+        );
+      }
+
+      // Create analysis map
+      const analysisMap = new Map<string, any>();
+      uploadResponse.analyses.forEach((analysis: any) => {
+        analysisMap.set(analysis.primary_file, analysis);
+        if (analysis.secondary_file) {
+          analysisMap.set(analysis.secondary_file, analysis);
+        }
+      });
+
+      // Update file statuses with match information
+      setFiles((prevFiles) => {
+        return prevFiles.map((file) => {
+          const pendingFile = pendingFiles.find(
+            (pf) => pf.file.name === file.file.name
+          );
+          if (!pendingFile) return file;
+
+          const analysis = analysisMap.get(file.file.name);
+          const isMatched = matchedFileNames.has(file.file.name);
+          const matchedPair = newMatchedPairs.find(
+            (pair) =>
+              pair.pdfFile.file.name === file.file.name ||
+              pair.stepFile.file.name === file.file.name
+          );
+
+          if (analysis) {
+            return {
+              ...file,
+              status: "uploaded",
+              progress: 50,
+              analysisId: analysis.analysis_id,
+              isPartOfMatch: isMatched,
+              matchPairId: matchedPair?.id,
+            };
+          } else {
+            const failedUpload = uploadResponse.failed_uploads?.find(
+              (f) => f.filename === file.file.name
+            );
+
+            return {
+              ...file,
+              status: "failed",
+              progress: 0,
+              error: failedUpload?.error || "Dosya yüklenemedi",
+            };
+          }
         });
       });
 
-      // Upload multiple files
-      const filesToUpload = pendingFiles.map((f) => f.file);
-      console.log(`📤 Multiple upload başlıyor: ${filesToUpload.length} dosya`);
+      // Analyze each file with rotation strategy
+      for (const analysisData of uploadResponse.analyses) {
+        const analysisId = analysisData.analysis_id;
 
-      const uploadResponse: MultipleUploadResponse =
-        await apiService.uploadMultipleFiles(filesToUpload);
-
-      if (uploadResponse.success && uploadResponse.analyses) {
-        console.log(
-          "✅ Multiple upload başarılı:",
-          uploadResponse.upload_summary
+        // Find related files
+        const relatedFiles = files.filter(
+          (f) =>
+            f.file.name === analysisData.primary_file ||
+            f.file.name === analysisData.secondary_file
         );
 
-        // Process matched pairs BEFORE updating file statuses
-        const matchedFileNames = new Set<string>();
-        const newMatchedPairs: MatchedPair[] = [];
-
-        // Process PDF-STEP matches
-        uploadResponse.matching_results?.pdf_step_matches?.forEach((match) => {
-          const pdfFileIndex = pendingFiles.findIndex(
-            (f) => f.file.name === match.pdf_file
-          );
-          const stepFileIndex = pendingFiles.findIndex(
-            (f) => f.file.name === match.step_file
-          );
-
-          if (pdfFileIndex !== -1 && stepFileIndex !== -1) {
-            const pairId = `pair_${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2, 9)}`;
-
-            // Track matched file names
-            matchedFileNames.add(match.pdf_file);
-            matchedFileNames.add(match.step_file);
-
-            // Update the pending files with match info
-            pendingFiles[pdfFileIndex].isPartOfMatch = true;
-            pendingFiles[pdfFileIndex].matchPairId = pairId;
-            pendingFiles[stepFileIndex].isPartOfMatch = true;
-            pendingFiles[stepFileIndex].matchPairId = pairId;
-
-            const matchedPair: MatchedPair = {
-              id: pairId,
-              pdfFile: { ...pendingFiles[pdfFileIndex] },
-              stepFile: { ...pendingFiles[stepFileIndex] },
-              matchScore: match.match_score,
-              matchQuality: match.match_quality,
-              displayName: pendingFiles[pdfFileIndex].file.name.replace(
-                /\.[^/.]+$/,
-                ""
-              ),
-              status: "pending",
-              progress: 0,
-            };
-
-            newMatchedPairs.push(matchedPair);
-          }
-        });
-
-        if (newMatchedPairs.length > 0) {
-          setMatchedPairs((prev) => [...prev, ...newMatchedPairs]);
-          console.log(
-            `🔗 ${newMatchedPairs.length} PDF-STEP eşleştirmesi oluşturuldu`
-          );
-        }
-
-        // Create analysis map
-        const analysisMap = new Map<string, any>();
-        uploadResponse.analyses.forEach((analysis: any) => {
-          analysisMap.set(analysis.primary_file, analysis);
-          if (analysis.secondary_file) {
-            analysisMap.set(analysis.secondary_file, analysis);
-          }
-        });
-
-        // Update file statuses with match information
-        setFiles((prevFiles) => {
-          return prevFiles.map((file) => {
-            const pendingFile = pendingFiles.find(
-              (pf) => pf.file.name === file.file.name
-            );
-            if (!pendingFile) return file;
-
-            const analysis = analysisMap.get(file.file.name);
-            const isMatched = matchedFileNames.has(file.file.name);
-            const matchedPair = newMatchedPairs.find(
-              (pair) =>
-                pair.pdfFile.file.name === file.file.name ||
-                pair.stepFile.file.name === file.file.name
-            );
-
-            if (analysis) {
-              return {
-                ...file,
-                status: "uploaded",
-                progress: 50,
-                analysisId: analysis.analysis_id,
-                isPartOfMatch: isMatched,
-                matchPairId: matchedPair?.id,
-              };
-            } else {
-              const failedUpload = uploadResponse.failed_uploads?.find(
-                (f) => f.filename === file.file.name
-              );
-
-              return {
-                ...file,
-                status: "failed",
-                progress: 0,
-                error: failedUpload?.error || "Dosya yüklenemedi",
-              };
-            }
+        relatedFiles.forEach((file) => {
+          const fileIndex = files.indexOf(file);
+          updateFileStatus(fileIndex, {
+            status: "analyzing",
+            progress: 70,
           });
         });
 
-        // Analyze each file
-        for (const analysisData of uploadResponse.analyses) {
-          const analysisId = analysisData.analysis_id;
+        try {
+          // ROTATION STRATEGY PARAMETRESI BURADA GÖNDERİLİYOR
+          const analysisResponse = await apiService.analyzeFile(analysisId, rotationStrategy);
 
-          // Find related files
-          const relatedFiles = files.filter(
-            (f) =>
-              f.file.name === analysisData.primary_file ||
-              f.file.name === analysisData.secondary_file
-          );
+          if (analysisResponse.success) {
+            const renderStatus =
+              analysisResponse.analysis?.render_status || "none";
 
+            // Update all related files - preserve match info
+            setFiles((prevFiles) => {
+              return prevFiles.map((file) => {
+                if (
+                  file.file.name === analysisData.primary_file ||
+                  file.file.name === analysisData.secondary_file
+                ) {
+                  const matchedPair = newMatchedPairs.find(
+                    (pair) =>
+                      pair.pdfFile.file.name === file.file.name ||
+                      pair.stepFile.file.name === file.file.name
+                  );
+
+                  return {
+                    ...file,
+                    status: "completed",
+                    progress: 100,
+                    result: analysisResponse,
+                    renderStatus: renderStatus as any,
+                    lastRenderCheck: Date.now(),
+                    // Make sure match info is preserved
+                    isPartOfMatch:
+                      file.isPartOfMatch ||
+                      !!matchedPair ||
+                      matchedFileNames.has(file.file.name),
+                    matchPairId: file.matchPairId || matchedPair?.id,
+                  };
+                }
+                return file;
+              });
+            });
+
+            // Start render monitoring if needed
+            if (renderStatus === "processing" || renderStatus === "pending") {
+              console.log(`🎨 Render monitoring başlatılıyor: ${analysisId}`);
+              setRenderStatusMap(
+                (prev) => new Map(prev.set(analysisId, renderStatus))
+              );
+              startRenderStatusMonitoring(analysisId);
+            }
+          } else {
+            // Update failed files
+            setFiles((prevFiles) => {
+              return prevFiles.map((file) => {
+                if (
+                  file.file.name === analysisData.primary_file ||
+                  file.file.name === analysisData.secondary_file
+                ) {
+                  return {
+                    ...file,
+                    status: "failed",
+                    progress: 0,
+                    error: analysisResponse.message || "Analiz başarısız",
+                  };
+                }
+                return file;
+              });
+            });
+          }
+        } catch (error) {
           relatedFiles.forEach((file) => {
             const fileIndex = files.indexOf(file);
             updateFileStatus(fileIndex, {
-              status: "analyzing",
-              progress: 70,
+              status: "failed",
+              progress: 0,
+              error: error instanceof Error ? error.message : "Analiz hatası",
             });
           });
-
-          try {
-            const analysisResponse = await apiService.analyzeFile(analysisId);
-
-            if (analysisResponse.success) {
-              const renderStatus =
-                analysisResponse.analysis?.render_status || "none";
-
-              // Update all related files - preserve match info
-              setFiles((prevFiles) => {
-                return prevFiles.map((file) => {
-                  if (
-                    file.file.name === analysisData.primary_file ||
-                    file.file.name === analysisData.secondary_file
-                  ) {
-                    const matchedPair = newMatchedPairs.find(
-                      (pair) =>
-                        pair.pdfFile.file.name === file.file.name ||
-                        pair.stepFile.file.name === file.file.name
-                    );
-
-                    return {
-                      ...file,
-                      status: "completed",
-                      progress: 100,
-                      result: analysisResponse,
-                      renderStatus: renderStatus as any,
-                      lastRenderCheck: Date.now(),
-                      // Make sure match info is preserved
-                      isPartOfMatch:
-                        file.isPartOfMatch ||
-                        !!matchedPair ||
-                        matchedFileNames.has(file.file.name),
-                      matchPairId: file.matchPairId || matchedPair?.id,
-                    };
-                  }
-                  return file;
-                });
-              });
-
-              // Start render monitoring if needed
-              if (renderStatus === "processing" || renderStatus === "pending") {
-                console.log(`🎨 Render monitoring başlatılıyor: ${analysisId}`);
-                setRenderStatusMap(
-                  (prev) => new Map(prev.set(analysisId, renderStatus))
-                );
-                startRenderStatusMonitoring(analysisId);
-              }
-            } else {
-              // Update failed files
-              setFiles((prevFiles) => {
-                return prevFiles.map((file) => {
-                  if (
-                    file.file.name === analysisData.primary_file ||
-                    file.file.name === analysisData.secondary_file
-                  ) {
-                    return {
-                      ...file,
-                      status: "failed",
-                      progress: 0,
-                      error: analysisResponse.message || "Analiz başarısız",
-                    };
-                  }
-                  return file;
-                });
-              });
-            }
-          } catch (error) {
-            relatedFiles.forEach((file) => {
-              const fileIndex = files.indexOf(file);
-              updateFileStatus(fileIndex, {
-                status: "failed",
-                progress: 0,
-                error: error instanceof Error ? error.message : "Analiz hatası",
-              });
-            });
-          }
         }
-      } else {
-        // Upload failed
-        pendingFiles.forEach((file) => {
-          const fileIndex = files.indexOf(file);
-          updateFileStatus(fileIndex, {
-            status: "failed",
-            progress: 0,
-            error: uploadResponse.message || "Upload başarısız",
-          });
-        });
       }
-
-      const endTime = Date.now();
-      setTotalProcessingTime((endTime - startTime) / 1000);
-    } catch (error) {
-      console.error("❌ Upload/Analyze hatası:", error);
-
+    } else {
+      // Upload failed
       pendingFiles.forEach((file) => {
         const fileIndex = files.indexOf(file);
         updateFileStatus(fileIndex, {
           status: "failed",
           progress: 0,
-          error: error instanceof Error ? error.message : "Bilinmeyen hata",
+          error: uploadResponse.message || "Upload başarısız",
         });
       });
-    } finally {
-      setIsUploading(false);
     }
-  }, [files, updateFileStatus, startRenderStatusMonitoring]);
+
+    const endTime = Date.now();
+    setTotalProcessingTime((endTime - startTime) / 1000);
+  } catch (error) {
+    console.error("❌ Upload/Analyze hatası:", error);
+
+    pendingFiles.forEach((file) => {
+      const fileIndex = files.indexOf(file);
+      updateFileStatus(fileIndex, {
+        status: "failed",
+        progress: 0,
+        error: error instanceof Error ? error.message : "Bilinmeyen hata",
+      });
+    });
+  } finally {
+    setIsUploading(false);
+  }
+}, [files, updateFileStatus, startRenderStatusMonitoring]);
 
   const retryFile = useCallback(
     async (index: number) => {
