@@ -1984,23 +1984,23 @@ class MaterialAnalysisServiceOptimized:
 
     def _extract_step_from_pdf_lightning(self, pdf_path):
         """
-        Performans odaklı, kapsamlı PDF'ten STEP çıkarma
-        - Hem standart EmbeddedFiles hem de annotation desteği
-        - Maksimum 2 saniye timeout
+        Extract all embedded .step/.stp files from a PDF (including annotations)
+        Enhanced version with timeout, size limits and stream detection
         """
+        import pikepdf
+        import time
+        
+        # Performance parameters
+        MAX_TIMEOUT = 2.0
+        MIN_STEP_SIZE = 100  # Minimum 100 bytes
+        MAX_STEP_SIZE = 20 * 1024 * 1024  # Maximum 20MB
+        
+        start_time = time.time()
+        extracted_paths = []
+        
+        print(f"[STEP-EXTRACT] Scanning PDF: {os.path.basename(pdf_path)}")
+        
         try:
-            import time
-            import os
-            
-            MAX_TIMEOUT = 2.0
-            MIN_STEP_SIZE = 100
-            MAX_STEP_SIZE = 20 * 1024 * 1024
-            
-            start_time = time.time()
-            extracted = []
-            
-            print(f"[STEP-EXTRACT-ENHANCED] Scanning: {os.path.basename(pdf_path)}")
-            
             with pikepdf.open(pdf_path) as pdf:
                 # STRATEJI 1: Standart EmbeddedFiles
                 try:
@@ -2024,68 +2024,75 @@ class MaterialAnalysisServiceOptimized:
                                         file_data = file_spec['/EF']['/F'].read_bytes()
                                         
                                         if MIN_STEP_SIZE < len(file_data) < MAX_STEP_SIZE:
-                                            temp_dir = os.path.join(os.getcwd(), "temp")
-                                            os.makedirs(temp_dir, exist_ok=True)
-                                            
-                                            safe_filename = f"enhanced_{int(time.time()*1000)}.step"
-                                            output_path = os.path.join(temp_dir, safe_filename)
+                                            # UPLOAD_FOLDER kullan (app.py'de tanımlı)
+                                            safe_filename = f"step_{int(time.time()*1000)}_{i}.step"
+                                            output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
                                             
                                             with open(output_path, 'wb') as f:
                                                 f.write(file_data)
                                             
-                                            extracted.append(output_path)
-                                            print(f"[STEP-EXTRACT-ENHANCED] Found in EmbeddedFiles: {file_name}")
-                                            return extracted  # İlkini bulduk, dön
+                                            extracted_paths.append(output_path)
+                                            print(f"[STEP-EXTRACT] Found in EmbeddedFiles: {file_name} ({len(file_data)} bytes)")
+                                            return extracted_paths  # İlkini bulduktan sonra dön
                                             
-                            except Exception:
+                            except Exception as e:
+                                print(f"[STEP-EXTRACT] Error in embedded file {i}: {e}")
                                 continue
                                 
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[STEP-EXTRACT] EmbeddedFiles error: {e}")
                 
                 # STRATEJI 2: Annotations (Yorumlarda gömülü dosyalar)
-                if not extracted and time.time() - start_time < MAX_TIMEOUT * 0.8:
+                if not extracted_paths and time.time() - start_time < MAX_TIMEOUT * 0.8:
                     try:
                         for page_num, page in enumerate(pdf.pages[:5]):  # İlk 5 sayfa
                             if time.time() - start_time > MAX_TIMEOUT * 0.8:
                                 break
                             
-                            if "/Annots" in page:
-                                annots = page["/Annots"]
-                                for annot in annots[:3]:  # Sayfa başına max 3 annotation
-                                    try:
-                                        if "/FileAttachment" in str(annot.get("/Subtype", "")):
-                                            if "/FS" in annot:
-                                                file_spec = annot["/FS"]
-                                                file_name = str(file_spec.get("/F", "")).lower()
-                                                
-                                                if any(ext in file_name for ext in ['.step', '.stp', '.st']):
-                                                    if "/EF" in file_spec and "/F" in file_spec["/EF"]:
-                                                        file_data = file_spec["/EF"]["/F"].read_bytes()
+                            annots = page.get("/Annots", [])
+                            for annot in annots[:3]:  # Sayfa başına max 3 annotation
+                                try:
+                                    annot_obj = annot.get_object() if hasattr(annot, 'get_object') else annot
+                                    subtype = annot_obj.get("/Subtype")
+                                    
+                                    if subtype == "/FileAttachment":
+                                        fs = annot_obj.get("/FS")
+                                        if fs:
+                                            file_spec = fs.get_object() if hasattr(fs, 'get_object') else fs
+                                            file_name = file_spec.get("/UF") or file_spec.get("/F")
+                                            if not file_name:
+                                                continue
+                                            
+                                            file_name = str(file_name).strip("()").lower()
+                                            
+                                            if any(ext in file_name for ext in ['.step', '.stp', '.st']):
+                                                ef = file_spec.get("/EF")
+                                                if ef:
+                                                    file_stream = ef.get("/F")
+                                                    file_data = file_stream.read_bytes()
+                                                    
+                                                    if MIN_STEP_SIZE < len(file_data) < MAX_STEP_SIZE:
+                                                        safe_filename = f"annot_{int(time.time()*1000)}_{page_num}.step"
+                                                        output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
                                                         
-                                                        if MIN_STEP_SIZE < len(file_data) < MAX_STEP_SIZE:
-                                                            temp_dir = os.path.join(os.getcwd(), "temp")
-                                                            os.makedirs(temp_dir, exist_ok=True)
-                                                            
-                                                            safe_filename = f"annotation_{int(time.time()*1000)}.step"
-                                                            output_path = os.path.join(temp_dir, safe_filename)
-                                                            
-                                                            with open(output_path, 'wb') as f:
-                                                                f.write(file_data)
-                                                            
-                                                            extracted.append(output_path)
-                                                            print(f"[STEP-EXTRACT-ENHANCED] Found in annotation: {file_name}")
-                                                            return extracted
-                                                            
-                                    except Exception:
-                                        continue
-                                        
-                    except Exception:
-                        pass
+                                                        with open(output_path, 'wb') as f:
+                                                            f.write(file_data)
+                                                        
+                                                        extracted_paths.append(output_path)
+                                                        print(f"[STEP-EXTRACT] Found in annotation (page {page_num}): {file_name}")
+                                                        return extracted_paths
+                                                        
+                                except Exception as e:
+                                    print(f"[STEP-EXTRACT] Annotation error: {e}")
+                                    continue
+                                    
+                    except Exception as e:
+                        print(f"[STEP-EXTRACT] Annotations scan error: {e}")
                 
-                # STRATEJI 3: Stream objelerinde STEP ara (son çare, en yavaş)
-                if not extracted and time.time() - start_time < MAX_TIMEOUT * 0.95:
+                # STRATEJI 3: Stream objelerinde STEP ara (son çare)
+                if not extracted_paths and time.time() - start_time < MAX_TIMEOUT * 0.95:
                     try:
+                        print("[STEP-EXTRACT] Trying stream objects scan...")
                         step_signatures = [b'ISO-10303', b'STEP;', b'FILE;', b'HEADER;']
                         
                         for obj_num in range(min(50, len(pdf.objects))):  # Max 50 obje
@@ -2101,36 +2108,33 @@ class MaterialAnalysisServiceOptimized:
                                         stream_data = bytes(obj)
                                         
                                         if MIN_STEP_SIZE < len(stream_data) < MAX_STEP_SIZE:
-                                            temp_dir = os.path.join(os.getcwd(), "temp")
-                                            os.makedirs(temp_dir, exist_ok=True)
-                                            
-                                            safe_filename = f"stream_{int(time.time()*1000)}.step"
-                                            output_path = os.path.join(temp_dir, safe_filename)
+                                            safe_filename = f"stream_{int(time.time()*1000)}_{obj_num}.step"
+                                            output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
                                             
                                             with open(output_path, 'wb') as f:
                                                 f.write(stream_data)
                                             
-                                            extracted.append(output_path)
-                                            print(f"[STEP-EXTRACT-ENHANCED] Found in stream object {obj_num}")
-                                            return extracted
+                                            extracted_paths.append(output_path)
+                                            print(f"[STEP-EXTRACT] Found in stream object {obj_num}")
+                                            return extracted_paths
                                             
                             except Exception:
                                 continue
                                 
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[STEP-EXTRACT] Stream scan error: {e}")
                 
                 total_time = time.time() - start_time
                 
-                if extracted:
-                    print(f"[STEP-EXTRACT-ENHANCED] Extraction completed: {total_time:.3f}s")
+                if extracted_paths:
+                    print(f"[STEP-EXTRACT] Extraction completed: {len(extracted_paths)} files in {total_time:.3f}s")
                 else:
-                    print(f"[STEP-EXTRACT-ENHANCED] No STEP found: {total_time:.3f}s")
+                    print(f"[STEP-EXTRACT] No STEP files found in {total_time:.3f}s")
                 
-                return extracted
+                return extracted_paths
                 
         except Exception as e:
-            print(f"[STEP-EXTRACT-ENHANCED] Error: {e}")
+            print(f"[STEP-EXTRACT] Fatal error: {e}")
             return []
     
     def refresh_material_cache(self):
