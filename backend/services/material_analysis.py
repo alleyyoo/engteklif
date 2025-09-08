@@ -1983,158 +1983,364 @@ class MaterialAnalysisServiceOptimized:
         }
 
     def _extract_step_from_pdf_lightning(self, pdf_path):
-        """
-        Extract all embedded .step/.stp files from a PDF (including annotations)
-        Enhanced version with timeout, size limits and stream detection
-        """
-        import pikepdf
-        import time
-        
-        # Performance parameters
-        MAX_TIMEOUT = 2.0
-        MIN_STEP_SIZE = 100  # Minimum 100 bytes
-        MAX_STEP_SIZE = 20 * 1024 * 1024  # Maximum 20MB
-        
-        start_time = time.time()
-        extracted_paths = []
-        
-        print(f"[STEP-EXTRACT] Scanning PDF: {os.path.basename(pdf_path)}")
-        
+        """Fast STEP extraction with robust comment/annotation handling"""
         try:
+            extracted = []
+            start_time = time.time()
+            TIMEOUT_SECONDS = 3.0
+            
+            print(f"[STEP-EXTRACT] 🔍 Starting robust STEP search: {os.path.basename(pdf_path)}")
+            
             with pikepdf.open(pdf_path) as pdf:
-                # STRATEJI 1: Standart EmbeddedFiles
+                
+                # ✅ METHOD 1: Embedded Files (Standard)
                 try:
+                    print("[STEP-EXTRACT] 🔍 Method 1: Embedded Files...")
                     root = pdf.trailer.get("/Root", {})
                     names = root.get("/Names", {})
                     embedded = names.get("/EmbeddedFiles", {})
                     files = embedded.get("/Names", [])
                     
-                    for i in range(0, min(len(files), 10), 2):
-                        if time.time() - start_time > MAX_TIMEOUT * 0.5:
+                    for i in range(0, min(len(files), 20), 2):
+                        if time.time() - start_time > TIMEOUT_SECONDS:
                             break
                         
                         if i + 1 < len(files):
                             try:
                                 file_spec = files[i + 1]
-                                file_name = str(file_spec.get("/F", files[i])).strip("()").lower()
+                                file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
                                 
-                                # .step, .stp, .st uzantılarını kontrol et
-                                if any(ext in file_name for ext in ['.step', '.stp', '.st']):
-                                    if '/EF' in file_spec and '/F' in file_spec['/EF']:
-                                        file_data = file_spec['/EF']['/F'].read_bytes()
+                                print(f"[STEP-EXTRACT] 📎 Found embedded file: {file_name}")
+                                
+                                if file_name.lower().endswith(('.stp', '.step')):
+                                    file_data = file_spec['/EF']['/F'].read_bytes()
+                                    
+                                    temp_dir = os.path.join(os.getcwd(), "temp")
+                                    os.makedirs(temp_dir, exist_ok=True)
+                                    
+                                    safe_filename = f"embedded_{int(time.time())}.step"
+                                    output_path = os.path.join(temp_dir, safe_filename)
+                                    
+                                    with open(output_path, 'wb') as f:
+                                        f.write(file_data)
+                                    
+                                    if os.path.getsize(output_path) > 100:
+                                        extracted.append(output_path)
+                                        print(f"[STEP-EXTRACT] ✅ Embedded STEP found: {file_name}")
+                                        return extracted
+                                    else:
+                                        os.remove(output_path)
                                         
-                                        if MIN_STEP_SIZE < len(file_data) < MAX_STEP_SIZE:
-                                            # UPLOAD_FOLDER kullan (app.py'de tanımlı)
-                                            safe_filename = f"step_{int(time.time()*1000)}_{i}.step"
-                                            output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
-                                            
-                                            with open(output_path, 'wb') as f:
-                                                f.write(file_data)
-                                            
-                                            extracted_paths.append(output_path)
-                                            print(f"[STEP-EXTRACT] Found in EmbeddedFiles: {file_name} ({len(file_data)} bytes)")
-                                            return extracted_paths  # İlkini bulduktan sonra dön
-                                            
                             except Exception as e:
-                                print(f"[STEP-EXTRACT] Error in embedded file {i}: {e}")
+                                print(f"[STEP-EXTRACT] ⚠️ Embedded file error: {e}")
                                 continue
                                 
                 except Exception as e:
-                    print(f"[STEP-EXTRACT] EmbeddedFiles error: {e}")
+                    print(f"[STEP-EXTRACT] ⚠️ Embedded files method error: {e}")
                 
-                # STRATEJI 2: Annotations (Yorumlarda gömülü dosyalar)
-                if not extracted_paths and time.time() - start_time < MAX_TIMEOUT * 0.8:
+                # ✅ METHOD 2: ROBUST COMMENTS/ANNOTATIONS
+                if not extracted and time.time() - start_time < TIMEOUT_SECONDS:
                     try:
-                        for page_num, page in enumerate(pdf.pages[:5]):  # İlk 5 sayfa
-                            if time.time() - start_time > MAX_TIMEOUT * 0.8:
+                        print("[STEP-EXTRACT] 🔍 Method 2: Robust Comments/Annotations...")
+                        
+                        for page_num, page in enumerate(pdf.pages[:5]):
+                            if time.time() - start_time > TIMEOUT_SECONDS:
                                 break
-                            
-                            annots = page.get("/Annots", [])
-                            for annot in annots[:3]:  # Sayfa başına max 3 annotation
-                                try:
-                                    annot_obj = annot.get_object() if hasattr(annot, 'get_object') else annot
-                                    subtype = annot_obj.get("/Subtype")
+                                
+                            try:
+                                # ✅ Safe annotation access
+                                if '/Annots' in page:
+                                    annotations_ref = page['/Annots']
+                                    print(f"[STEP-EXTRACT] 📄 Page {page_num + 1}: Found annotations reference")
                                     
-                                    if subtype == "/FileAttachment":
-                                        fs = annot_obj.get("/FS")
-                                        if fs:
-                                            file_spec = fs.get_object() if hasattr(fs, 'get_object') else fs
-                                            file_name = file_spec.get("/UF") or file_spec.get("/F")
-                                            if not file_name:
+                                    # Handle different annotation reference types
+                                    annotations = []
+                                    try:
+                                        if hasattr(annotations_ref, '__len__'):
+                                            annotations = list(annotations_ref)
+                                        else:
+                                            annotations = [annotations_ref]
+                                    except:
+                                        print(f"[STEP-EXTRACT] ⚠️ Could not iterate annotations on page {page_num + 1}")
+                                        continue
+                                    
+                                    print(f"[STEP-EXTRACT] 📄 Page {page_num + 1}: {len(annotations)} annotations to process")
+                                    
+                                    for annot_idx, annot_ref in enumerate(annotations):
+                                        try:
+                                            # ✅ Safe annotation resolution
+                                            annot_obj = None
+                                            try:
+                                                if hasattr(annot_ref, 'resolve'):
+                                                    annot_obj = annot_ref.resolve()
+                                                else:
+                                                    annot_obj = annot_ref
+                                            except Exception as resolve_error:
+                                                print(f"[STEP-EXTRACT] ⚠️ Annotation {annot_idx} resolve error: {resolve_error}")
+                                                # Try direct access
+                                                try:
+                                                    annot_obj = annot_ref
+                                                except:
+                                                    continue
+                                            
+                                            if annot_obj is None:
                                                 continue
                                             
-                                            file_name = str(file_name).strip("()").lower()
+                                            print(f"[STEP-EXTRACT] 🔍 Processing annotation {annot_idx} on page {page_num + 1}")
                                             
-                                            if any(ext in file_name for ext in ['.step', '.stp', '.st']):
-                                                ef = file_spec.get("/EF")
-                                                if ef:
-                                                    file_stream = ef.get("/F")
-                                                    file_data = file_stream.read_bytes()
+                                            # ✅ Check annotation type safely
+                                            try:
+                                                subtype = annot_obj.get('/Subtype', '')
+                                                print(f"[STEP-EXTRACT] 📋 Annotation {annot_idx} type: {subtype}")
+                                            except:
+                                                subtype = ''
+                                            
+                                            # ✅ METHOD 2A: File attachments in annotation
+                                            try:
+                                                if '/FS' in annot_obj:
+                                                    file_spec = annot_obj['/FS']
+                                                    print(f"[STEP-EXTRACT] 📎 Annotation {annot_idx} has file attachment")
                                                     
-                                                    if MIN_STEP_SIZE < len(file_data) < MAX_STEP_SIZE:
-                                                        safe_filename = f"annot_{int(time.time()*1000)}_{page_num}.step"
-                                                        output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+                                                    # Get filename safely
+                                                    filename = ""
+                                                    for name_field in ['/UF', '/F', '/Unix', '/Mac', '/DOS']:
+                                                        try:
+                                                            if name_field in file_spec:
+                                                                filename = str(file_spec[name_field]).strip("()")
+                                                                print(f"[STEP-EXTRACT] 📝 Found filename ({name_field}): {filename}")
+                                                                break
+                                                        except:
+                                                            continue
+                                                    
+                                                    if filename.lower().endswith(('.stp', '.step')):
+                                                        print(f"[STEP-EXTRACT] 🎯 STEP file detected: {filename}")
                                                         
-                                                        with open(output_path, 'wb') as f:
-                                                            f.write(file_data)
+                                                        # Try to extract file data
+                                                        extracted_file = False
+                                                        if '/EF' in file_spec:
+                                                            for ef_field in ['/F', '/UF', '/Unix', '/Mac', '/DOS']:
+                                                                try:
+                                                                    if ef_field in file_spec['/EF']:
+                                                                        file_data = file_spec['/EF'][ef_field].read_bytes()
+                                                                        
+                                                                        if len(file_data) > 100:
+                                                                            temp_dir = os.path.join(os.getcwd(), "temp")
+                                                                            os.makedirs(temp_dir, exist_ok=True)
+                                                                            
+                                                                            safe_filename = f"comment_{page_num}_{annot_idx}_{int(time.time())}.step"
+                                                                            output_path = os.path.join(temp_dir, safe_filename)
+                                                                            
+                                                                            with open(output_path, 'wb') as f:
+                                                                                f.write(file_data)
+                                                                            
+                                                                            extracted.append(output_path)
+                                                                            print(f"[STEP-EXTRACT] ✅ Comment STEP extracted: {filename} -> {safe_filename}")
+                                                                            return extracted
+                                                                        
+                                                                except Exception as ef_error:
+                                                                    print(f"[STEP-EXTRACT] ⚠️ EF field {ef_field} error: {ef_error}")
+                                                                    continue
                                                         
-                                                        extracted_paths.append(output_path)
-                                                        print(f"[STEP-EXTRACT] Found in annotation (page {page_num}): {file_name}")
-                                                        return extracted_paths
+                                                        if not extracted_file:
+                                                            print(f"[STEP-EXTRACT] ⚠️ Could not extract file data for: {filename}")
+                                            
+                                            except Exception as fs_error:
+                                                # Silent pass for annotations without file attachments
+                                                pass
+                                            
+                                            # ✅ METHOD 2B: Check annotation contents for STEP references
+                                            try:
+                                                if '/Contents' in annot_obj:
+                                                    content = str(annot_obj['/Contents'])
+                                                    if content and len(content) > 3:
+                                                        print(f"[STEP-EXTRACT] 📝 Annotation {annot_idx} content: {content[:100]}...")
                                                         
-                                except Exception as e:
-                                    print(f"[STEP-EXTRACT] Annotation error: {e}")
-                                    continue
-                                    
-                    except Exception as e:
-                        print(f"[STEP-EXTRACT] Annotations scan error: {e}")
-                
-                # STRATEJI 3: Stream objelerinde STEP ara (son çare)
-                if not extracted_paths and time.time() - start_time < MAX_TIMEOUT * 0.95:
-                    try:
-                        print("[STEP-EXTRACT] Trying stream objects scan...")
-                        step_signatures = [b'ISO-10303', b'STEP;', b'FILE;', b'HEADER;']
-                        
-                        for obj_num in range(min(50, len(pdf.objects))):  # Max 50 obje
-                            if time.time() - start_time > MAX_TIMEOUT * 0.95:
-                                break
-                            
-                            try:
-                                obj = pdf.objects[obj_num]
-                                if hasattr(obj, 'stream_dict'):
-                                    stream_preview = bytes(obj)[:500] if len(obj) > 500 else bytes(obj)
-                                    
-                                    if any(sig in stream_preview for sig in step_signatures):
-                                        stream_data = bytes(obj)
+                                                        # Look for STEP file patterns
+                                                        step_patterns = [
+                                                            r'(\w+.*?\.stp?)\b',
+                                                            r'(\w+.*?\.step)\b',
+                                                            r'(\d+_.*?\.stp?)\b',
+                                                            r'([a-zA-Z0-9_-]+\.stp?)\b'
+                                                        ]
+                                                        
+                                                        for pattern in step_patterns:
+                                                            matches = re.findall(pattern, content, re.IGNORECASE)
+                                                            for match in matches:
+                                                                print(f"[STEP-EXTRACT] 🎯 Found STEP filename in comment: {match}")
+                                                                
+                                                                # Check if this matches the filename pattern from the image
+                                                                if '10080964' in match and 'stp' in match.lower():
+                                                                    print(f"[STEP-EXTRACT] 🎯 MATCHING PATTERN FOUND: {match}")
+                                            
+                                            except Exception as content_error:
+                                                # Silent pass for annotations without content
+                                                pass
+                                            
+                                            # ✅ METHOD 2C: Check for Action objects
+                                            try:
+                                                if '/A' in annot_obj:
+                                                    action = annot_obj['/A']
+                                                    if '/S' in action and '/F' in action:
+                                                        action_file = str(action['/F']).strip("()")
+                                                        if action_file.lower().endswith(('.stp', '.step')):
+                                                            print(f"[STEP-EXTRACT] 🚀 Action STEP reference: {action_file}")
+                                            
+                                            except Exception as action_error:
+                                                # Silent pass for annotations without actions
+                                                pass
+                                            
+                                            # ✅ METHOD 2D: Check annotation streams
+                                            try:
+                                                if hasattr(annot_obj, 'stream') and annot_obj.stream:
+                                                    stream_data = bytes(annot_obj.stream)
+                                                    if len(stream_data) > 100:
+                                                        # Check if stream contains STEP data
+                                                        if self._is_step_data_fast(stream_data):
+                                                            safe_filename = f"annot_stream_{page_num}_{annot_idx}_{int(time.time())}.step"
+                                                            saved_files = self._save_step_data_fast(stream_data, safe_filename)
+                                                            if saved_files:
+                                                                print(f"[STEP-EXTRACT] ✅ Annotation stream STEP found")
+                                                                return saved_files
+                                                        
+                                                        # Check stream for file references
+                                                        try:
+                                                            stream_text = stream_data.decode('utf-8', errors='ignore')
+                                                            if '10080964' in stream_text and ('.stp' in stream_text.lower() or '.step' in stream_text.lower()):
+                                                                print(f"[STEP-EXTRACT] 📄 Stream contains target STEP reference")
+                                                        except:
+                                                            pass
+                                            
+                                            except Exception as stream_error:
+                                                # Silent pass for annotations without streams
+                                                pass
                                         
-                                        if MIN_STEP_SIZE < len(stream_data) < MAX_STEP_SIZE:
-                                            safe_filename = f"stream_{int(time.time()*1000)}_{obj_num}.step"
-                                            output_path = os.path.join(UPLOAD_FOLDER, safe_filename)
-                                            
-                                            with open(output_path, 'wb') as f:
-                                                f.write(stream_data)
-                                            
-                                            extracted_paths.append(output_path)
-                                            print(f"[STEP-EXTRACT] Found in stream object {obj_num}")
-                                            return extracted_paths
-                                            
-                            except Exception:
+                                        except Exception as annot_error:
+                                            print(f"[STEP-EXTRACT] ⚠️ Annotation {annot_idx} processing error: {annot_error}")
+                                            continue
+                            
+                            except Exception as page_error:
+                                print(f"[STEP-EXTRACT] ⚠️ Page {page_num + 1} annotation processing error: {page_error}")
                                 continue
+                        
+                    except Exception as comment_error:
+                        print(f"[STEP-EXTRACT] ⚠️ Comment search error: {comment_error}")
+                
+                # ✅ METHOD 3: SAFE OBJECT INSPECTION
+                if not extracted and time.time() - start_time < TIMEOUT_SECONDS:
+                    try:
+                        print("[STEP-EXTRACT] 🔍 Method 3: Safe Object Inspection...")
+                        
+                        # Safe object iteration
+                        try:
+                            if hasattr(pdf, 'objects'):
+                                objects = pdf.objects
+                                if hasattr(objects, 'keys'):
+                                    object_keys = list(objects.keys())[:50]  # Limit for safety
+                                else:
+                                    # Try alternative access
+                                    object_keys = []
+                                    try:
+                                        for i, obj in enumerate(objects):
+                                            if i >= 50:
+                                                break
+                                            object_keys.append(i)
+                                    except:
+                                        pass
+                            else:
+                                object_keys = []
+                            
+                            print(f"[STEP-EXTRACT] 🔍 Checking {len(object_keys)} objects safely")
+                            
+                            for obj_id in object_keys:
+                                if time.time() - start_time > TIMEOUT_SECONDS:
+                                    break
                                 
-                    except Exception as e:
-                        print(f"[STEP-EXTRACT] Stream scan error: {e}")
+                                try:
+                                    if hasattr(objects, '__getitem__'):
+                                        obj = objects[obj_id]
+                                    else:
+                                        continue
+                                    
+                                    # Check if object has stream data
+                                    if hasattr(obj, 'stream') and obj.stream:
+                                        stream_data = bytes(obj.stream)
+                                        
+                                        # Check if stream contains STEP data
+                                        if len(stream_data) > 100 and self._is_step_data_fast(stream_data):
+                                            safe_filename = f"object_{obj_id}_{int(time.time())}.step"
+                                            saved_files = self._save_step_data_fast(stream_data, safe_filename)
+                                            if saved_files:
+                                                print(f"[STEP-EXTRACT] ✅ Object stream STEP found: obj_{obj_id}")
+                                                return saved_files
+                                except:
+                                    continue
+                            
+                        except Exception as obj_iter_error:
+                            print(f"[STEP-EXTRACT] ⚠️ Object iteration error: {obj_iter_error}")
+                        
+                    except Exception as obj_error:
+                        print(f"[STEP-EXTRACT] ⚠️ Object inspection error: {obj_error}")
                 
-                total_time = time.time() - start_time
-                
-                if extracted_paths:
-                    print(f"[STEP-EXTRACT] Extraction completed: {len(extracted_paths)} files in {total_time:.3f}s")
-                else:
-                    print(f"[STEP-EXTRACT] No STEP files found in {total_time:.3f}s")
-                
-                return extracted_paths
-                
+                # ✅ METHOD 4: DOCUMENT-LEVEL SEARCH
+                if not extracted and time.time() - start_time < TIMEOUT_SECONDS:
+                    try:
+                        print("[STEP-EXTRACT] 🔍 Method 4: Document-level search...")
+                        
+                        # Check document catalog safely
+                        try:
+                            if '/Names' in pdf.Root:
+                                names = pdf.Root['/Names']
+                                
+                                # Check for JavaScript references
+                                if '/JavaScript' in names:
+                                    try:
+                                        js_names = names['/JavaScript']
+                                        if '/Names' in js_names:
+                                            js_list = js_names['/Names']
+                                            for i in range(0, min(len(js_list), 10), 2):
+                                                if i + 1 < len(js_list):
+                                                    js_name = str(js_list[i])
+                                                    print(f"[STEP-EXTRACT] 📜 JavaScript: {js_name}")
+                                                    if 'FileAttachment' in js_name or 'Attachment' in js_name:
+                                                        print(f"[STEP-EXTRACT] 🎯 File attachment JS found: {js_name}")
+                                    except Exception as js_error:
+                                        print(f"[STEP-EXTRACT] ⚠️ JavaScript processing error: {js_error}")
+                            
+                            # Check document info
+                            if '/Info' in pdf.trailer:
+                                info = pdf.trailer['/Info']
+                                for key, value in info.items():
+                                    try:
+                                        value_str = str(value).lower()
+                                        if ('.stp' in value_str or '.step' in value_str) and '10080964' in value_str:
+                                            print(f"[STEP-EXTRACT] ℹ️ Document info contains target STEP: {key} = {value}")
+                                    except:
+                                        continue
+                        
+                        except Exception as doc_search_error:
+                            print(f"[STEP-EXTRACT] ⚠️ Document search error: {doc_search_error}")
+                        
+                    except Exception as doc_error:
+                        print(f"[STEP-EXTRACT] ⚠️ Document-level search error: {doc_error}")
+            
+            total_time = time.time() - start_time
+            
+            if extracted:
+                print(f"[STEP-EXTRACT] ✅ STEP extraction completed: {len(extracted)} files in {total_time:.3f}s")
+                for i, path in enumerate(extracted):
+                    size = os.path.getsize(path)
+                    print(f"[STEP-EXTRACT]   #{i+1}: {os.path.basename(path)} ({size} bytes)")
+            else:
+                print(f"[STEP-EXTRACT] ❌ No STEP files found in {total_time:.3f}s")
+                print("[STEP-EXTRACT] 🔍 Robust search completed: embedded, comments, objects, document-level")
+                print("[STEP-EXTRACT] 💡 The PDF may contain STEP references in comments that require manual extraction")
+            
+            return extracted
+            
         except Exception as e:
-            print(f"[STEP-EXTRACT] Fatal error: {e}")
+            print(f"[STEP-EXTRACT] ❌ Robust STEP extraction failed: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def refresh_material_cache(self):
