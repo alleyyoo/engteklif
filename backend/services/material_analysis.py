@@ -71,31 +71,39 @@ def extract_technical_drawing_fields(text):
         return {}
     
     field_patterns = [
-        r'MALZEME[/\\\s]*:?\s*([A-Z0-9\-\+\s]{2,20})',
-        r'MALZEME[/\\\s]*STANDART[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'MATERIAL[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'STANDART[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'STANDARD[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'SPEC[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'GRADE[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'KALİTE[:\s]*([A-Z0-9\-\+\s]{2,20})',
-        r'(?:MALZEME|MATERIAL)\s*[|\s]*([A-Z0-9\-\+\s]{2,20})\s*(?:\n|\r)',
-        r'([A-Z0-9\-\+]{3,15})\s*(?=\s*TOLERANS|BOYUT|ÖLÇEK)',
-        
-        # ✅ DÜZELTME: Tire (-) karakteri eklendi
-        r'(\d+[-\.])\s*MALZEME\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
-        r'(\d+[-\.])\s*MATERIAL\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
-        
-        # ✅ Basit pattern'lar da ekle (alternatif olmayan durumlar için)
-        r'(\d+[-\.])\s*MALZEME\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+)',
-        r'(\d+[-\.])\s*MATERIAL\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+)',
-        
-        r'MALZEME\s*:\s*([A-ZÜĞIŞÖÇI0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇI0-9\s]+)',
-        r'MATERIAL\s*:\s*([A-ZÜĞIŞÖÇI0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇI0-9\s]+)',
-        
-        # ✅ BOŞLUK TOLERANSLı PATTERN'LAR:
-        r'MALZEME\s+:\s+([A-ZÜĞIŞÖÇI0-9\s]+)',  # Fazla boşluk için
-        r'MATERIAL\s+:\s+([A-ZÜĞIŞÖÇI0-9\s]+)',  # Fazla boşluk için
+       # MALZEME: formatları
+       r'MALZEME\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'MALZEME\s*:\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'MALZEME\s+:\s+([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # MATERIAL: formatları
+       r'MATERIAL\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'MATERIAL\s*:\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # STANDART/STANDARD formatları
+       r'STANDART\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'STANDARD\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # NOTLAR içindeki malzeme tanımları
+       r'(\d+[-\.])\s*MALZEME\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'(\d+[-\.])\s*MATERIAL\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # Alternatif malzeme tanımları (VEYA/YADA ile)
+       r'MALZEME\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'MATERIAL\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # Diğer teknik alan formatları
+       r'SPEC\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'GRADE\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       r'KALİTE\s*:?\s*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})',
+       
+       # Tablo formatları (pipe ile ayrılmış)
+       r'(?:MALZEME|MATERIAL)\s*[|\s]*([A-ZÜĞŞIÖÇ0-9\s\-\+\.\/]{2,50})\s*(?:\n|\r|$)',
+       
+       # Context-based patterns (tolerans, boyut öncesi)
+       r'([A-ZÜĞŞIÖÇ0-9\-\+\.\/]{3,50})\s*(?=\s*TOLERANS)',
+       r'([A-ZÜĞŞIÖÇ0-9\-\+\.\/]{3,50})\s*(?=\s*BOYUT)',
+       r'([A-ZÜĞŞIÖÇ0-9\-\+\.\/]{3,50})\s*(?=\s*ÖLÇEK)',
     ]
         
     found_fields = {}
