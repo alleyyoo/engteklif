@@ -1044,61 +1044,110 @@ def optimize_image_for_ocr_lightning(image):
 def extract_text_with_lightning_ocr(pdf_path):
     """Enhanced OCR with better technical drawing detection"""
     try:
-        start_time = time.time()
         print("[OCR-ENHANCED] Using enhanced OCR methods for technical drawings...")
         
-        # METHOD 1: PyPDF2
+        # METHOD 1: Enhanced Tesseract with better config
+        try:
+            print("[OCR-ENHANCED] Method 1: Enhanced Tesseract for technical drawings...")
+            pages = convert_from_path(pdf_path, dpi=300, first_page=1, last_page=1)
+            
+            if pages:
+                # Try multiple OCR configurations
+                configs = [
+                    '--psm 6 --oem 3',  # Standard config
+                    '--psm 4 --oem 3',  # Multiple columns
+                    '--psm 3 --oem 3',  # Fully automatic
+                    '--psm 1 --oem 3',  # Orientation and script detection
+                ]
+                
+                best_text = ""
+                best_length = 0
+                
+                for config in configs:
+                    try:
+                        text = pytesseract.image_to_string(pages[0], lang='eng+tur', config=config)
+                        if text and len(text.strip()) > best_length:
+                            best_text = text
+                            best_length = len(text.strip())
+                            print(f"[OCR-ENHANCED] Config '{config}': {len(text)} chars")
+                    except:
+                        continue
+                
+                if best_text and len(best_text.strip()) > 50:
+                    print(f"[OCR-ENHANCED] Enhanced Tesseract success: {len(best_text)} chars")
+                    return best_text
+                    
+        except Exception as e:
+            print(f"[OCR-ENHANCED] Enhanced Tesseract failed: {e}")
+        
+        # METHOD 2: Image preprocessing + OCR
+        try:
+            print("[OCR-ENHANCED] Method 2: Preprocessed image OCR...")
+            pages = convert_from_path(pdf_path, dpi=600, first_page=1, last_page=1)
+            
+            if pages:
+                image = pages[0]
+                
+                # Convert to numpy array for opencv
+                import numpy as np
+                import cv2
+                
+                opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+                
+                # Apply various preprocessing techniques
+                preprocessed_images = []
+                
+                # 1. Threshold
+                _, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                preprocessed_images.append(thresh1)
+                
+                # 2. Morphological operations
+                kernel = np.ones((1,1), np.uint8)
+                morph = cv2.morphologyEx(thresh1, cv2.MORPH_CLOSE, kernel)
+                preprocessed_images.append(morph)
+                
+                # 3. Gaussian blur + threshold
+                blur = cv2.GaussianBlur(gray, (5,5), 0)
+                _, thresh2 = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                preprocessed_images.append(thresh2)
+                
+                best_text = ""
+                best_length = 0
+                
+                for i, processed_img in enumerate(preprocessed_images):
+                    try:
+                        # Convert back to PIL Image
+                        pil_image = Image.fromarray(processed_img)
+                        text = pytesseract.image_to_string(pil_image, lang='eng+tur', 
+                                                        config='--psm 6 --oem 3')
+                        
+                        if text and len(text.strip()) > best_length:
+                            best_text = text
+                            best_length = len(text.strip())
+                            print(f"[OCR-ENHANCED] Preprocessing {i}: {len(text)} chars")
+                    except:
+                        continue
+                
+                if best_text and len(best_text.strip()) > 30:
+                    print(f"[OCR-ENHANCED] Preprocessed OCR success: {len(best_text)} chars")
+                    return best_text
+                    
+        except Exception as e:
+            print(f"[OCR-ENHANCED] Preprocessed OCR failed: {e}")
+        
+        # METHOD 3: PyPDF2 fallback
         try:
             with open(pdf_path, 'rb') as file:
                 reader = PyPDF2.PdfReader(file)
                 if len(reader.pages) > 0:
                     text = reader.pages[0].extract_text()
-                    if text and len(text.strip()) > 30:
-                        if extract_technical_drawing_fields(text):
-                            print(f"[OCR-ENHANCED] PyPDF2 with TECHNICAL FIELDS: {len(text)} chars")
-                            return text
-                        elif extract_notlar_section(text):
-                            print(f"[OCR-ENHANCED] PyPDF2 with NOTLAR: {len(text)} chars")
-                            return text
-                        elif len(text.strip()) > 100:
-                            print(f"[OCR-ENHANCED] PyPDF2 success: {len(text)} chars")
-                            return text
+                    if text and len(text.strip()) > 10:
+                        print(f"[OCR-ENHANCED] PyPDF2 fallback: {len(text)} chars")
+                        return text
         except Exception as e:
-            print(f"[OCR-ENHANCED] PyPDF2 failed: {e}")
+            print(f"[OCR-ENHANCED] PyPDF2 fallback failed: {e}")
         
-        # METHOD 2: Enhanced Tesseract OCR
-        try:
-            print("[OCR-ENHANCED] Using enhanced Tesseract config for technical drawings...")
-            pages = convert_from_path(pdf_path, dpi=600, first_page=1, last_page=1)
-            
-            if pages:
-                text = pytesseract.image_to_string(pages[0], lang='eng+tur', 
-                                                config='--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-/: ')
-                
-                if text and len(text.strip()) > 20:
-                    print(f"[OCR-ENHANCED] Enhanced Tesseract success: {len(text)} chars")
-                    return text
-                    
-        except Exception as e:
-            print(f"[OCR-ENHANCED] Enhanced Tesseract failed: {e}")
-        
-        # METHOD 3: Alternative OCR with preprocessing
-        try:
-            print("[OCR-ENHANCED] Trying preprocessed OCR...")
-            pages = convert_from_path(pdf_path, dpi=600, first_page=1, last_page=1)
-            
-            if pages:
-                enhanced_image = optimize_image_for_ocr_lightning(pages[0])
-                text = pytesseract.image_to_string(enhanced_image, lang='eng', config='--psm 3')
-                
-                if text and len(text.strip()) > 10:
-                    print(f"[OCR-ENHANCED] Preprocessed OCR success: {len(text)} chars")
-                    return text
-                    
-        except Exception as e:
-            print(f"[OCR-ENHANCED] Preprocessed OCR failed: {e}")
-        
-        print(f"[OCR-ENHANCED] All enhanced OCR methods failed")
         return ""
         
     except Exception as e:
