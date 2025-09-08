@@ -82,9 +82,14 @@ def extract_technical_drawing_fields(text):
         r'(?:MALZEME|MATERIAL)\s*[|\s]*([A-Z0-9\-\+\s]{2,20})\s*(?:\n|\r)',
         r'([A-Z0-9\-\+]{3,15})\s*(?=\s*TOLERANS|BOYUT|ÖLÇEK)',
         
-        # ✅ YENİ PATTERN'LAR EKLE:
-        r'(\d+\.)\s*MALZEME\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
-        r'(\d+\.)\s*MATERIAL\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
+        # ✅ DÜZELTME: Tire (-) karakteri eklendi
+        r'(\d+[-\.])\s*MALZEME\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
+        r'(\d+[-\.])\s*MATERIAL\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇ0-9\s]+)',
+        
+        # ✅ Basit pattern'lar da ekle (alternatif olmayan durumlar için)
+        r'(\d+[-\.])\s*MALZEME\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+)',
+        r'(\d+[-\.])\s*MATERIAL\s*:?\s*([A-ZÜĞIŞÖÇ0-9\s]+)',
+        
         r'MALZEME\s*:\s*([A-ZÜĞIŞÖÇI0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇI0-9\s]+)',
         r'MATERIAL\s*:\s*([A-ZÜĞIŞÖÇI0-9\s]+?)(?:\s+YADA\s+|\s+VEYA\s+|\s+OR\s+)([A-ZÜĞIŞÖÇI0-9\s]+)',
         
