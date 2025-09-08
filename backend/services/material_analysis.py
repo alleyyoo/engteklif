@@ -1046,7 +1046,7 @@ def extract_text_with_lightning_ocr(pdf_path):
         # METHOD 2: Enhanced Tesseract OCR
         try:
             print("[OCR-ENHANCED] Using enhanced Tesseract config for technical drawings...")
-            pages = convert_from_path(pdf_path, dpi=200, first_page=1, last_page=1)
+            pages = convert_from_path(pdf_path, dpi=600, first_page=1, last_page=1)
             
             if pages:
                 text = pytesseract.image_to_string(pages[0], lang='eng+tur', 
@@ -1062,7 +1062,7 @@ def extract_text_with_lightning_ocr(pdf_path):
         # METHOD 3: Alternative OCR with preprocessing
         try:
             print("[OCR-ENHANCED] Trying preprocessed OCR...")
-            pages = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=1)
+            pages = convert_from_path(pdf_path, dpi=600, first_page=1, last_page=1)
             
             if pages:
                 enhanced_image = optimize_image_for_ocr_lightning(pages[0])
