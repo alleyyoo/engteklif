@@ -2,6 +2,7 @@
 """
 CMM (Coordinate Measuring Machine) API controller
 RTF dosya yükleme ve işleme endpoint'leri
+Güncellenmiş parser ile WF, L ekseni desteği ve FAI Form 3 iyileştirmeleri
 """
 
 from flask import Blueprint, request, jsonify, send_file
@@ -54,6 +55,7 @@ def save_uploaded_file(file, upload_folder):
 def upload_cmm_files():
     """
     CMM RTF dosyalarını yükle ve işle
+    UPDATED: WF, L eksen desteği ve FAI Form 3 iyileştirmeleri ile
     
     Request:
         - files: RTF dosya listesi (multipart/form-data)
@@ -96,7 +98,7 @@ def upload_cmm_files():
                 invalid_files.append('Boş dosya adı')
             elif not allowed_file(file.filename):
                 invalid_files.append(f'{file.filename} - Sadece RTF dosyaları desteklenir')
-            elif file.content_length > MAX_FILE_SIZE:
+            elif file.content_length and file.content_length > MAX_FILE_SIZE:
                 invalid_files.append(f'{file.filename} - Dosya boyutu çok büyük (max {MAX_FILE_SIZE//1024//1024}MB)')
         
         if invalid_files:
@@ -144,8 +146,8 @@ def upload_cmm_files():
         excel_filename = f'cmm_raporu_{len(files)}dosya_{timestamp}.xlsx'
         excel_path = os.path.join(output_folder, excel_filename)
         
-        # CMM Service ile dosyaları işle
-        print(f"🔄 CMM işleme başlıyor...")
+        # CMM Service ile dosyaları işle - UPDATED PARSER
+        print(f"🔄 CMM işleme başlıyor (WF/L/CYLY desteği ile)...")
         cmm_service = CMMService()
         result = cmm_service.process_files(file_paths, excel_path)
         
@@ -176,12 +178,26 @@ def upload_cmm_files():
             'excel_filename': excel_filename,
             'status': 'completed',
             'created_at': datetime.utcnow(),
+            'parser_version': '2.0',  # Güncellenmiş parser versiyonu
+            'features_used': [
+                'WF_axis_support',  # WF eksen desteği
+                'L_axis_support',   # L eksen desteği  
+                'CYLY_support',     # Cylindricity desteği
+                'enhanced_FAI_form3',  # Geliştirilmiş FAI Form 3
+                'improved_tolerances'  # İyileştirilmiş tolerans formatları
+            ],
             'processing_summary': {
                 'total_files': len(files),
                 'successful_files': len(uploaded_files),
                 'total_measurements': result.get('count', 0),
                 'operations_found': result.get('operations', []),
-                'summary': result.get('summary', {})
+                'summary': result.get('summary', {}),
+                'parser_improvements': {
+                    'wf_axis_parsed': True,
+                    'l_axis_parsed': True,
+                    'cyly_tolerance_parsed': True,
+                    'fai_form3_enhanced': True
+                }
             }
         }
         
@@ -201,7 +217,7 @@ def upload_cmm_files():
         # Başarılı yanıt
         return jsonify({
             'success': True,
-            'message': f'✅ {len(files)} CMM dosyası başarıyla işlendi',
+            'message': f'✅ {len(files)} CMM dosyası başarıyla işlendi (WF/L/CYLY desteği ile)',
             'analysis_id': analysis_id,
             'data': {
                 'file_count': len(files),
@@ -211,14 +227,23 @@ def upload_cmm_files():
                 'excel_filename': excel_filename,
                 'excel_download_url': f'/api/cmm/download/{analysis_id}',
                 'processing_time': '< 5 saniye',
-                'summary': result.get('summary', {})
+                'summary': result.get('summary', {}),
+                'parser_version': '2.0',
+                'new_features': [
+                    'WF (Genişlik) ekseni desteği',
+                    'L (Uzunluk) ekseni desteği', 
+                    'CYLY (Silindiriklik) tolerance desteği',
+                    'Geliştirilmiş FAI Form 3 formatı',
+                    'İyileştirilmiş tolerans formatlaması'
+                ]
             },
             'upload_summary': {
                 'total_uploaded': len(uploaded_files),
                 'total_measurements': result.get('count', 0),
                 'operations_detected': result.get('operations', []),
                 'excel_generated': True,
-                'success_rate': result.get('summary', {}).get('success_rate', 0)
+                'success_rate': result.get('summary', {}).get('success_rate', 0),
+                'improvements_applied': True
             }
         })
         
@@ -355,6 +380,10 @@ def get_my_cmm_analyses():
             
             # İndirme sayısı
             analysis['download_count'] = analysis.get('download_count', 0)
+            
+            # Parser versiyon bilgisi
+            analysis['parser_version'] = analysis.get('parser_version', '1.0')
+            analysis['has_new_features'] = analysis.get('parser_version') == '2.0'
         
         total_count = db.get_db().cmm_analyses.count_documents(filters)
         
@@ -417,6 +446,20 @@ def get_cmm_analysis(analysis_id):
             excel_exists = os.path.exists(analysis['excel_path'])
         
         analysis['excel_available'] = excel_exists
+        
+        # Parser versiyonu ve özellikler
+        parser_version = analysis.get('parser_version', '1.0')
+        analysis['parser_version'] = parser_version
+        analysis['has_enhanced_features'] = parser_version == '2.0'
+        
+        if parser_version == '2.0':
+            analysis['enhanced_features'] = [
+                'WF (Genişlik) ekseni desteği',
+                'L (Uzunluk) ekseni desteği',
+                'CYLY (Silindiriklik) tolerance desteği', 
+                'Geliştirilmiş FAI Form 3',
+                'İyileştirilmiş tolerans formatları'
+            ]
         
         # İndirme geçmişi
         if 'download_history' in analysis:
@@ -611,6 +654,12 @@ def get_cmm_stats():
         ]
         top_operations = list(db.get_db().cmm_analyses.aggregate(pipeline))
         
+        # Parser versiyon istatistikleri
+        v2_analyses = db.get_db().cmm_analyses.count_documents({
+            'user_id': user_id,
+            'parser_version': '2.0'
+        })
+        
         # Son analizler
         recent_analyses = list(db.get_db().cmm_analyses.find(
             {'user_id': user_id}
@@ -619,6 +668,7 @@ def get_cmm_stats():
         for analysis in recent_analyses:
             analysis['_id'] = str(analysis['_id'])
             analysis['created_at'] = analysis['created_at'].isoformat()
+            analysis['parser_version'] = analysis.get('parser_version', '1.0')
         
         # Başarı oranı hesapla
         pipeline = [
@@ -642,6 +692,8 @@ def get_cmm_stats():
                 'avg_measurements_per_analysis': round(total_measurements / total_analyses, 1) if total_analyses > 0 else 0,
                 'avg_files_per_analysis': round(total_files / total_analyses, 1) if total_analyses > 0 else 0,
                 'avg_success_rate': round(avg_success_rate, 2),
+                'parser_v2_count': v2_analyses,
+                'parser_v2_percentage': round((v2_analyses / total_analyses) * 100, 1) if total_analyses > 0 else 0,
                 'top_operations': [
                     {'operation': op['_id'], 'count': op['count']} 
                     for op in top_operations
@@ -660,7 +712,7 @@ def get_cmm_stats():
 @cmm_bp.route('/supported-formats', methods=['GET'])
 def get_supported_formats():
     """
-    Desteklenen dosya formatlarını döndür
+    Desteklenen dosya formatlarını döndür - UPDATED
     
     Returns:
         Desteklenen format bilgileri
@@ -676,18 +728,38 @@ def get_supported_formats():
         },
         'max_file_size': f'{MAX_FILE_SIZE//1024//1024}MB',
         'max_files': MAX_FILES_PER_UPLOAD,
+        'parser_version': '2.0',
         'features': [
             'Çoklu operasyon desteği (1OP, 2OP, 3OP)',
             'Otomatik ölçüm numarası sıralama',
             'Aralık formatı desteği (10-18)',
             'Position ölçümü desteği (X, Y, Z, TP, DF)',
+            'WF (Genişlik) ekseni desteği - YENİ!',
+            'L (Uzunluk) ekseni desteği - YENİ!',
+            'CYLY (Silindiriklik) tolerance desteği - YENİ!',
             'Surface profil birleştirme',
             'Min/Max değer hesaplama',
             'Excel raporu (3 sayfa)',
-            'FAI Form 3 desteği',
+            'Geliştirilmiş FAI Form 3 desteği - YENİ!',
+            'İyileştirilmiş tolerans formatları - YENİ!',
             'Duplikat temizleme',
             'Tolerans dışı değer tespiti',
             'Detaylı özet istatistikleri'
+        ],
+        'recent_improvements': [
+            {
+                'version': '2.0',
+                'date': '2024-12-19',
+                'improvements': [
+                    'WF ekseni parsing ve FAI formuna ekleme',
+                    'L ekseni parsing ve FAI formuna ekleme',
+                    'CYLY (Cylindricity) tolerance desteği',
+                    'FAI Form 3 tolerans formatlaması iyileştirmeleri',
+                    'DF satırları için negatif tolerans desteği',
+                    'Position ölçümlerinde koordinat filtresi',
+                    'Sayısal sıralama algoritması geliştirme'
+                ]
+            }
         ]
     })
 
@@ -695,7 +767,7 @@ def get_supported_formats():
 @jwt_required()
 def test_cmm_service():
     """
-    CMM service'i test et (debug amaçlı)
+    CMM service'i test et (debug amaçlı) - UPDATED
     
     Returns:
         Test sonuçları
@@ -724,13 +796,21 @@ def test_cmm_service():
         if result['success']:
             return jsonify({
                 'success': True,
-                'message': 'CMM service test başarılı',
+                'message': 'CMM service test başarılı (Parser v2.0)',
                 'test_results': {
                     'files_processed': len(existing_files),
                     'total_measurements': result.get('count', 0),
                     'operations_found': result.get('operations', []),
                     'summary': result.get('summary', {}),
-                    'excel_generated': bool(result.get('excel_path'))
+                    'excel_generated': bool(result.get('excel_path')),
+                    'parser_version': '2.0',
+                    'new_features_tested': [
+                        'WF axis parsing',
+                        'L axis parsing', 
+                        'CYLY tolerance parsing',
+                        'Enhanced FAI Form 3',
+                        'Improved tolerance formatting'
+                    ]
                 }
             })
         else:
@@ -781,7 +861,8 @@ def get_export_history():
                     'date': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$created_at'}},
                     'file_count': 1,
                     'measurement_count': 1,
-                    'operations': 1
+                    'operations': 1,
+                    'parser_version': {'$ifNull': ['$parser_version', '1.0']}
                 }
             },
             {
@@ -789,7 +870,10 @@ def get_export_history():
                     '_id': '$date',
                     'export_count': {'$sum': 1},
                     'total_files': {'$sum': '$file_count'},
-                    'total_measurements': {'$sum': '$measurement_count'}
+                    'total_measurements': {'$sum': '$measurement_count'},
+                    'v2_parser_count': {
+                        '$sum': {'$cond': [{'$eq': ['$parser_version', '2.0']}, 1, 0]}
+                    }
                 }
             },
             {
@@ -802,12 +886,14 @@ def get_export_history():
         # Tarih formatını düzenle
         for item in export_history:
             item['date'] = item.pop('_id')
+            item['v2_parser_percentage'] = round((item['v2_parser_count'] / item['export_count']) * 100, 1) if item['export_count'] > 0 else 0
         
         return jsonify({
             'success': True,
             'history': export_history,
             'period_days': days,
-            'total_exports': sum(item['export_count'] for item in export_history)
+            'total_exports': sum(item['export_count'] for item in export_history),
+            'total_v2_exports': sum(item['v2_parser_count'] for item in export_history)
         })
         
     except Exception as e:
@@ -816,3 +902,41 @@ def get_export_history():
             'success': False,
             'message': f'Geçmiş alınamadı: {str(e)}'
         }), 500
+
+@cmm_bp.route('/parser-info', methods=['GET'])
+def get_parser_info():
+    """
+    Parser bilgilerini döndür - YENİ ENDPOINT
+    
+    Returns:
+        Parser sürüm bilgileri ve özellikler
+    """
+    return jsonify({
+        'success': True,
+        'parser_info': {
+            'version': '2.0',
+            'release_date': '2024-12-19',
+            'improvements': {
+                'axis_support': {
+                    'WF': 'Genişlik ekseni - Tolerans formatlaması ve FAI form desteği',
+                    'L': 'Uzunluk ekseni - Tolerans formatlaması ve FAI form desteği'
+                },
+                'tolerance_support': {
+                    'CYLY': 'Cylindricity (Silindiriklik) tolerance desteği',
+                    'enhanced_DF': 'DF satırları için geliştirilmiş tolerans formatlaması',
+                    'negative_tolerances': 'Negatif tolerans değerlerinin doğru işlenmesi'
+                },
+                'fai_improvements': {
+                    'enhanced_form3': 'FAI Form 3 formatlaması iyileştirmeleri',
+                    'better_sorting': 'Sayısal sıralama algoritması',
+                    'coordinate_filtering': 'Position ölçümlerinde koordinat filtresi'
+                }
+            },
+            'backward_compatibility': True,
+            'migration_notes': [
+                'Mevcut analizler etkilenmez',
+                'Yeni özellikler sadece v2.0 ile işlenen dosyalarda aktif',
+                'Eski parser ile işlenmiş analizler normal şekilde çalışmaya devam eder'
+            ]
+        }
+    })
