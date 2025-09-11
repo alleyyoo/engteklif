@@ -150,7 +150,7 @@ class CMMService:
                 seen.add(key)
                 cleaned.append(item)
         
-        # Sırala - Geliştirilmiş sıralama
+        # Sırala
         def get_sort_key(item):
             sira_no_str = str(item['sira_no'])
             if '-' in sira_no_str:
@@ -209,18 +209,12 @@ class CMMService:
         }
 
 class CMMParser:
-    """CMM RTF dosyalarını parse eden sınıf"""
+    """CMM RTF dosyalarını parse eden sınıf - UPDATED VERSION"""
     
     def __init__(self):
-        self.pattern_line = re.compile(
-            r'\*+\s*(\d+)\s*\*+'  # Sıra numarası
-        )
-        self.pattern_dim = re.compile(
-            r'DIM\s+(\w+)=\s*(.+?)\s+UNITS=MM'  # Boyut tanımı
-        )
-        self.pattern_data = re.compile(
-            r'(\w+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)'
-        )
+        self.pattern_line = re.compile(r'\*+\s*(\d+)\s*\*+')
+        self.pattern_dim = re.compile(r'DIM\s+(\w+)=\s*(.+?)\s+UNITS=MM')
+        self.pattern_data = re.compile(r'(\w+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)')
     
     def extract_rtf_text(self, file_path: str) -> str:
         """RTF dosyasından metin çıkarır"""
@@ -231,7 +225,7 @@ class CMMParser:
             if STRIPRTF_AVAILABLE:
                 return rtf_to_text(content)
             else:
-                # Basit RTF temizleme (striprtf yoksa)
+                # Basit RTF temizleme
                 content = re.sub(r'\\[a-z]+\d*', '', content)
                 content = re.sub(r'[{}]', '', content)
                 return content
@@ -239,19 +233,23 @@ class CMMParser:
             print(f"RTF okuma hatası: {e}")
             return ""
     
-    def clean_text(self, text: str) -> str:
-        """Metni temizler ve normalize eder"""
-        text = re.sub(r'\s+', ' ', text)
-        text = text.replace('\x00', '').replace('\r', '\n')
-        return text.strip()
-    
     def parse_file(self, file_path: str) -> List[CMMOlcum]:
         """Tek bir CMM dosyasını parse eder"""
         measurements = []
         
         # Dosya adından operasyon belirle
         filename = Path(file_path).stem
-        operasyon = self._detect_operation(filename)
+        operasyon = 'UNKNOWN'
+        
+        if '1OP' in filename.upper():
+            operasyon = '1OP'
+        elif '2OP' in filename.upper():
+            operasyon = '2OP'
+        elif '3OP' in filename.upper():
+            operasyon = '3OP'
+        else:
+            operasyon = '1OP'  # Varsayılan
+            print(f"DEBUG: Dosya adında operasyon bulunamadı, varsayılan '1OP' atandı")
         
         print(f"DEBUG: İşlenen dosya: {filename}, Operasyon: {operasyon}")
         
@@ -260,56 +258,13 @@ class CMMParser:
         if not text:
             return measurements
         
-        # Sıra numaralarını bul - Geliştirilmiş pattern'ler
-        sira_matches = self._find_measurement_numbers(text)
-        
-        print(f"DEBUG: Toplam eşleşme sayısı: {len(sira_matches)}")
-        
-        # Her sıra numarası için bloğu çıkar
-        for i, match in enumerate(sira_matches):
-            sira_no_str = self._process_measurement_number(match.group(1).strip())
-            
-            # Blok başlangıcı ve bitişi
-            start_pos = match.end()
-            if i + 1 < len(sira_matches):
-                end_pos = sira_matches[i + 1].start()
-            else:
-                end_pos = len(text)
-            
-            # Blok metnini çıkar
-            block_text = text[start_pos:end_pos].strip()
-            
-            if block_text:
-                block_measurements = self.parse_measurement_block_simple(block_text, operasyon, sira_no_str)
-                measurements.extend(block_measurements)
-                print(f"DEBUG: Sıra {sira_no_str}: {len(block_measurements)} ölçüm eklendi")
-        
-        print(f"DEBUG: Toplam ölçüm sayısı: {len(measurements)}")
-        return measurements
-    
-    def _detect_operation(self, filename: str) -> str:
-        """Dosya adından operasyon tespit et"""
-        filename_upper = filename.upper()
-        
-        if '1OP' in filename_upper:
-            return '1OP'
-        elif '2OP' in filename_upper:
-            return '2OP'
-        elif '3OP' in filename_upper:
-            return '3OP'
-        else:
-            print(f"DEBUG: Dosya adında operasyon bulunamadı, varsayılan '1OP' atandı")
-            return '1OP'
-    
-    def _find_measurement_numbers(self, text: str) -> List[re.Match]:
-        """Metinde ölçüm numaralarını bul - Geliştirilmiş"""
-        # Dört farklı pattern dene
+        # Regex pattern'leri tanımla - UPDATED
         pattern1 = r'\*+\s+([0-9]+(?:-[A-Za-z0-9\s]+)?)\s+\*+'
         pattern2 = r'\*+([0-9]+(?:-[A-Za-z0-9\s]+)?)\*+'
         pattern3 = r'\*{3,}\s*([0-9]+)\s*\*{3,}'
-        pattern4 = r'\*{3,}\s*([0-9]+\s*-\s*[0-9]+)\s*\*{3,}'  # 10-18 formatı için
+        pattern4 = r'\*{3,}\s*([0-9]+\s*-\s*[0-9]+)\s*\*{3,}'
         
-        # Pattern4'ü önce uygula (en spesifik)
+        # Pattern'leri uygula
         matches4 = list(re.finditer(pattern4, text, re.IGNORECASE))
         
         excluded_positions = set()
@@ -317,7 +272,6 @@ class CMMParser:
             for pos in range(match.start(), match.end()):
                 excluded_positions.add(pos)
         
-        # Diğer pattern'leri uygula
         matches1 = []
         matches2 = []
         matches3 = []
@@ -338,36 +292,72 @@ class CMMParser:
         all_matches = []
         seen_positions = set()
         
-        for match in matches4 + matches1 + matches2 + matches3:
+        for match in matches4:
+            if match.start() not in seen_positions:
+                all_matches.append(match)
+                seen_positions.add(match.start())
+        
+        for match in matches1:
+            if match.start() not in seen_positions:
+                all_matches.append(match)
+                seen_positions.add(match.start())
+                
+        for match in matches2:
+            if match.start() not in seen_positions:
+                all_matches.append(match)
+                seen_positions.add(match.start())
+                
+        for match in matches3:
             if match.start() not in seen_positions:
                 all_matches.append(match)
                 seen_positions.add(match.start())
         
         # Pozisyona göre sırala
-        return sorted(all_matches, key=lambda x: x.start())
-    
-    def _process_measurement_number(self, sira_no_raw: str) -> str:
-        """Sıra numarasını işle"""
-        if '-' in sira_no_raw:
-            parts = sira_no_raw.split('-', 1)
-            first_part = parts[0].strip()
+        sira_matches = sorted(all_matches, key=lambda x: x.start())
+        
+        print(f"DEBUG: Toplam eşleşme sayısı: {len(sira_matches)}")
+        
+        # Her sıra numarası için bloğu çıkar
+        for i, match in enumerate(sira_matches):
+            sira_no_raw = match.group(1).strip()
             
-            if len(parts) > 1:
-                second_part = parts[1].strip()
-                try:
-                    int(second_part)
-                    # İkinci kısım da sayı, aralık formatı (10-18)
-                    return sira_no_raw.replace(' ', '')
-                except ValueError:
-                    # İkinci kısım metin, sadece ilk kısmı al
-                    return first_part
+            # Sıra numarasını işle
+            if '-' in sira_no_raw:
+                parts = sira_no_raw.split('-', 1)
+                first_part = parts[0].strip()
+                
+                if len(parts) > 1:
+                    second_part = parts[1].strip()
+                    try:
+                        int(second_part)
+                        sira_no_str = sira_no_raw.replace(' ', '')
+                    except ValueError:
+                        sira_no_str = first_part
+                else:
+                    sira_no_str = first_part
             else:
-                return first_part
-        else:
-            return sira_no_raw
+                sira_no_str = sira_no_raw
+            
+            # Blok başlangıcı ve bitişi
+            start_pos = match.end()
+            if i + 1 < len(sira_matches):
+                end_pos = sira_matches[i + 1].start()
+            else:
+                end_pos = len(text)
+            
+            # Blok metnini çıkar
+            block_text = text[start_pos:end_pos].strip()
+            
+            if block_text:
+                block_measurements = self.parse_measurement_block_simple(block_text, operasyon, sira_no_str)
+                measurements.extend(block_measurements)
+                print(f"DEBUG: Sıra {sira_no_str}: {len(block_measurements)} ölçüm eklendi")
+        
+        print(f"DEBUG: Toplam ölçüm sayısı: {len(measurements)}")
+        return measurements
     
     def parse_measurement_block_simple(self, block: str, operasyon: str, sira_no_str: str) -> List[CMMOlcum]:
-        """Basitleştirilmiş blok parser"""
+        """Basitleştirilmiş blok parser - WF ve L ekseni desteği eklendi"""
         measurements = []
         lines = block.split('\n')
         
@@ -397,8 +387,8 @@ class CMMParser:
                         position_measurements = []
                 continue
             
-            # Veri satırları
-            if re.match(r'^[DRMTPZYXAFP]+\s+', line):
+            # Veri satırları - WF ve L eksenlerini de dahil et (FIX 4 ve 5)
+            if re.match(r'^[DRMTPZYXAFPLW]+\s+', line):
                 if current_desc and 'POSITION' in current_desc.upper():
                     measurement = self._parse_data_line(line, operasyon, sira_no_str, current_dim, current_desc)
                     if measurement:
@@ -434,11 +424,11 @@ class CMMParser:
         return measurements
     
     def _process_position_group(self, position_measurements: List[CMMOlcum], measurements: List[CMMOlcum]):
-        """POSITION ölçüm grubunu işle"""
+        """POSITION ölçüm grubunu işle - WF ve L eksenlerini de dahil et (FIX 4 ve 5)"""
         for m in position_measurements:
             if m.eksen in ['X', 'Y', 'Z', 'PR', 'PA']:
                 m.exclude_from_fai = True
-            elif m.eksen in ['TP', 'DF']:
+            elif m.eksen in ['TP', 'DF', 'WF', 'L']:  # WF ve L eklendi
                 m.exclude_from_fai = False
             measurements.append(m)
     
@@ -477,7 +467,7 @@ class CMMParser:
         )
     
     def _parse_data_line(self, line: str, operasyon: str, sira_no_str: str, dim_name: str, description: str) -> Optional[CMMOlcum]:
-        """Tek bir veri satırını parse eder"""
+        """Tek bir veri satırını parse eder - DÜZELTİLMİŞ VERSİYON"""
         parts = line.split()
         if len(parts) < 3:
             return None
@@ -502,27 +492,90 @@ class CMMParser:
             sapma = 0.0
             tolerans_disi = 0.0
             
-            # TP satırı için özel parsing
+            # TP satırları için özel parsing
             if eksen == "TP":
                 if len(parts) >= 4:
                     try:
                         pos_tol = float(parts[3]) if parts[3] != '' else 0.0
                     except ValueError:
                         pos_tol = 0.100
-                    neg_tol = 0
+                    neg_tol = 0.0
+                    
+                    # Bonus (5. sütun olabilir)
+                    bonus = None
+                    if len(parts) >= 5:
+                        try:
+                            val = float(parts[4])
+                            if val > 0:
+                                bonus = val
+                        except ValueError:
+                            pass
+                    
+                    # DEV (6. sütun)
+                    if len(parts) >= 6:
+                        try:
+                            sapma = float(parts[5])
+                        except ValueError:
+                            sapma = olculen
+                    else:
+                        sapma = olculen
+                    
+                    # OUTTOL (7. sütun) - ÖNEMLİ!
+                    if len(parts) >= 7:
+                        try:
+                            tolerans_disi = float(parts[6])
+                        except ValueError:
+                            tolerans_disi = 0.0
+                    else:
+                        tolerans_disi = 0.0
+            
+            # WF satırları için özel parsing (FIX 4)
+            elif eksen == "WF":
+                if len(parts) >= 5:
+                    try:
+                        # WF için: parts[3] = +TOL, parts[4] = -TOL
+                        pos_tol = float(parts[3]) if parts[3] != '' else 0.0
+                        neg_tol = float(parts[4]) if parts[4] != '' else 0.0
+                    except ValueError:
+                        pos_tol = 0.0
+                        neg_tol = 0.0
                     
                     # Bonus
                     bonus = None
-                    for i in range(4, min(len(parts), 7)):
+                    for i in range(5, min(len(parts), 8)):
                         try:
                             val = float(parts[i])
-                            if i == 4 and val > 0:
+                            if val > 0 and bonus is None:
                                 bonus = val
                                 break
                         except ValueError:
                             continue
                     
-                    sapma = olculen
+                    sapma = olculen - nominal
+                    
+                    # Tolerans dışı kontrolü
+                    tolerans_disi = 0.0
+                    for i in range(6, len(parts)):
+                        try:
+                            val = float(parts[i])
+                            if val == 0.0 and i >= 7:
+                                tolerans_disi = val
+                                break
+                        except ValueError:
+                            continue
+            
+            # L satırları için özel parsing (FIX 5)
+            elif eksen == "L":
+                if len(parts) >= 5:
+                    try:
+                        # L için: parts[3] = +TOL, parts[4] = -TOL
+                        pos_tol = float(parts[3]) if parts[3] != '' else 0.0
+                        neg_tol = float(parts[4]) if parts[4] != '' else 0.0
+                    except ValueError:
+                        pos_tol = 0.0
+                        neg_tol = 0.0
+                    
+                    sapma = olculen - nominal
                     
                     # Tolerans dışı kontrolü
                     tolerans_disi = 0.0
@@ -534,33 +587,42 @@ class CMMParser:
                                 break
                         except ValueError:
                             continue
+            
+            # Normal satırlar (DF, D, M, vb.)
             else:
-                # Normal satırlar
                 if len(parts) >= 5:
                     try:
+                        # RTF'deki sıralama: AX NOMINAL MEAS +TOL -TOL DEV OUTTOL
+                        # parts[3] = +TOL, parts[4] = -TOL
                         pos_tol = float(parts[3]) if parts[3] != '' else None
                         neg_tol = float(parts[4]) if parts[4] != '' else None
                     except ValueError:
                         pass
                 
-                # Sapma değerini bul
-                for i, part in enumerate(parts):
+                # Sapma değerini bul (6. sütun)
+                if len(parts) >= 6:
                     try:
-                        val = float(part)
-                        if i >= 5 and abs(val) < 1.0 and val != nominal and val != olculen:
-                            sapma = val
-                        if i >= 6 and val == 0.0:
-                            tolerans_disi = val
-                            break
+                        sapma = float(parts[5])
                     except ValueError:
-                        continue
+                        sapma = 0.0
+                else:
+                    sapma = 0.0
+                
+                # OUTTOL değerini bul (7. sütun) - ÖNEMLİ!
+                if len(parts) >= 7:
+                    try:
+                        tolerans_disi = float(parts[6])
+                    except ValueError:
+                        tolerans_disi = 0.0
+                else:
+                    tolerans_disi = 0.0
             
             # Durum
             durum = "✓" if tolerans_disi == 0.0 else "⚠"
             
             # Boyut adını oluştur
             if dim_name:
-                if eksen in ['TP', 'DF']:
+                if eksen in ['TP', 'DF', 'WF', 'L']:  # WF ve L eklendi
                     boyut_adi = f"{dim_name}_{eksen}"
                     aciklama = f"{description} ({eksen})"
                 else:
@@ -596,7 +658,7 @@ class CMMParser:
         
         for file_path in file_paths:
             try:
-                print(f"\n🔄 İşleniyor: {file_path}")
+                print(f"\n📄 İşleniyor: {file_path}")
                 measurements = self.parse_file(file_path)
                 all_measurements.extend(measurements)
                 print(f"✅ {file_path}: {len(measurements)} ölçüm işlendi")
@@ -615,8 +677,84 @@ class CMMParser:
 class CMMExcelExporter:
     """CMM verilerini Excel'e dönüştüren sınıf"""
     
-    def __init__(self):
-        pass
+    def __init__(self, language='TR'):
+        """
+        language: 'TR' için Türkçe, 'EN' için İngilizce terimler kullanılır
+        """
+        self.language = language
+        if language == 'TR':
+            self.terms = {
+                # FORM TOLERANSLARI
+                'STRAIGHTNESS': 'DOĞRUSULLIK',
+                'FLATNESS': 'DÜZLEMSELLİK',
+                'CIRCULARITY': 'DAİRESELLİK',
+                'CYLINDRICITY': 'SİLİNDİRİKLİK',
+                
+                # ORYANTASYON TOLERANSLARI
+                'PERPENDICULARITY': 'DİKLİK',
+                'ANGULARITY': 'AÇISALLIK',
+                'PARALLELISM': 'PARALELLİK',
+                
+                # KONUM TOLERANSLARI
+                'POSITION': 'KONUM',
+                'CONCENTRICITY': 'EŞ MERKEZLİLİK',
+                'COAXIALITY': 'EŞ EKSENLİLİK',
+                'SYMMETRY': 'SİMETRİ',
+                
+                # SALGILI TOLERANSLAR
+                'CIRCULAR_RUNOUT': 'DAİRESEL SALGI',
+                'TOTAL_RUNOUT': 'TOPLAM SALGI',
+                
+                # PROFİL TOLERANSLARI
+                'PROFILE_LINE': 'ÇİZGİ PROFİLİ',
+                'PROFILE_SURFACE': 'YÜZEY PROFİLİ',
+                'SURFACE': 'YÜZEY PROFİLİ',  # Alias
+                'PROFILE': 'PROFİL',
+                
+                # BOYUTSAL TOLERANSLAR
+                'DIAMETER': 'ÇAP',
+                'RADIUS': 'YARIÇAP',
+                'LENGTH': 'UZUNLUK',
+                'WIDTH': 'GENİŞLİK',
+                'HEIGHT': 'YÜKSEKLİK',
+                'DEPTH': 'DERİNLİK',
+                'THICKNESS': 'KALINLIK',
+                'DISTANCE': 'MESAFE',
+                'ANGLE': 'AÇI',
+                'LOCATION': 'KONUM',
+                
+                # YÜZEY TOLERANSLARI
+                'SURFACE_ROUGHNESS': 'YÜZEY PÜRÜZLÜLÜĞÜ',
+                'SURFACE_TEXTURE': 'YÜZEY DOKUSU',
+                'WAVINESS': 'DALGANLIK',
+                
+                # DİĞER ÖLÇÜMLER
+                'THREAD': 'DİŞ',
+                'TAPER': 'KONİKLİK',
+                'CHAMFER': 'PAHA',
+                'COUNTERBORE': 'HAVŞA',
+                'COUNTERSINK': 'KONİK HAVŞA',
+                'SLOT': 'KANAL',
+                'GROOVE': 'OLUK',
+                'KEYWAY': 'KAMA KANALI',
+                
+                # MODIFİYE EDİCİLER
+                'MMC': 'MAKSİMUM MALZEME KOŞULU',
+                'LMC': 'MİNİMUM MALZEME KOŞULU',
+                'RFS': 'BOYUTTAN BAĞIMSIZ',
+                'PROJECTED_TOLERANCE': 'YANSITILMIŞ TOLERANS',
+                'FREE_STATE': 'SERBEST DURUM',
+                
+                # DATUM/REFERANS
+                'DATUM': 'REFERANS',
+                'DATUM_FEATURE': 'REFERANS ÖZELLİĞİ',
+                'DATUM_TARGET': 'REFERANS HEDEFİ',
+                'DATUM_PLANE': 'REFERANS DÜZLEMİ',
+                'DATUM_AXIS': 'REFERANS EKSENİ',
+                'DATUM_CENTER': 'REFERANS MERKEZİ'
+            }
+        else:
+            self.terms = {}
     
     def export_cleaned_data_to_excel(self, cleaned_data: List[Dict], output_path: str) -> bool:
         """Temizlenmiş JSON verisini Excel'e dönüştürür"""
@@ -720,7 +858,7 @@ class CMMExcelExporter:
             return False
     
     def _add_fai_form3_sheet(self, writer, df: pd.DataFrame, workbook):
-        """FAI Form 3 sayfası ekler - SURFACE ve FLATNESS düzeltmesi ile"""
+        """FAI Form 3 sayfası ekler - TAMAMEN DÜZELTİLMİŞ VERSİYON"""
         
         # FAI'dan hariç tutulan satırları filtrele
         df_fai = df.copy()
@@ -732,7 +870,7 @@ class CMMExcelExporter:
         # 1. Önce normal FAI filtrelemesi yap
         df_fai = df_fai[df_fai['FAI Hariç'] != True].copy()
         
-        # 2. X, Y, Z, PR, PA koordinat satırlarını çıkar (POSITION olanlar)
+        # 2. X, Y, Z, PR, PA koordinat satırlarını çıkar (POSITION olanlar) - WF ve L hariç
         df_fai = df_fai[~((df_fai['Boyut Adı'].str.contains('LOC', na=False)) & 
                          (df_fai['Eksen'].isin(['X', 'Y', 'Z', 'PR', 'PA'])) & 
                          (df_fai['Açıklama'].str.contains('POSITION', na=False)))].copy()
@@ -742,8 +880,10 @@ class CMMExcelExporter:
                          (df_fai['Eksen'] == 'DF') & 
                          (df_fai['Boyut Adı'] != 'LOC1_DF'))].copy()
         
-        # 4. TÜM TP satırlarını tekrar ekle
+        # 4. TÜM TP, WF ve L satırlarını tekrar ekle (FIX 4 ve 5)
         all_tp_rows = df[df['Eksen'] == 'TP'].copy()
+        all_wf_rows = df[df['Eksen'] == 'WF'].copy()
+        all_l_rows = df[df['Eksen'] == 'L'].copy()
         
         # 5. TÜM LOC+DF satırlarını ekle
         all_loc_df_rows = df[(df['Boyut Adı'].str.contains('LOC', na=False)) & 
@@ -761,6 +901,32 @@ class CMMExcelExporter:
             if existing.empty:
                 print(f"  ➕ TP satırı ekleniyor: {boyut_adi} (Ölçüm {olcum_no})")
                 df_fai = pd.concat([df_fai, pd.DataFrame([tp_row])], ignore_index=True)
+        
+        # WF satırlarını ekle (FIX 4)
+        for idx, wf_row in all_wf_rows.iterrows():
+            boyut_adi = wf_row['Boyut Adı']
+            olcum_no = wf_row['Ölçüm No']
+            
+            existing = df_fai[(df_fai['Boyut Adı'] == boyut_adi) & 
+                             (df_fai['Ölçüm No'] == olcum_no) &
+                             (df_fai['Eksen'] == 'WF')]
+            
+            if existing.empty:
+                print(f"  ➕ WF satırı ekleniyor: {boyut_adi} (Ölçüm {olcum_no})")
+                df_fai = pd.concat([df_fai, pd.DataFrame([wf_row])], ignore_index=True)
+        
+        # L satırlarını ekle (FIX 5)
+        for idx, l_row in all_l_rows.iterrows():
+            boyut_adi = l_row['Boyut Adı']
+            olcum_no = l_row['Ölçüm No']
+            
+            existing = df_fai[(df_fai['Boyut Adı'] == boyut_adi) & 
+                             (df_fai['Ölçüm No'] == olcum_no) &
+                             (df_fai['Eksen'] == 'L')]
+            
+            if existing.empty:
+                print(f"  ➕ L satırı ekleniyor: {boyut_adi} (Ölçüm {olcum_no})")
+                df_fai = pd.concat([df_fai, pd.DataFrame([l_row])], ignore_index=True)
         
         # LOC+DF satırlarını ekle
         for idx, df_row in all_loc_df_rows.iterrows():
@@ -873,10 +1039,8 @@ class CMMExcelExporter:
         fai_ws.set_column('H:H', 2)   # Boş
         fai_ws.set_column('I:I', 2)   # Boş
         fai_ws.set_column('J:J', 15)  # Aletler
-        fai_ws.set_column('K:K', 12)  # Uygunsuzluk
-        fai_ws.set_column('L:L', 2)   # Boş
-        fai_ws.set_column('M:M', 15)  # Ek Veriler
-        fai_ws.set_column('N:N', 15)  # Ek Veriler devam
+        fai_ws.set_column('K:K', 10)  # OUTTOL
+        fai_ws.set_column('L:L', 10)  # Durum
         
         # Satır yükseklikleri
         fai_ws.set_row(0, 25)
@@ -908,16 +1072,16 @@ class CMMExcelExporter:
         # Sütun başlıkları
         fai_ws.write('A7', '5. Krk. No.\n    Char No.', column_header_format)
         fai_ws.write('B7', '6. Ek Bilgi\nExtra Info', column_header_format)
-        fai_ws.write('C7', '7.Dokümandaki Ref.Bölge\nReference Location', column_header_format)
+        fai_ws.write('C7', '7. Dokümandaki Ref.Bölge\nReference Location', column_header_format)
         fai_ws.write('D7', '8. Karakter Özelliği\nCharacteristic Designator', column_header_format)
         fai_ws.merge_range('E7:F7', '9. Gerek/Ölçü\n     Requirement', column_header_format)
         fai_ws.merge_range('G7:I7', '10. Sonuç\n     Results', column_header_format)
         fai_ws.write('J7', '11.  Tasarlanmış / Nitelikli Aletler\nDesigned / Qualified Tooling', column_header_format)
-        fai_ws.merge_range('K7:L7', '12. Uygunsuzluk Bildirim No.\nNon-Conformance Number', column_header_format)
-        fai_ws.merge_range('M7:N7', '13. Ek Veriler / Yorumlar\n Additional Data / Comments', column_header_format)
+        fai_ws.write('K7', '12. OUTTOL', column_header_format)
+        fai_ws.write('L7', '13. Durum\n     Status', column_header_format)
         
         # Boş satır - 8
-        for col in range(15):
+        for col in range(12):  # 12 sütun için (A-L)
             fai_ws.write(7, col, '', data_format)
         
         # Veri satırları
@@ -961,166 +1125,197 @@ class CMMExcelExporter:
                 boyut_parts = str(boyut_adi).split('_')
                 if len(boyut_parts) >= 2:
                     base_dim = boyut_parts[0]
-                    if base_dim.startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL', 'CYLY', 'DIST', 'PERP')):
+                    if base_dim.startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL', 'CYLY', 'DIST', 'PERP', 'PARL', 'FLAT')):
                         ek_bilgi = base_dim
-            elif str(boyut_adi).startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL', 'CYLY', 'DIST', 'PERP')):
+            elif str(boyut_adi).startswith(('LOC', 'CIR', 'DIM', 'PROF', 'ANGL', 'CYLY', 'DIST', 'PERP', 'PARL', 'FLAT')):
                 ek_bilgi = str(boyut_adi)
             
-            # Karakter özelliği belirle
+            # Karakter özelliği belirle - TAMAMEN DÜZELTİLMİŞ (FIX 3)
             eksen = row['Eksen']
             aciklama = str(row['Açıklama'])
             
-            if 'POSITION' in aciklama.upper() or eksen == 'TP':
-                ozellik = 'KONUM'
+            # CYLY için özel durum (FIX 3)
+            if 'CYLY' in str(boyut_adi).upper() or 'CYLINDRICITY' in aciklama.upper():
+                ozellik = self.terms.get('CYLINDRICITY', 'SİLİNDİRİKLİK')
+            # Önce açıklamaya bak
+            elif 'POSITION' in aciklama.upper() or eksen == 'TP':
+                ozellik = self.terms.get('POSITION', 'KONUM')
             elif 'DISTANCE' in aciklama.upper() or 'DIST' in str(boyut_adi).upper():
-                ozellik = 'MESAFE'
+                ozellik = self.terms.get('DISTANCE', 'MESAFE')
             elif 'PERPENDICULARITY' in aciklama.upper() or 'PERP' in str(boyut_adi).upper():
-                ozellik = 'DİKLİK'
+                ozellik = self.terms.get('PERPENDICULARITY', 'DİKLİK')
+            elif 'PARALLELISM' in aciklama.upper() or 'PARL' in str(boyut_adi).upper():
+                ozellik = self.terms.get('PARALLELISM', 'PARALELLİK')
             elif 'FLATNESS' in aciklama.upper() or 'FLAT' in str(boyut_adi).upper():
-                ozellik = 'FLATNESS'  # FLAT1 yerine FLATNESS
+                ozellik = self.terms.get('FLATNESS', 'DÜZLEMSELLİK')
             elif 'SURFACE' in aciklama.upper() or 'PROFILE' in aciklama.upper() or 'PROF' in str(boyut_adi).upper():
-                ozellik = 'SURFACE'  # Profil yerine SURFACE
+                ozellik = self.terms.get('SURFACE', 'YÜZEY PROFİLİ')
             elif 'LOCATION' in aciklama.upper() and eksen == 'D':
-                ozellik = 'ÇAP'
+                ozellik = self.terms.get('DIAMETER', 'ÇAP')
+            elif 'SLOT' in aciklama.upper():
+                ozellik = self.terms.get('SLOT', 'KANAL')
+            elif eksen == 'WF':  # WF için özel durum (FIX 4)
+                ozellik = self.terms.get('WIDTH', 'GENİŞLİK')
+            elif eksen == 'L':  # L için özel durum (FIX 5)
+                ozellik = self.terms.get('LENGTH', 'UZUNLUK')
             else:
                 # Eğer hiçbiri değilse boyut adına bak
                 if 'PROF' in str(boyut_adi).upper():
-                    ozellik = 'SURFACE'
+                    ozellik = self.terms.get('PROFILE', 'PROFİL')
                 elif 'FLAT' in str(boyut_adi).upper():
-                    ozellik = 'FLATNESS'
+                    ozellik = self.terms.get('FLATNESS', 'DÜZLEMSELLİK')
+                elif 'PARL' in str(boyut_adi).upper():
+                    ozellik = self.terms.get('PARALLELISM', 'PARALELLİK')
                 else:
                     ozellik = str(boyut_adi)
             
-            # Gerek/Ölçü formatı - BU KISIM DEĞİŞTİ!
+            # Gerek/Ölçü formatı
             nominal = row['Nominal']
             
-            # SURFACE ve FLATNESS için özel durum
-            if ozellik == 'SURFACE':
-                gerek_olcu = "SURFACE"  # 0 yerine SURFACE
-            elif ozellik == 'FLATNESS':
-                gerek_olcu = "FLATNESS"  # 0 yerine FLATNESS
+            # Geometrik toleranslar için özel durum
+            if ozellik in [self.terms.get('SURFACE', 'YÜZEY PROFİLİ'), 
+                          self.terms.get('FLATNESS', 'DÜZLEMSELLİK'),
+                          self.terms.get('PARALLELISM', 'PARALELLİK'),
+                          self.terms.get('PERPENDICULARITY', 'DİKLİK'),
+                          self.terms.get('CYLINDRICITY', 'SİLİNDİRİKLİK')]:  # CYLY eklendi
+                gerek_olcu = ozellik
             elif eksen == 'TP':
-                gerek_olcu = "KONUM"
+                gerek_olcu = self.terms.get('POSITION', 'KONUM')
             elif eksen == 'DF':
                 gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
-            elif ozellik in ['DİKLİK', 'MESAFE'] and nominal in [0, 1.0]:
+            elif eksen == 'WF':  # WF için özel durum (FIX 4)
+                gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
+            elif eksen == 'L':  # L için özel durum (FIX 5)
+                gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
+            elif nominal in [0, 0.0] and ozellik in self.terms.values():
                 gerek_olcu = ozellik
             else:
                 gerek_olcu = str(abs(nominal)).rstrip('0').rstrip('.')
             
-            # TOLERANS FORMATLAMA
-            pos_tol = row['+Tolerans']
-            neg_tol = row['-Tolerans']
+            # TOLERANS FORMATLAMA - TAMAMEN DÜZELTİLMİŞ (FIX 1 ve 2)
+            pos_tol_raw = row['+Tolerans']
+            neg_tol_raw = row['-Tolerans']
             
-            # None veya NaN değerleri 0 olarak ele al
-            if pos_tol is None or pd.isna(pos_tol):
-                pos_tol = 0
-            if neg_tol is None or pd.isna(neg_tol):
-                neg_tol = 0
-            
-            # Requirement formatı
+            # Float'a çevir - RAW değerleri koru
+            try:
+                if pos_tol_raw is not None and not pd.isna(pos_tol_raw) and pos_tol_raw != '':
+                    pos_tol = float(pos_tol_raw)
+                else:
+                    pos_tol = None
+            except (ValueError, TypeError):
+                pos_tol = None
+                
+            try:
+                if neg_tol_raw is not None and not pd.isna(neg_tol_raw) and neg_tol_raw != '':
+                    neg_tol = float(neg_tol_raw)
+                else:
+                    neg_tol = None
+            except (ValueError, TypeError):
+                neg_tol = None
+                        
+            # Requirement formatı - TAMAMEN DÜZELTİLMİŞ (FIX 1 ve 2)
             requirement = ""
             
             # TP için özel durum
             if eksen == 'TP':
-                if pos_tol > 0:
-                    # TP için de eşit toleranslarda ± kullan
-                    if neg_tol > 0 and pos_tol == neg_tol:
-                        requirement = f"±{str(pos_tol).replace('.', ',')}"
-                    else:
-                        requirement = f"⌖{str(pos_tol).replace('.', ',')}"
+                if pos_tol is not None and pos_tol > 0:
+                    requirement = f"⌖{str(pos_tol).replace('.', ',')}"
                 else:
                     requirement = "⌖0,3"
             
-            # DF için özel durum
-            elif eksen == 'DF':
-                # TÜM DF'ler için: eşit toleranslarda ± kullan
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol == 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}"
-                elif pos_tol == 0 and neg_tol > 0:
-                    requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol > 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
+            # WF satırları için özel durum (FIX 4)
+            elif eksen == 'WF':
+                if pos_tol is not None and neg_tol is not None:
+                    # WF için: parts[3] = +TOL, parts[4] = -TOL
+                    if pos_tol > 0 and neg_tol < 0:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
+                    elif pos_tol > 0 and neg_tol > 0:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(neg_tol).replace('.', ',')}"
+                    elif pos_tol > 0 and neg_tol == 0:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/0"
                 else:
                     requirement = ""
             
-            # DİKLİK için
-            elif ozellik == 'DİKLİK':
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                elif pos_tol > 0:
-                    requirement = f"⊥{str(pos_tol).replace('.', ',')}"
-                else:
-                    requirement = "⊥0,1"
-            
-            # KONUM için
-            elif ozellik == 'KONUM' and eksen != 'TP':
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol == 0:
+            # L satırları için özel durum (FIX 5)
+            elif eksen == 'L':
+                if pos_tol is not None and neg_tol is not None:
+                    if abs(pos_tol - neg_tol) < 0.001:
+                        requirement = f"±{str(abs(pos_tol)).replace('.', ',')}"
+                    else:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
+                elif pos_tol is not None and pos_tol != 0:
                     requirement = f"+{str(pos_tol).replace('.', ',')}"
-                elif pos_tol == 0 and neg_tol > 0:
+                elif neg_tol is not None and neg_tol != 0:
                     requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol > 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
                 else:
                     requirement = ""
+            
+            # DF için özel durum (FIX 1 ve 2 dahil)
+            elif eksen == 'DF' or eksen == 'D':
+                # RTF'deki tolerans değerleri doğrudan kullan
+                if pos_tol is not None and neg_tol is not None:
+                    # Eğer pos_tol negatif ise (ölçüm 34 gibi)
+                    if pos_tol < 0 and neg_tol > 0:
+                        requirement = f"{str(pos_tol).replace('.', ',')}/+{str(neg_tol).replace('.', ',')}"
+                    elif pos_tol < 0 and neg_tol < 0:
+                        # Her ikisi de negatifse
+                        requirement = f"{str(pos_tol).replace('.', ',')}/{str(neg_tol).replace('.', ',')}"
+                    elif pos_tol > 0 and neg_tol > 0:
+                        if abs(pos_tol - neg_tol) < 0.001:
+                            requirement = f"±{str(pos_tol).replace('.', ',')}"
+                        else:
+                            requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(neg_tol).replace('.', ',')}"
+                    elif pos_tol > 0 and neg_tol == 0:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/0"
+                    elif pos_tol == 0 and neg_tol > 0:
+                        requirement = f"0/-{str(neg_tol).replace('.', ',')}"
+                    elif pos_tol == 0 and neg_tol < 0:
+                        requirement = f"0/{str(neg_tol).replace('.', ',')}"
+                    else:
+                        # Diğer durumlar için değerleri göster
+                        if pos_tol is not None and neg_tol is not None:
+                            requirement = f"{str(pos_tol).replace('.', ',')}/{str(neg_tol).replace('.', ',')}"
+                elif pos_tol is not None:
+                    requirement = f"{str(pos_tol).replace('.', ',')}"
+                elif neg_tol is not None:
+                    requirement = f"{str(neg_tol).replace('.', ',')}"
+                else:
+                    requirement = ""
+            
+            # Geometrik toleranslar için
+            elif ozellik in [self.terms.get('PERPENDICULARITY', 'DİKLİK'),
+                            self.terms.get('PARALLELISM', 'PARALELLİK'),
+                            self.terms.get('FLATNESS', 'DÜZLEMSELLİK'),
+                            self.terms.get('CYLINDRICITY', 'SİLİNDİRİKLİK')]:  # CYLY eklendi
+                if pos_tol is not None and pos_tol > 0:
+                    requirement = f"+{str(pos_tol).replace('.', ',')}"
+                else:
+                    requirement = "0,1"
             
             # MESAFE için
-            elif ozellik == 'MESAFE':
-                # Eğer pozitif ve negatif toleranslar eşitse ± kullan
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                # Sadece pozitif tolerans varsa
-                elif pos_tol > 0 and neg_tol == 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/0"
-                # Sadece negatif tolerans varsa
-                elif pos_tol == 0 and neg_tol > 0:
-                    requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
-                # Farklı toleranslar varsa
-                elif pos_tol > 0 and neg_tol > 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
-                else:
-                    requirement = ""
-            
-            # ÇAP için
-            elif ozellik == 'ÇAP':
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol == 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/0"
-                elif pos_tol == 0 and neg_tol > 0:
-                    requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol > 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
-                else:
-                    requirement = ""
-            
-            # FLATNESS ve SURFACE için
-            elif ozellik in ['FLATNESS', 'SURFACE']:
-                if pos_tol > 0 and neg_tol > 0 and pos_tol == neg_tol:
-                    requirement = f"±{str(pos_tol).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol == 0:
+            elif ozellik == self.terms.get('DISTANCE', 'MESAFE'):
+                if pos_tol is not None and neg_tol is not None:
+                    if abs(pos_tol - neg_tol) < 0.001:
+                        requirement = f"±{str(abs(pos_tol)).replace('.', ',')}"
+                    else:
+                        requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
+                elif pos_tol is not None and pos_tol != 0:
                     requirement = f"+{str(pos_tol).replace('.', ',')}"
-                elif pos_tol == 0 and neg_tol > 0:
+                elif neg_tol is not None and neg_tol != 0:
                     requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol > 0:
-                    requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
                 else:
                     requirement = ""
             
             # Genel durumlar
             else:
-                if pos_tol > 0 and neg_tol > 0:
-                    if pos_tol == neg_tol:
-                        requirement = f"±{str(pos_tol).replace('.', ',')}"
+                if pos_tol is not None and neg_tol is not None:
+                    if abs(pos_tol - neg_tol) < 0.001:
+                        requirement = f"±{str(abs(pos_tol)).replace('.', ',')}"
                     else:
                         requirement = f"+{str(pos_tol).replace('.', ',')}/-{str(abs(neg_tol)).replace('.', ',')}"
-                elif pos_tol > 0 and neg_tol == 0:
+                elif pos_tol is not None and pos_tol != 0:
                     requirement = f"+{str(pos_tol).replace('.', ',')}"
-                elif pos_tol == 0 and neg_tol > 0:
+                elif neg_tol is not None and neg_tol != 0:
                     requirement = f"-{str(abs(neg_tol)).replace('.', ',')}"
                 else:
                     requirement = ""
@@ -1131,6 +1326,24 @@ class CMMExcelExporter:
                 sonuc_str = str(sonuc).replace('.', ',')
             else:
                 sonuc_str = str(sonuc).replace('.', ',')
+            
+            # OUTTOL değerini al ve Durum belirle
+            tolerans_disi = row['Tolerans Dışı']
+            if tolerans_disi is not None and not pd.isna(tolerans_disi):
+                # OUTTOL değerini string olarak formatla
+                if isinstance(tolerans_disi, (int, float)):
+                    outtol_str = str(tolerans_disi).replace('.', ',')
+                    # Durum: OUTTOL 0 ise OK, değilse NOT OK
+                    if float(tolerans_disi) == 0.0:
+                        durum_str = "OK"
+                    else:
+                        durum_str = "NOT OK"
+                else:
+                    outtol_str = str(tolerans_disi).replace('.', ',')
+                    durum_str = "OK"
+            else:
+                outtol_str = "0"
+                durum_str = "OK"
             
             # Veriyi yaz
             fai_ws.write(current_row, 0, krk_no_formatted, data_format)
@@ -1143,11 +1356,8 @@ class CMMExcelExporter:
             fai_ws.write(current_row, 7, '', data_format)
             fai_ws.write(current_row, 8, '', data_format)
             fai_ws.write(current_row, 9, 'CMM-001', data_format)
-            fai_ws.write(current_row, 10, '', data_format)
-            fai_ws.write(current_row, 11, '', data_format)
-            fai_ws.write(current_row, 12, '', data_format)
-            fai_ws.write(current_row, 13, '', data_format)
-            fai_ws.write(current_row, 14, '', data_format)
+            fai_ws.write(current_row, 10, outtol_str, data_format)  # OUTTOL değeri
+            fai_ws.write(current_row, 11, durum_str, data_format)  # Durum
             
             fai_row_index += 1
         
@@ -1266,7 +1476,7 @@ def clean_and_sort_data(json_path: str) -> List[Dict]:
 def test_parser():
     """Parser'ı test etmek için"""
     test_files = [
-        "uploads/CMM_10140783_FAI.RTF"
+        "uploads/CMM_sample.RTF"
     ]
     
     output_path = "static/cmm_test_output.xlsx"
