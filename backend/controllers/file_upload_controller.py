@@ -4097,7 +4097,10 @@ def calculate_mass_and_cost_for_analysis(analysis):
             'density_used': 2.7,
             'price_per_kg_used': 4.5,
             'volume_used_mm3': 0.0,
-            'material_used': 'Unknown'
+            'material_used': 'Unknown',
+            'volume_source': 'none',
+            'calculation_method': 'default',
+            'material_confidence': 0
         }
         
         # STEP analizinden hacim al
@@ -4107,10 +4110,13 @@ def calculate_mass_and_cost_for_analysis(analysis):
         # Hacim kaynaklarını dene
         if step_analysis.get('Prizma Hacmi (mm³)'):
             volume_mm3 = step_analysis['Prizma Hacmi (mm³)']
+            result['volume_source'] = 'prizma_hacmi'
         elif step_analysis.get('Ürün Hacmi (mm³)'):
             volume_mm3 = step_analysis['Ürün Hacmi (mm³)']
+            result['volume_source'] = 'urun_hacmi'
         elif step_analysis.get('volume_mm3'):
             volume_mm3 = step_analysis['volume_mm3']
+            result['volume_source'] = 'volume_mm3'
         
         if volume_mm3 <= 0:
             print(f"[CALC-MASS] ⚠️ Analiz {analysis.get('id', 'unknown')}: Geçerli hacim bulunamadı")
@@ -4160,6 +4166,7 @@ def calculate_mass_and_cost_for_analysis(analysis):
                     material_name = str(first_match) if first_match else 'Unknown'
         
         result['material_used'] = material_name
+        result['material_confidence'] = best_confidence
         
         # MongoDB'den malzeme verilerini al
         try:
@@ -4179,9 +4186,11 @@ def calculate_mass_and_cost_for_analysis(analysis):
             if material:
                 density = material.get("density", 2.7)
                 price_per_kg = material.get("price_per_kg", 4.5)
+                result['calculation_method'] = 'database_exact'
                 print(f"[CALC-MASS] ✅ MongoDB'de bulundu: {material.get('name')} (density: {density}, price: ${price_per_kg})")
             else:
                 print(f"[CALC-MASS] ⚠️ MongoDB'de bulunamadı: {material_name}, varsayılan kullanılıyor")
+                result['calculation_method'] = 'fallback_defaults'
                 # Varsayılan değerler - yaygın malzemeler için
                 if "6061" in material_name.upper():
                     density, price_per_kg = 2.7, 4.5
@@ -4199,11 +4208,12 @@ def calculate_mass_and_cost_for_analysis(analysis):
         except Exception as db_error:
             print(f"[CALC-MASS] ❌ MongoDB hatası: {db_error}")
             density, price_per_kg = 2.7, 4.5
+            result['calculation_method'] = 'error_defaults'
         
         result['density_used'] = density
         result['price_per_kg_used'] = price_per_kg
         
-        # Kütle hesaplama
+        # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
         mass_kg = (volume_mm3 * density) / 1_000_000
         result['calculated_mass_kg'] = round(mass_kg, 3)
         
@@ -4211,7 +4221,7 @@ def calculate_mass_and_cost_for_analysis(analysis):
         material_cost_usd = mass_kg * price_per_kg
         result['calculated_material_cost_usd'] = round(material_cost_usd, 2)
         
-        print(f"[CALC-MASS] ✅ Hesaplama tamamlandı: {volume_mm3} mm³ x {density} g/cm³ = {mass_kg:.3f} kg x ${price_per_kg} = ${material_cost_usd:.2f}")
+        print(f"[CALC-MASS] ✅ Hesaplama tamamlandı: {volume_mm3} mm³ × {density} g/cm³ ÷ 1.000.000 = {mass_kg:.3f} kg × ${price_per_kg} = ${material_cost_usd:.2f}")
         print(f"[CALC-MASS] 🎯 Seçilen malzeme: {material_name} (confidence: %{best_confidence})")
         
         return result
@@ -4226,9 +4236,12 @@ def calculate_mass_and_cost_for_analysis(analysis):
             'density_used': 2.7,
             'price_per_kg_used': 4.5,
             'volume_used_mm3': 0.0,
-            'material_used': 'Unknown'
+            'material_used': 'Unknown',
+            'volume_source': 'error',
+            'calculation_method': 'error',
+            'material_confidence': 0
         }
-                
+
 
 def debug_step_render_issue(analysis_id):
     """STEP render problemi debug et"""

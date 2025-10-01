@@ -1783,7 +1783,6 @@ class MaterialAnalysisServiceOptimized:
                 return []
             
             materials_list = []
-            volume_cm3 = prizma_hacim_mm3 / 1000
             
             print(f"[DATABASE-MATERIALS] Processing ALL {len(materials_cache)} materials...")
             
@@ -1798,7 +1797,8 @@ class MaterialAnalysisServiceOptimized:
                     if price_per_kg < 0:
                         price_per_kg = 10
                     
-                    mass_kg = (volume_cm3 * density) / 1000
+                    # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+                    mass_kg = (prizma_hacim_mm3 * density) / 1_000_000
                     material_cost = mass_kg * price_per_kg
                     
                     materials_list.append({
@@ -1824,7 +1824,7 @@ class MaterialAnalysisServiceOptimized:
         except Exception as e:
             print(f"[DATABASE-MATERIALS] Error: {e}")
             return []
-    
+
     def _calculate_top_materials_lightning(self, prizma_hacim_mm3, limit=None):
         """Calculate top materials"""
         try:
@@ -1836,7 +1836,6 @@ class MaterialAnalysisServiceOptimized:
                 return []
             
             top_materials = []
-            volume_cm3 = prizma_hacim_mm3 / 1000
             
             print(f"[TOP-MATERIALS] Processing {len(materials_cache)} materials...")
             
@@ -1851,7 +1850,8 @@ class MaterialAnalysisServiceOptimized:
                     if price_per_kg < 0:
                         price_per_kg = 10
                     
-                    mass_kg = (volume_cm3 * density) / 1000
+                    # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+                    mass_kg = (prizma_hacim_mm3 * density) / 1_000_000
                     material_cost = mass_kg * price_per_kg
                     
                     top_materials.append({
@@ -1866,7 +1866,7 @@ class MaterialAnalysisServiceOptimized:
                     })
                     
                 except Exception:
-                        continue
+                    continue
             
             top_materials.sort(key=lambda x: x["material_cost"])
             
@@ -1915,16 +1915,17 @@ class MaterialAnalysisServiceOptimized:
                     confidence_match = re.search(r'%(\d+)', material_text)
                     confidence = int(confidence_match.group(1)) if confidence_match else 80
                     
-                    mass_kg = round((prizma_hacim_mm3 * density) / 1_000_000, 3)
-                    material_cost = round(mass_kg * price_per_kg, 2)
+                    # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+                    mass_kg = (prizma_hacim_mm3 * density) / 1_000_000
+                    material_cost = mass_kg * price_per_kg
                     
                     calculations.append({
                         "material": material.get("name", material_name),
                         "confidence": f"%{confidence}",
                         "density": density,
-                        "mass_kg": mass_kg,
+                        "mass_kg": round(mass_kg, 3),
                         "price_per_kg": price_per_kg,
-                        "material_cost": material_cost,
+                        "material_cost": round(material_cost, 2),
                         "volume_mm3": prizma_hacim_mm3,
                         "source": "prioritized_cache"
                     })
@@ -1977,22 +1978,23 @@ class MaterialAnalysisServiceOptimized:
                         confidence_match = re.search(r'%(\d+)', material_text)
                         confidence = int(confidence_match.group(1)) if confidence_match else 80
                         
-                        mass_kg = round((prizma_hacim_mm3 * density) / 1_000_000, 3)
-                        material_cost = round(mass_kg * price_per_kg, 2)
+                        # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+                        mass_kg = (prizma_hacim_mm3 * density) / 1_000_000
+                        material_cost = mass_kg * price_per_kg
                         
                         calculations.append({
                             "material": material.get("name", material_name),
                             "confidence": f"%{confidence}",
                             "density": density,
-                            "mass_kg": mass_kg,
+                            "mass_kg": round(mass_kg, 3),
                             "price_per_kg": price_per_kg,
-                            "material_cost": material_cost,
+                            "material_cost": round(material_cost, 2),
                             "volume_mm3": prizma_hacim_mm3,
                             "category": category,
                             "source": "database_only"
                         })
                         
-                        print(f"[CALC-DB-ONLY] {material_name}: {mass_kg}kg, ${material_cost}")
+                        print(f"[CALC-DB-ONLY] {material_name}: {round(mass_kg, 3)}kg, ${round(material_cost, 2)}")
                     
                 except Exception as material_error:
                     print(f"[CALC-DB-ONLY] Material {material_name} error: {material_error}")
@@ -2017,7 +2019,6 @@ class MaterialAnalysisServiceOptimized:
             )
             
             top_materials = []
-            volume_cm3 = prizma_hacim_mm3 / 1000
             
             for material in materials_cursor:
                 try:
@@ -2034,7 +2035,8 @@ class MaterialAnalysisServiceOptimized:
                     if price_per_kg < 0:
                         price_per_kg = 10
                     
-                    mass_kg = (volume_cm3 * density) / 1000
+                    # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+                    mass_kg = (prizma_hacim_mm3 * density) / 1_000_000
                     material_cost = mass_kg * price_per_kg
                     
                     top_materials.append({
@@ -2408,8 +2410,8 @@ class CostEstimationServiceFast:
                 self._price_cache[cache_key] = {'density': density, 'price': price}
                 self._cache_timestamp = current_time
             
-            volume_cm3 = volume_mm3 / 1000
-            mass_kg = (volume_cm3 * density) / 1000
+            # ✅ DOĞRU HESAPLAMA: mm³ × g/cm³ ÷ 1.000.000 = kg
+            mass_kg = (volume_mm3 * density) / 1_000_000
             cost = mass_kg * price
             
             return {
@@ -2419,7 +2421,6 @@ class CostEstimationServiceFast:
             
         except Exception as e:
             return {"mass_kg": 0, "cost_usd": 0, "error": str(e)}
-
 # =====================================================
 # CLASS ALIASES AND COMPATIBILITY
 # =====================================================
