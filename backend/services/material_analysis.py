@@ -2124,7 +2124,7 @@ class MaterialAnalysisServiceOptimized:
             return ""
 
     def analyze_step_file_ultra_fast(self, step_path):
-        """STEP analysis"""
+        """STEP analysis - FIXED"""
         try:
             start_time = time.time()
             
@@ -2142,12 +2142,17 @@ class MaterialAnalysisServiceOptimized:
             main_shape = max(shapes, key=lambda s: s.Volume())
             main_bbox = main_shape.BoundingBox()
             
-            x, y, z = main_bbox.xlen, main_bbox.ylen, main_bbox.zlen
+            # ✅ DOĞRU: Float olarak al
+            x = float(main_bbox.xlen)
+            y = float(main_bbox.ylen)
+            z = float(main_bbox.zlen)
             
-            x_pad = max(int(x) + 10, 10) if x > 0 else 0
-            y_pad = max(int(y) + 10, 10) if y > 0 else 0
-            z_pad = max(int(z) + 10, 10) if z > 0 else 0
+            # ✅ DOĞRU: Float olarak hesapla, SONRA yuvarla
+            x_pad = round(x + 10, 1) if x > 0 else 0
+            y_pad = round(y + 10, 1) if y > 0 else 0
+            z_pad = round(z + 10, 1) if z > 0 else 0
             
+            # ✅ DOĞRU: Tam değerlerle çarp
             volume_padded = x_pad * y_pad * z_pad if x_pad > 0 and y_pad > 0 and z_pad > 0 else 0
             
             try:
@@ -2160,33 +2165,41 @@ class MaterialAnalysisServiceOptimized:
             waste_volume = max(volume_padded - product_volume, 0) if volume_padded > 0 else 0
             waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0
             
+            # Silindirik hesaplamalar için de düzeltme
+            cylinder_diameter = round(max(x, y) + 10, 1) if x > 0 and y > 0 else 0
+            cylinder_height = round(z + 10, 1) if z > 0 else 0
+            
             analysis_time = time.time() - start_time
             
             result = {
                 "X (mm)": round(x, 2),
                 "Y (mm)": round(y, 2),
                 "Z (mm)": round(z, 2),
-                "Silindirik Çap (mm)": round(max(x, y), 2) if x > 0 and y > 0 else 0,
-                "Silindirik Yükseklik (mm)": round(z, 2),
+                "Silindirik Çap (mm)": cylinder_diameter,
+                "Silindirik Yükseklik (mm)": cylinder_height,
                 "X+Pad (mm)": x_pad,
                 "Y+Pad (mm)": y_pad,
                 "Z+Pad (mm)": z_pad,
-                "Prizma Hacmi (mm³)": round(volume_padded, 1),
-                "Ürün Hacmi (mm³)": round(product_volume, 1),
-                "Talaş Hacmi (mm³)": round(waste_volume, 1),
+                "Prizma Hacmi (mm³)": round(volume_padded, 2),  # Daha hassas
+                "Ürün Hacmi (mm³)": round(product_volume, 2),
+                "Talaş Hacmi (mm³)": round(waste_volume, 2),
                 "Talaş Oranı (%)": round(waste_ratio, 1),
-                "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 1),
+                "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 2),
                 "analysis_time": analysis_time,
-                "method": "prioritized_optimized"
+                "method": "prioritized_optimized_fixed"
             }
             
-            print(f"[STEP-ENHANCED] Analysis completed in {analysis_time:.3f}s")
+            print(f"[STEP-ENHANCED-FIXED] Analysis completed in {analysis_time:.3f}s")
+            print(f"[STEP-ENHANCED-FIXED] Dimensions: {x:.2f} × {y:.2f} × {z:.2f} mm")
+            print(f"[STEP-ENHANCED-FIXED] Padded: {x_pad} × {y_pad} × {z_pad} mm")
+            print(f"[STEP-ENHANCED-FIXED] Volume: {volume_padded:.2f} mm³")
+            
             return result
             
         except Exception as e:
-            print(f"[STEP-ENHANCED] Analysis failed: {str(e)}")
+            print(f"[STEP-ENHANCED-FIXED] Analysis failed: {str(e)}")
             return self._get_zero_step_defaults(f"Analysis failed: {str(e)}")
-    
+
     def _get_zero_step_defaults(self, error_msg=""):
         return {
             "error": error_msg,
