@@ -65,6 +65,46 @@ print("[INFO] Enhanced Material Analysis Service - PRIORITIZED DETECTION")
 # PRIORITIZED MATERIAL DETECTION
 # =====================================================
 
+# services/material_analysis.py içine EKLENECEK yeni fonksiyonlar (mevcut fonksiyonları değiştirmeden)
+
+def apply_6061_priority_to_materials(material_list):
+    """
+    6061 malzemesini önceliğe al - mevcut listeyi modifiye et
+    Eğer 6061 varsa, sadece onu döndür
+    Yoksa orijinal listeyi döndür
+    """
+    if not material_list:
+        return material_list
+    
+    # 6061 içeren malzemeleri bul
+    material_6061_found = []
+    other_materials = []
+    
+    for material in material_list:
+        material_text = ""
+        
+        if isinstance(material, dict):
+            material_text = (material.get('material_name', '') + ' ' + material.get('keyword', '')).upper()
+        else:
+            # String format: "MaterialName (%95)"
+            material_text = str(material).upper()
+        
+        # 6061 kontrolü - çeşitli varyasyonlar
+        if any(pattern in material_text for pattern in ['6061', 'AL 6061', 'AA6061', 'AL6061', 'AA 6061']):
+            material_6061_found.append(material)
+            print(f"[6061-PRIORITY] ✅ 6061 bulundu: {material}")
+        else:
+            other_materials.append(material)
+    
+    # Eğer 6061 bulunduysa, SADECE onu döndür
+    if material_6061_found:
+        print(f"[6061-PRIORITY] 🎯 6061 öncelikli seçildi! Diğer {len(other_materials)} malzeme göz ardı edildi.")
+        return material_6061_found[:1]  # Sadece ilk 6061'i al
+    
+    # 6061 yoksa orijinal listeyi döndür
+    print(f"[6061-PRIORITY] 6061 bulunamadı, normal sıralama kullanılıyor: {len(material_list)} malzeme")
+    return material_list
+
 def extract_material_keywords_lightning(text):
     """Enhanced keyword extraction with CORRECT PRIORITY ORDER"""
     if not text or len(text.strip()) < 3:
@@ -108,22 +148,22 @@ def extract_explicit_material_fields(text):
     # Flexible MALZEME: patterns - handles various spacing
     explicit_patterns = [
         # Standard patterns with flexible spacing (0-10 spaces allowed)
-        r'(?:^|\n)\s*MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})',
-        r'(?:^|\n)\s*MATERIAL\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})',
-        r'MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})(?:\n|$)',
-        r'MATERIAL\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})(?:\n|$)',
+        r'(?:^|\n)\s*MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,]{2,100})',  # ✅ VIRGÜL EKLENDI
+        r'(?:^|\n)\s*MATERIAL\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,]{2,100})',
+        r'MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,]{2,100})(?:\n|$)',
+        r'MATERIAL\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,]{2,100})(?:\n|$)',
         
         # Numbered items in NOTLAR
-        r'\d+[-\.]\s{0,5}MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})',
+        r'\d+[-\.]\s{0,5}MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,VEYA]{2,100})',  # ✅ VEYA EKLENDI
         
         # With STANDART
-        r'MALZEME\s{0,5}[/\\]\s{0,5}STANDART\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/]{2,50})',
+        r'MALZEME\s{0,5}[/\\]\s{0,5}STANDART\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/,]{2,100})',
         
         # Special case for "5- MALZEME: AL 6061-T651" format
-        r'5[-\.]\s{0,5}MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/T]{2,50})',
+        r'5[-\.]\s{0,5}MALZEME\s{0,10}[:]\s{0,10}([A-Z0-9\s\-\+\.\/T,]{2,100})',
         
         # Capture next 100 chars after MALZEME: for analysis
-        r'MALZEME\s{0,10}[:]\s{0,10}(.{1,100})',
+        r'MALZEME\s{0,10}[:]\s{0,10}(.{1,200})',  # ✅ 200 karaktere çıkarıldı
     ]
     
     found_materials = []
@@ -140,71 +180,132 @@ def extract_explicit_material_fields(text):
                     
                     # Get context around the match
                     start_pos = max(0, match.start() - 50)
-                    end_pos = min(len(text_upper), match.end() + 50)
+                    end_pos = min(len(text_upper), match.end() + 100)  # ✅ Daha fazla context
                     context = text_upper[start_pos:end_pos]
                     
-                    print(f"[EXPLICIT-FIELD] Pattern {pattern_idx} found: '{material_content[:50]}...'")
+                    print(f"[EXPLICIT-FIELD] Pattern {pattern_idx} found: '{material_content[:100]}...'")
                     print(f"[EXPLICIT-FIELD] Context: ...{context}...")
                     
-                    # Clean up the material content
-                    # Remove common non-material words that might appear after MALZEME:
-                    stop_words = ['ISLEMLER', 'ISLEM', 'NOTLAR', 'NOTE', 'TOLERANS', 'OLCU', 
-                                  'BOLGE', 'ZONE', 'SAYFA', 'PAGE', 'REV', 'TARIH', 'DATE']
+                    # ✅ YENİ: Birden fazla malzeme kontrolü (virgül, VEYA ile ayrılmış)
+                    # Check if there are multiple materials separated by comma or "VEYA"
+                    multiple_materials = []
                     
-                    for stop_word in stop_words:
-                        if stop_word in material_content:
-                            material_content = material_content.split(stop_word)[0].strip()
+                    # Split by VEYA (OR) first
+                    if 'VEYA' in material_content or 'OR' in material_content:
+                        parts = re.split(r'\s+(?:VEYA|OR)\s+', material_content)
+                        for part in parts:
+                            # Also split by comma within each part
+                            sub_parts = part.split(',')
+                            for sub_part in sub_parts:
+                                sub_part = sub_part.strip()
+                                if sub_part and len(sub_part) > 2:
+                                    multiple_materials.append(sub_part)
+                    # Otherwise split by comma
+                    elif ',' in material_content:
+                        parts = material_content.split(',')
+                        for part in parts:
+                            part = part.strip()
+                            if part and len(part) > 2:
+                                multiple_materials.append(part)
+                    else:
+                        # Single material
+                        multiple_materials = [material_content]
                     
-                    # Extract only the material designation
-                    material_patterns = [
-                        # Complex specifications
-                        r'LEVHA\s+PSZCL\s+(AISI\d{3}[A-Z]?)',  # LEVHA PSZCL AISI316L
-                        r'LEVHA\s+.*?(AISI\d{3}[A-Z]?)',  # LEVHA ... AISI316L
-                        r'(AISI\s*\d{3}[A-Z]?)',  # AISI316L or AISI 316L
-                        r'(AL\s+\d{4}[-\s]*T\d+)',  # AL 6061-T651
-                        r'(AA\s+\d{4}[-\s]*T\d+)',  # AA 7075-T6
-                        r'([A-Z]{2,4}\s+\d{4}[-\s]*T\d+)',  # Generic aluminum
-                        r'(\d{4}[-\s]*T\d+)',  # 6061-T6
-                        r'([A-Z0-9]{2,15})',  # Generic material code
-                    ]
+                    print(f"[EXPLICIT-FIELD] Found {len(multiple_materials)} materials in field")
                     
-                    extracted_material = None
-                    for mat_pattern in material_patterns:
-                        mat_match = re.search(mat_pattern, material_content)
-                        if mat_match:
-                            extracted_material = mat_match.group(1).strip()
-                            print(f"[EXPLICIT-FIELD] Extracted: '{extracted_material}' from '{material_content[:50]}'")
-                            break
-                    
-                    if not extracted_material:
-                        # Take first 20 chars as material
-                        extracted_material = re.sub(r'[^\w\-\+\s]+', ' ', material_content[:20]).strip()
-                    
-                    if len(extracted_material) >= 2:
-                        # Check if it's not a part description
-                        if not is_part_description(extracted_material, text_upper, match.start()):
-                            # Resolve material from database
-                            resolved_material = resolve_material_from_database(extracted_material)
-                            if resolved_material:
-                                found_materials.append({
-                                    'keyword': extracted_material,
-                                    'material_name': resolved_material,
-                                    'position': match.start(),
-                                    'confidence': 99,  # Highest confidence
-                                    'pattern_type': 'explicit_material_field',
-                                    'source': 'MALZEME: field',
-                                    'pattern_index': pattern_idx,
-                                    'context': context
-                                })
-                                print(f"[EXPLICIT-FIELD] ✅ Found: MALZEME: {extracted_material} -> {resolved_material}")
+                    # Process each material found
+                    for material_item in multiple_materials:
+                        # Clean up the material content
+                        stop_words = ['ISLEMLER', 'ISLEM', 'NOTLAR', 'NOTE', 'TOLERANS', 'OLCU', 
+                                      'BOLGE', 'ZONE', 'SAYFA', 'PAGE', 'REV', 'TARIH', 'DATE', 'MATERIAL']
+                        
+                        for stop_word in stop_words:
+                            if stop_word in material_item:
+                                material_item = material_item.split(stop_word)[0].strip()
+                        
+                        # Extract only the material designation
+                        material_patterns = [
+                            # Complex specifications
+                            r'(AL\s+7075[-\s]*T\d+)',  # AL 7075-T651
+                            r'(AL\s+6061[-\s]*T\d+)',  # AL 6061-T651, AL 6061-T6511
+                            r'(AL\s+2024[-\s]*T\d+)',  # AL 2024-T3
+                            r'(AA\s+\d{4}[-\s]*T\d+)',  # AA 7075-T6
+                            r'(\d{4}[-\s]*T\d+)',  # 6061-T6
+                            r'(AISI\s*\d{3}[A-Z]?)',  # AISI316L
+                            r'([A-Z0-9]{2,15})',  # Generic material code
+                        ]
+                        
+                        extracted_material = None
+                        for mat_pattern in material_patterns:
+                            mat_match = re.search(mat_pattern, material_item)
+                            if mat_match:
+                                extracted_material = mat_match.group(1).strip()
+                                print(f"[EXPLICIT-FIELD] Extracted: '{extracted_material}' from '{material_item[:50]}'")
+                                break
+                        
+                        if not extracted_material:
+                            # Take first 20 chars as material
+                            extracted_material = re.sub(r'[^\w\-\+\s]+', ' ', material_item[:20]).strip()
+                        
+                        if len(extracted_material) >= 2:
+                            # Check if it's not a part description
+                            if not is_part_description(extracted_material, text_upper, match.start()):
+                                # Resolve material from database
+                                resolved_material = resolve_material_from_database(extracted_material)
+                                if resolved_material:
+                                    found_materials.append({
+                                        'keyword': extracted_material,
+                                        'material_name': resolved_material,
+                                        'position': match.start(),
+                                        'confidence': 99,  # Highest confidence
+                                        'pattern_type': 'explicit_material_field',
+                                        'source': 'MALZEME: field',
+                                        'pattern_index': pattern_idx,
+                                        'context': context
+                                    })
+                                    print(f"[EXPLICIT-FIELD] ✅ Found: MALZEME: {extracted_material} -> {resolved_material}")
+                                else:
+                                    # ✅ YENİ: Eğer resolve edilemezse de ekle (6061 kontrolü için)
+                                    # Check if it contains 6061 or 7075
+                                    if '6061' in extracted_material or '7075' in extracted_material:
+                                        # Try to map it
+                                        if '6061' in extracted_material:
+                                            resolved_material = '6061'
+                                        elif '7075' in extracted_material:
+                                            resolved_material = '7075'
+                                        else:
+                                            resolved_material = extracted_material
+                                        
+                                        found_materials.append({
+                                            'keyword': extracted_material,
+                                            'material_name': resolved_material,
+                                            'position': match.start(),
+                                            'confidence': 99,
+                                            'pattern_type': 'explicit_material_field',
+                                            'source': 'MALZEME: field',
+                                            'pattern_index': pattern_idx,
+                                            'context': context
+                                        })
+                                        print(f"[EXPLICIT-FIELD] ✅ Found (unresolved): {extracted_material} -> {resolved_material}")
+                                    else:
+                                        print(f"[EXPLICIT-FIELD] ⚠️ Could not resolve: {extracted_material}")
                             else:
-                                print(f"[EXPLICIT-FIELD] ⚠️ Could not resolve: {extracted_material}")
-                        else:
-                            print(f"[EXPLICIT-FIELD] ❌ Part description ignored: {extracted_material}")
+                                print(f"[EXPLICIT-FIELD] ❌ Part description ignored: {extracted_material}")
+                    
+                    # ✅ IMPORTANT: If we found materials in this match, check for 6061 priority
+                    if found_materials and any('6061' in str(m.get('material_name', '')).upper() for m in found_materials):
+                        print(f"[EXPLICIT-FIELD] 🎯 6061 found in explicit field, stopping search")
+                        # Apply 6061 priority immediately
+                        found_materials = apply_6061_priority_to_materials(found_materials)
+                        return found_materials  # Return immediately with 6061
                     
         except re.error as e:
             print(f"[EXPLICIT-FIELD] Pattern {pattern_idx} regex error: {e}")
             continue
+    
+    # ✅ Apply 6061 priority before returning
+    if found_materials:
+        found_materials = apply_6061_priority_to_materials(found_materials)
     
     print(f"[EXPLICIT-FIELD] Total found: {len(found_materials)} explicit materials")
     return found_materials
@@ -881,6 +982,8 @@ def get_dynamic_material_patterns():
         print(f"[PATTERN-BUILD] Error: {e}")
         return []
 
+# services/material_analysis.py - find_materials_in_text_database_only_proven fonksiyonunda küçük değişiklik
+
 def find_materials_in_text_database_only_proven(text):
     """Enhanced proven method with CORRECT PRIORITY"""
     if not text or len(text.strip()) < 5:
@@ -891,6 +994,9 @@ def find_materials_in_text_database_only_proven(text):
     # PRIORITY 1: MALZEME: ile açıkça belirtilen alanlar
     explicit_materials = extract_explicit_material_fields(text)
     if explicit_materials:
+        # ✅ YENİ: 6061 önceliği uygula
+        explicit_materials = apply_6061_priority_to_materials(explicit_materials)
+        
         proven_format_materials = []
         for material in explicit_materials:
             confidence = material['confidence']
@@ -898,7 +1004,7 @@ def find_materials_in_text_database_only_proven(text):
             formatted_material = f"{material_name} (%{confidence})"
             proven_format_materials.append(formatted_material)
         
-        print(f"[MATERIAL-PROVEN] Explicit MALZEME: found {len(proven_format_materials)} materials")
+        print(f"[MATERIAL-PROVEN] Explicit MALZEME: found {len(proven_format_materials)} materials (6061 priority applied)")
         return proven_format_materials[:5]
     
     # PRIORITY 2: NOTLAR section
@@ -908,6 +1014,9 @@ def find_materials_in_text_database_only_proven(text):
         if notlar_items:
             notlar_materials = find_materials_in_notlar_items(notlar_items)
             if notlar_materials:
+                # ✅ YENİ: 6061 önceliği uygula
+                notlar_materials = apply_6061_priority_to_materials(notlar_materials)
+                
                 proven_format_materials = []
                 for material in notlar_materials:
                     confidence = material['confidence']
@@ -915,7 +1024,7 @@ def find_materials_in_text_database_only_proven(text):
                     formatted_material = f"{material_name} (%{confidence})"
                     proven_format_materials.append(formatted_material)
                 
-                print(f"[MATERIAL-PROVEN] NOTLAR section found {len(proven_format_materials)} materials")
+                print(f"[MATERIAL-PROVEN] NOTLAR section found {len(proven_format_materials)} materials (6061 priority applied)")
                 return proven_format_materials[:5]
     
     # PRIORITY 3: General search with normalization
@@ -929,6 +1038,9 @@ def find_materials_in_text_database_only_proven(text):
     if not material_keywords:
         print("[MATERIAL-PROVEN] No keywords found with prioritized method")
         return []
+    
+    # ✅ YENİ: 6061 önceliği uygula
+    material_keywords = apply_6061_priority_to_materials(material_keywords)
     
     # Database lookup
     try:
@@ -982,7 +1094,10 @@ def find_materials_in_text_database_only_proven(text):
             formatted_material = f"{material_name} (%{confidence})"
             result_materials.append(formatted_material)
         
-        print(f"[MATERIAL-PROVEN] Returning {len(result_materials)} prioritized materials")
+        # ✅ YENİ: Son bir kez daha 6061 kontrolü
+        result_materials = apply_6061_priority_to_materials(result_materials)
+        
+        print(f"[MATERIAL-PROVEN] Returning {len(result_materials)} prioritized materials (6061 priority applied)")
         return result_materials
     
     print("[MATERIAL-PROVEN] No materials found in prioritized database lookup")
@@ -1508,6 +1623,8 @@ class MaterialAnalysisServiceOptimized:
         
         return self._material_cache
 
+    # MaterialAnalysisServiceOptimized sınıfı içinde _find_materials_in_text_ultra_fast metodunu güncelle
+
     def _find_materials_in_text_ultra_fast(self, text):
         """Enhanced material finding with PRIORITIZED detection"""
         if not text or len(text.strip()) < 3:
@@ -1515,6 +1632,19 @@ class MaterialAnalysisServiceOptimized:
         
         print(f"[MATERIAL-ENHANCED] Using PRIORITIZED method for {len(text)} chars")
         materials = find_materials_in_text_database_only_proven(text)
+        
+        # ✅ YENİ: 6061 önceliği kontrolü (eğer uygulanmadıysa)
+        if materials and len(materials) > 1:
+            # 6061 kontrolü yap
+            has_6061 = any('6061' in str(mat).upper() for mat in materials)
+            has_other = any('6061' not in str(mat).upper() for mat in materials)
+            
+            if has_6061 and has_other:
+                # Hem 6061 hem başka malzeme var, 6061'i önceliğe al
+                materials_before = len(materials)
+                materials = apply_6061_priority_to_materials(materials)
+                if len(materials) < materials_before:
+                    print(f"[MATERIAL-ENHANCED] 6061 priority applied: {materials_before} -> {len(materials)} materials")
         
         if materials:
             print(f"[MATERIAL-ENHANCED] PRIORITIZED method found: {len(materials)} materials")
