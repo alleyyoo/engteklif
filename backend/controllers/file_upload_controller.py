@@ -3627,419 +3627,184 @@ def get_performance_stats():
 # ===== ENHANCED BACKGROUND RENDERING =====
 
 def background_render_task_enhanced(analysis_id: str, step_path: str, analysis_strategy: str = "default"):
-    """COMPLETE FRONTEND-COMPATIBLE VERSION - Enhanced with proper path handling for fixImagePath"""
+    """Enhanced background render with GUARANTEED database update"""
     
-    print(f"[BG-RENDER] 🎨 Enhanced background render starting: {analysis_id}")
+    print(f"[BG-RENDER] 🎨 Starting render for: {analysis_id}")
     print(f"[BG-RENDER] 📂 STEP path: {step_path}")
-    print(f"[BG-RENDER] 📋 Strategy: {analysis_strategy}")
     
     start_time = time.time()
     
+    # ✅ IMMEDIATE STATUS UPDATE
     try:
-        # ✅ 1. IMPORTS CHECK
-        try:
-            from services.step_renderer import StepRendererEnhanced
-            from models.file_analysis import FileAnalysis
-            print(f"[BG-RENDER] ✅ Imports successful")
-        except ImportError as import_error:
-            error_msg = f"Import failed: {import_error}"
-            print(f"[BG-RENDER] ❌ {error_msg}")
-            return {"success": False, "error": error_msg}
+        from models.file_analysis import FileAnalysis
+        FileAnalysis.update_analysis(analysis_id, {
+            "render_status": "processing",
+            "render_started_at": time.time()
+        })
+        print(f"[BG-RENDER] 📝 Status set to processing")
+    except Exception as e:
+        print(f"[BG-RENDER] ⚠️ Could not set initial status: {e}")
+    
+    try:
+        from services.step_renderer import StepRendererEnhanced
         
-        # ✅ 2. FILE EXISTENCE CHECK
-        if not step_path or not os.path.exists(step_path):
-            error_msg = f"STEP file not found: {step_path}"
-            print(f"[BG-RENDER] ❌ {error_msg}")
-            
-            try:
-                FileAnalysis.update_analysis(analysis_id, {
-                    "render_status": "failed",
-                    "render_error": error_msg
-                })
-                print(f"[BG-RENDER] 💾 Error status updated")
-            except:
-                print(f"[BG-RENDER] ⚠️ Could not update error status")
-            
-            return {"success": False, "error": error_msg}
-        
-        file_size = os.path.getsize(step_path)
-        print(f"[BG-RENDER] ✅ File exists: {file_size} bytes")
-        
-        if file_size < 100:
-            error_msg = f"STEP file too small: {file_size} bytes"
-            print(f"[BG-RENDER] ❌ {error_msg}")
+        # Check file exists
+        if not os.path.exists(step_path):
+            print(f"[BG-RENDER] ❌ STEP file not found: {step_path}")
             FileAnalysis.update_analysis(analysis_id, {
                 "render_status": "failed",
-                "render_error": error_msg
+                "render_error": "STEP file not found"
             })
-            return {"success": False, "error": error_msg}
+            return {"success": False, "error": "STEP file not found"}
         
-        # ✅ 3. QUICK CADQUERY TEST
-        try:
-            print(f"[BG-RENDER] 🔧 Testing CadQuery import...")
-            import cadquery as cq
-            
-            assembly = cq.importers.importStep(step_path)
-            shapes = assembly.objects
-            
-            print(f"[BG-RENDER] 📊 CadQuery test: {len(shapes) if shapes else 0} shapes")
-            
-            if not shapes or len(shapes) == 0:
-                error_msg = "CadQuery found no shapes in STEP file"
-                print(f"[BG-RENDER] ❌ {error_msg}")
-                FileAnalysis.update_analysis(analysis_id, {
-                    "render_status": "failed",
-                    "render_error": error_msg
-                })
-                return {"success": False, "error": error_msg}
-            
-        except Exception as cq_error:
-            error_msg = f"CadQuery test failed: {cq_error}"
-            print(f"[BG-RENDER] ❌ {error_msg}")
-            FileAnalysis.update_analysis(analysis_id, {
-                "render_status": "failed",
-                "render_error": error_msg
-            })
-            return {"success": False, "error": error_msg}
+        # Initialize renderer
+        step_renderer = StepRendererEnhanced()
+        print(f"[BG-RENDER] ✅ Renderer initialized")
         
-        # ✅ 4. RENDERER INITIALIZATION
-        try:
-            step_renderer = StepRendererEnhanced()
-            print(f"[BG-RENDER] ✅ Renderer initialized")
-        except Exception as renderer_error:
-            error_msg = f"Renderer init failed: {renderer_error}"
-            print(f"[BG-RENDER] ❌ {error_msg}")
-            FileAnalysis.update_analysis(analysis_id, {
-                "render_status": "failed",
-                "render_error": error_msg
-            })
-            return {"success": False, "error": error_msg}
+        # Generate renders
+        print(f"[BG-RENDER] 🎨 Generating views...")
+        render_result = step_renderer.generate_comprehensive_views(
+            step_path,
+            analysis_id=analysis_id,
+            include_dimensions=True,
+            include_materials=True,
+            high_quality=False
+        )
         
-        # ✅ 5. RENDER GENERATION
-        print(f"[BG-RENDER] 🎨 Starting render generation...")
+        print(f"[BG-RENDER] 📊 Render result: success={render_result.get('success', False)}")
         
-        try:
-            render_result = step_renderer.generate_comprehensive_views(
-                step_path,
-                analysis_id=analysis_id,
-                include_dimensions=True,
-                include_materials=True,
-                high_quality=False  # Fast render
-            )
-            
-            print(f"[BG-RENDER] 📊 Render completed: success={render_result.get('success', False)}")
-            
-        except Exception as render_error:
-            error_msg = f"Render generation failed: {render_error}"
-            print(f"[BG-RENDER] ❌ {error_msg}")
-            import traceback
-            traceback.print_exc()
-            
-            FileAnalysis.update_analysis(analysis_id, {
-                "render_status": "failed",
-                "render_error": error_msg
-            })
-            return {"success": False, "error": error_msg}
-        
-        # ✅ 6. SUCCESS PROCESSING - FRONTEND-COMPATIBLE PATH HANDLING
         if render_result.get('success'):
             renders = render_result.get('renders', {})
-            print(f"[BG-RENDER] 🖼️ Generated {len(renders)} views: {list(renders.keys())}")
+            print(f"[BG-RENDER] ✅ Generated {len(renders)} views")
             
-            # ✅ FRONTEND-COMPATIBLE: Validate renders with proper path handling for fixImagePath
+            # Process render paths
             valid_renders = {}
             for view_name, view_data in renders.items():
-                print(f"[BG-RENDER] 🔍 Checking {view_name}: {view_data}")
-                
                 if view_data.get('success') and view_data.get('file_path'):
-                    original_file_path = view_data['file_path']
+                    file_path = view_data['file_path']
                     
-                    # ✅ MULTIPLE PATH FORMATS SUPPORT
-                    possible_paths = []
+                    # Ensure proper path format
+                    if not file_path.startswith('/static/'):
+                        if 'static/' in file_path:
+                            file_path = '/' + file_path[file_path.find('static/'):]
+                        elif 'stepviews' in file_path:
+                            file_path = f'/static/stepviews/{analysis_id}/' + os.path.basename(file_path)
+                        else:
+                            file_path = '/static/' + file_path.lstrip('/')
                     
-                    # 1. Original path as-is
-                    possible_paths.append(original_file_path)
+                    view_data['file_path'] = file_path
+                    valid_renders[view_name] = view_data
                     
-                    # 2. Remove leading slash if present
-                    if original_file_path.startswith('/'):
-                        possible_paths.append(original_file_path[1:])
-                    
-                    # 3. Add leading slash if not present
-                    if not original_file_path.startswith('/'):
-                        possible_paths.append('/' + original_file_path)
-                    
-                    # 4. Container environment paths
-                    if not original_file_path.startswith('/app/'):
-                        possible_paths.append(os.path.join('/app', original_file_path.lstrip('/')))
-                    
-                    # 5. Current working directory relative
-                    possible_paths.append(os.path.join(os.getcwd(), original_file_path.lstrip('/')))
-                    
-                    # 6. Static directory variations
-                    if 'static' in original_file_path:
-                        static_part = original_file_path[original_file_path.find('static'):]
-                        possible_paths.append(static_part)
-                        possible_paths.append('/' + static_part)
-                        possible_paths.append(os.path.join(os.getcwd(), static_part))
-                    
-                    print(f"[BG-RENDER] 🔍 Testing {len(possible_paths)} path variations for {view_name}")
-                    
-                    found_path = None
-                    actual_file_path = None
-                    
-                    for test_path in possible_paths:
-                        try:
-                            if os.path.exists(test_path):
-                                file_size = os.path.getsize(test_path)
-                                if file_size > 0:
-                                    found_path = test_path
-                                    actual_file_path = test_path
-                                    print(f"[BG-RENDER] ✅ Found {view_name}: {test_path} ({file_size} bytes)")
-                                    break
-                                else:
-                                    print(f"[BG-RENDER] ⚠️ Empty file: {test_path}")
-                            else:
-                                print(f"[BG-RENDER] ❌ Not found: {test_path}")
-                        except Exception as path_error:
-                            print(f"[BG-RENDER] ❌ Path error: {test_path} - {path_error}")
-                    
-                    if found_path:
-                        # ✅ FRONTEND-COMPATIBLE PATH CONVERSION
-                        frontend_path = original_file_path
-                        
-                        # Convert to frontend-expected format based on fixImagePath logic
-                        if 'static' in found_path:
-                            # Extract the static part and ensure it starts with /static/
-                            static_index = found_path.find('static')
-                            static_part = found_path[static_index:]
-                            
-                            if static_part.startswith('static/'):
-                                frontend_path = '/' + static_part  # /static/...
-                            elif not static_part.startswith('/static/'):
-                                frontend_path = '/static/' + static_part.replace('static/', '')
-                            else:
-                                frontend_path = static_part  # Already /static/...
-                        
-                        # Ensure path starts with /static/ for frontend compatibility
-                        if 'stepviews' in frontend_path and not frontend_path.startswith('/static/'):
-                            if frontend_path.startswith('static/'):
-                                frontend_path = '/' + frontend_path
-                            elif 'static/' in frontend_path:
-                                static_start = frontend_path.find('static/')
-                                frontend_path = '/' + frontend_path[static_start:]
-                            else:
-                                # Fallback: assume it's a stepviews path
-                                if 'stepviews' in frontend_path:
-                                    stepviews_start = frontend_path.find('stepviews')
-                                    frontend_path = '/static/' + frontend_path[stepviews_start:]
-                        
-                        # ✅ CREATE VALID RENDER ENTRY
-                        valid_renders[view_name] = view_data.copy()
-                        valid_renders[view_name]['file_path'] = frontend_path
-                        valid_renders[view_name]['actual_path'] = actual_file_path  # For debugging
-                        
-                        print(f"[BG-RENDER] ✅ Valid {view_name}:")
-                        print(f"    Frontend path: {frontend_path}")
-                        print(f"    Actual path: {actual_file_path}")
-                        
+                    # Check if file actually exists
+                    check_path = file_path.lstrip('/')
+                    if os.path.exists(check_path):
+                        print(f"[BG-RENDER] ✅ {view_name}: {file_path} (exists)")
                     else:
-                        print(f"[BG-RENDER] ❌ No valid path found for {view_name}")
-                        
-                        # ✅ ENHANCED DEBUG: List actual directory contents
-                        print(f"[BG-RENDER] 🔍 Debug directory search for {view_name}...")
-                        
-                        # Search in common directories
-                        search_dirs = [
-                            f"static/stepviews/{analysis_id}",
-                            f"/app/static/stepviews/{analysis_id}",
-                            f"{os.getcwd()}/static/stepviews/{analysis_id}",
-                            "static/stepviews",
-                            "/app/static/stepviews",
-                            f"{os.getcwd()}/static/stepviews"
-                        ]
-                        
-                        for search_dir in search_dirs:
-                            if os.path.exists(search_dir):
-                                try:
-                                    contents = os.listdir(search_dir)
-                                    print(f"[BG-RENDER] 📁 {search_dir}: {contents}")
-                                    
-                                    # Look for files that might match this view
-                                    matching_files = [f for f in contents if view_name in f.lower() or f.endswith('.png')]
-                                    if matching_files:
-                                        print(f"[BG-RENDER] 🎯 Potential matches: {matching_files}")
-                                    
-                                except Exception as list_error:
-                                    print(f"[BG-RENDER] ❌ Cannot list {search_dir}: {list_error}")
-                                break  # Only check first existing directory
-                
-                else:
-                    print(f"[BG-RENDER] ⚠️ Invalid render data for {view_name}")
-                    print(f"    Success: {view_data.get('success')}")
-                    print(f"    File path: {view_data.get('file_path')}")
+                        print(f"[BG-RENDER] ⚠️ {view_name}: {file_path} (not found)")
             
-            print(f"[BG-RENDER] 📊 Path validation complete: {len(valid_renders)}/{len(renders)} valid renders")
-            
-            # ✅ EMERGENCY SEARCH with FRONTEND-COMPATIBLE PATHS
-            if len(valid_renders) == 0:
-                error_msg = f"No valid render files found after validation (generated {len(renders)} renders)"
-                print(f"[BG-RENDER] ❌ {error_msg}")
-                print(f"[BG-RENDER] 🆘 Starting emergency file search...")
-                
-                emergency_search_paths = [
-                    f"static/stepviews/{analysis_id}",
-                    f"/app/static/stepviews/{analysis_id}",
-                    f"{os.getcwd()}/static/stepviews/{analysis_id}"
-                ]
-                
-                emergency_renders = {}
-                for search_path in emergency_search_paths:
-                    if os.path.exists(search_path):
-                        try:
-                            files = os.listdir(search_path)
-                            print(f"[BG-RENDER] 🔍 Emergency search in {search_path}: {files}")
-                            
-                            for file in files:
-                                if file.endswith('.png') and os.path.getsize(os.path.join(search_path, file)) > 0:
-                                    # Create view name from filename
-                                    view_name = file.replace('.png', '')
-                                    if analysis_id in view_name:
-                                        view_name = view_name.replace(f'{analysis_id}_', '')
-                                    
-                                    # Create frontend-compatible path
-                                    frontend_path = f'/static/stepviews/{analysis_id}/{file}'
-                                    
-                                    emergency_renders[view_name] = {
-                                        'success': True,
-                                        'file_path': frontend_path,
-                                        'format': 'png',
-                                        'emergency_found': True,
-                                        'actual_path': os.path.join(search_path, file)
-                                    }
-                                    
-                                    print(f"[BG-RENDER] 🆘 Emergency render found:")
-                                    print(f"    View: {view_name}")
-                                    print(f"    Frontend path: {frontend_path}")
-                                    print(f"    Actual path: {os.path.join(search_path, file)}")
-                                    
-                        except Exception as emergency_error:
-                            print(f"[BG-RENDER] ❌ Emergency search error in {search_path}: {emergency_error}")
-                        
-                        if emergency_renders:
-                            break  # Found files, stop searching
-                
-                if emergency_renders:
-                    print(f"[BG-RENDER] 🆘 Using {len(emergency_renders)} emergency renders")
-                    valid_renders = emergency_renders
-                else:
-                    print(f"[BG-RENDER] ❌ No files found in emergency search")
-                    FileAnalysis.update_analysis(analysis_id, {
-                        "render_status": "failed",
-                        "render_error": error_msg + " (emergency search also failed)"
-                    })
-                    return {"success": False, "error": error_msg}
-            
-            # ✅ 7. DATABASE UPDATE
-            processing_time = time.time() - start_time
-            
-            update_data = {
-                "enhanced_renders": valid_renders,
-                "render_status": "completed",
-                "render_quality": "frontend_compatible",
-                "render_strategy": analysis_strategy,
-                "render_count": len(valid_renders),
-                "last_render_update": time.time(),
-                "render_processing_time": processing_time
-            }
-            
-            # Main views
-            if 'isometric' in valid_renders:
-                update_data["isometric_view"] = valid_renders['isometric'].get('file_path')
-                if valid_renders['isometric'].get('excel_path'):
-                    update_data["isometric_view_clean"] = valid_renders['isometric'].get('excel_path')
-            
-            print(f"[BG-RENDER] 💾 Updating database with {len(valid_renders)} frontend-compatible renders...")
-            try:
-                db_success = FileAnalysis.update_analysis(analysis_id, update_data)
-                print(f"[BG-RENDER] 💾 Database update: {db_success}")
-                
-                if db_success:
-                    # ✅ VERIFICATION
-                    verification = FileAnalysis.find_by_id(analysis_id)
-                    if verification:
-                        verified_status = verification.get('render_status')
-                        verified_count = len(verification.get('enhanced_renders', {}))
-                        print(f"[BG-RENDER] ✅ Verification: status={verified_status}, count={verified_count}")
-                        
-                        # Log sample paths for frontend debugging
-                        if verified_count > 0:
-                            sample_render = list(verification.get('enhanced_renders', {}).values())[0]
-                            print(f"[BG-RENDER] 🔍 Sample frontend path: {sample_render.get('file_path')}")
-                        
-                        if verified_status == 'completed' and verified_count > 0:
-                            print(f"[BG-RENDER] 🎉 SUCCESS: Frontend-compatible render completed!")
-                            return {
-                                "success": True,
-                                "renders": verified_count,
-                                "processing_time": processing_time,
-                                "render_paths": list(valid_renders.keys()),
-                                "frontend_compatible": True
-                            }
-                    
-                    # If verification failed, still return success if db_success
-                    print(f"[BG-RENDER] ⚠️ Verification issues but DB update succeeded")
-                    return {
-                        "success": True,
-                        "renders": len(valid_renders),
-                        "processing_time": processing_time,
-                        "verification_warning": True,
-                        "render_paths": list(valid_renders.keys()),
-                        "frontend_compatible": True
-                    }
-                else:
-                    error_msg = "Database update failed"
-                    print(f"[BG-RENDER] ❌ {error_msg}")
-                    FileAnalysis.update_analysis(analysis_id, {
-                        "render_status": "failed",
-                        "render_error": error_msg
-                    })
-                    return {"success": False, "error": error_msg}
-                    
-            except Exception as db_error:
-                error_msg = f"Database update exception: {db_error}"
-                print(f"[BG-RENDER] ❌ {error_msg}")
-                import traceback
-                traceback.print_exc()
+            if not valid_renders:
+                print(f"[BG-RENDER] ❌ No valid renders found")
                 FileAnalysis.update_analysis(analysis_id, {
                     "render_status": "failed",
-                    "render_error": error_msg
+                    "render_error": "No valid renders generated"
                 })
-                return {"success": False, "error": error_msg}
+                return {"success": False, "error": "No valid renders"}
+            
+            # ✅ CRITICAL: Force database update with retry
+            processing_time = time.time() - start_time
+            update_data = {
+                "enhanced_renders": valid_renders,
+                "render_status": "completed",  # ✅ MUST BE "completed"
+                "render_quality": "standard",
+                "render_count": len(valid_renders),
+                "render_processing_time": processing_time,
+                "render_completed_at": time.time(),
+                "render_error": None
+            }
+            
+            # Add isometric view if available
+            if 'isometric' in valid_renders:
+                update_data["isometric_view"] = valid_renders['isometric'].get('file_path')
+            
+            # ✅ TRY MULTIPLE TIMES TO UPDATE
+            update_success = False
+            for attempt in range(3):
+                try:
+                    print(f"[BG-RENDER] 💾 Database update attempt {attempt + 1}...")
+                    result = FileAnalysis.update_analysis(analysis_id, update_data)
+                    if result:
+                        update_success = True
+                        print(f"[BG-RENDER] ✅ Database updated successfully on attempt {attempt + 1}")
+                        break
+                    else:
+                        print(f"[BG-RENDER] ⚠️ Update returned False on attempt {attempt + 1}")
+                except Exception as update_error:
+                    print(f"[BG-RENDER] ❌ Update attempt {attempt + 1} failed: {update_error}")
+                    time.sleep(0.5)  # Wait before retry
+            
+            if not update_success:
+                print(f"[BG-RENDER] ❌ All database update attempts failed")
+                # Still try to mark as failed
+                try:
+                    FileAnalysis.update_analysis(analysis_id, {
+                        "render_status": "failed",
+                        "render_error": "Database update failed after render"
+                    })
+                except:
+                    pass
+                return {"success": False, "error": "Database update failed"}
+            
+            # ✅ VERIFY THE UPDATE
+            try:
+                verification = FileAnalysis.find_by_id(analysis_id)
+                if verification:
+                    actual_status = verification.get('render_status')
+                    actual_count = len(verification.get('enhanced_renders', {}))
+                    print(f"[BG-RENDER] 🔍 Verification: status='{actual_status}', renders={actual_count}")
+                    
+                    if actual_status != 'completed':
+                        print(f"[BG-RENDER] ⚠️ Status not updated! Forcing update...")
+                        # Force update one more time
+                        FileAnalysis.update_analysis(analysis_id, {"render_status": "completed"})
+                else:
+                    print(f"[BG-RENDER] ⚠️ Could not verify update")
+            except Exception as verify_error:
+                print(f"[BG-RENDER] ⚠️ Verification error: {verify_error}")
+            
+            print(f"[BG-RENDER] 🎉 RENDER COMPLETED in {processing_time:.2f}s")
+            return {
+                "success": True,
+                "renders": len(valid_renders),
+                "processing_time": processing_time,
+                "status": "completed"
+            }
+            
         else:
-            error_msg = render_result.get('message', 'Render failed for unknown reason')
-            print(f"[BG-RENDER] ❌ Render unsuccessful: {error_msg}")
+            # Render failed
+            error_msg = render_result.get('message', 'Unknown render error')
+            print(f"[BG-RENDER] ❌ Render failed: {error_msg}")
             
             FileAnalysis.update_analysis(analysis_id, {
                 "render_status": "failed",
                 "render_error": error_msg
             })
             return {"success": False, "error": error_msg}
-        
+            
     except Exception as e:
-        error_msg = f"Background render error: {str(e)}"
-        print(f"[BG-RENDER] ❌ GLOBAL ERROR: {error_msg}")
+        error_msg = f"Render exception: {str(e)}"
+        print(f"[BG-RENDER] ❌ Exception: {error_msg}")
         import traceback
         traceback.print_exc()
         
+        # Update status to failed
         try:
             FileAnalysis.update_analysis(analysis_id, {
                 "render_status": "failed",
                 "render_error": error_msg
             })
-            print(f"[BG-RENDER] 💾 Error status updated")
-        except Exception as final_error:
-            print(f"[BG-RENDER] ❌ Could not update error status: {final_error}")
-            
+        except:
+            pass
+        
         return {"success": False, "error": error_msg}
 
 def process_batch_analyses(analysis_ids: List[str], user_id: str):
