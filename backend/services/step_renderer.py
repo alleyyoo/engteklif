@@ -222,56 +222,205 @@ class StepRendererEnhanced:
                 "error": str(e)
             }
     
-    def _cadquery_to_trimesh(self, shape):
-        """Convert CadQuery shape to trimesh - simplified bounding box approach"""
+    def cadquery_to_trimesh(self, cq_object):
+        """Convert CadQuery object to trimesh - FIXED VERSION"""
         try:
-            print(f"[TRIMESH] 🔄 Converting CadQuery shape to trimesh...")
+            import trimesh
+            import numpy as np
+            from OCP.BRepMesh import BRepMesh_IncrementalMesh
+            from OCP.TopLoc import TopLoc_Location
+            from OCP.BRep import BRep_Tool
+            from OCP.TopAbs import TopAbs_FACE, TopAbs_Orientation
+            from OCP.TopExp import TopExp_Explorer
             
-            # Get bounding box from CadQuery shape
-            bbox = shape.BoundingBox()
+            print("[CADQUERY-TRIMESH] Starting conversion...")
             
-            # Create bounding box vertices
-            vertices = np.array([
-                [bbox.xmin, bbox.ymin, bbox.zmin],  # 0: min corner
-                [bbox.xmax, bbox.ymin, bbox.zmin],  # 1: max x
-                [bbox.xmax, bbox.ymax, bbox.zmin],  # 2: max x,y
-                [bbox.xmin, bbox.ymax, bbox.zmin],  # 3: max y
-                [bbox.xmin, bbox.ymin, bbox.zmax],  # 4: max z
-                [bbox.xmax, bbox.ymin, bbox.zmax],  # 5: max x,z
-                [bbox.xmax, bbox.ymax, bbox.zmax],  # 6: max corner
-                [bbox.xmin, bbox.ymax, bbox.zmax],  # 7: max y,z
-            ])
+            # Get the OCP shape
+            if hasattr(cq_object, 'val'):
+                shape = cq_object.val().wrapped
+            elif hasattr(cq_object, 'wrapped'):
+                shape = cq_object.wrapped
+            else:
+                shape = cq_object
             
-            # Create bounding box faces (triangulated)
-            faces = np.array([
-                # Bottom face (z = zmin)
-                [0, 1, 2], [0, 2, 3],
-                # Top face (z = zmax)
-                [4, 7, 6], [4, 6, 5],
-                # Front face (y = ymin)
-                [0, 4, 5], [0, 5, 1],
-                # Back face (y = ymax)
-                [2, 6, 7], [2, 7, 3],
-                # Left face (x = xmin)
-                [0, 3, 7], [0, 7, 4],
-                # Right face (x = xmax)
-                [1, 5, 6], [1, 6, 2],
-            ])
+            # Create mesh
+            linear_deflection = 0.1
+            angular_deflection = 0.5
+            
+            mesher = BRepMesh_IncrementalMesh(
+                shape,
+                linear_deflection,
+                False,
+                angular_deflection,
+                True
+            )
+            mesher.Perform()
+            
+            if not mesher.IsDone():
+                print("[CADQUERY-TRIMESH] Meshing failed")
+                return None
+            
+            # Extract vertices and faces
+            vertices = []
+            faces = []
+            vertex_offset = 0
+            
+            explorer = TopExp_Explorer(shape, TopAbs_FACE)
+            face_count = 0
+            
+            while explorer.More():
+                face = explorer.Current()
+                location = TopLoc_Location()
+                triangulation = BRep_Tool.Triangulation_s(face, location)
+                
+                if triangulation:
+                    # Get transformation
+                    trsf = location.Transformation()
+                    
+                    # Extract vertices
+                    num_nodes = triangulation.NbNodes()
+                    face_vertices = []
+                    
+                    for i in range(1, num_nodes + 1):
+                        node = triangulation.Node(i)
+                        
+                        # Apply transformation if necessary
+                        if not location.IsIdentity():
+                            node = node.Transformed(trsf)
+                        
+                        face_vertices.append([node.X(), node.Y(), node.Z()])
+                    
+                    vertices.extend(face_vertices)
+                    
+                    # Get face orientation
+                    orientation = face.Orientation()
+                    reverse = (orientation == TopAbs_Orientation.TopAbs_REVERSED)
+                    
+                    # Extract triangles
+                    num_triangles = triangulation.NbTriangles()
+                    for i in range(1, num_triangles + 1):
+                        triangle = triangulation.Triangle(i)
+                        v1, v2, v3 = triangle.Get()
+                        
+                        # Adjust for 0-based indexing
+                        v1 = v1 - 1 + vertex_offset
+                        v2 = v2 - 1 + vertex_offset
+                        v3 = v3 - 1 + vertex_offset
+                        
+                        # Reverse winding if necessary
+                        if reverse:
+                            faces.append([v1, v3, v2])
+                        else:
+                            faces.append([v1, v2, v3])
+                    
+                    vertex_offset += num_nodes
+                    face_count += 1
+                
+                explorer.Next()
+            
+            print(f"[CADQUERY-TRIMESH] Extracted {len(vertices)} vertices, {len(faces)} faces from {face_count} CAD faces")
+            
+            if not vertices or not faces:
+                print("[CADQUERY-TRIMESH] No mesh data generated")
+                return None
+            
+            # Convert to numpy arrays
+            vertices_np = np.array(vertices, dtype=np.float64)
+            faces_np = np.array(faces, dtype=np.int32)
             
             # Create trimesh
-            mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-            
-            # Validate mesh
-            if mesh.is_valid:
-                print(f"[TRIMESH] ✅ Valid mesh created: {len(vertices)} vertices, {len(faces)} faces")
+            try:
+                # ✅ FIX: Create mesh with validate=False to avoid is_valid error
+                mesh = trimesh.Trimesh(
+                    vertices=vertices_np,
+                    faces=faces_np,
+                    process=True,
+                    validate=False  # This prevents the is_valid attribute error
+                )
+                
+                # ✅ FIX: Use proper validation methods instead of is_valid
+                # Check if mesh has content
+                if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+                    print("[CADQUERY-TRIMESH] Empty mesh")
+                    return None
+                
+                # Check bounds
+                bounds = mesh.bounds
+                if bounds is not None and len(bounds) == 2:
+                    extents = bounds[1] - bounds[0]
+                    if np.all(extents > 0) and np.all(extents < 10000):
+                        print(f"[CADQUERY-TRIMESH] Mesh bounds OK: {extents}")
+                    else:
+                        print(f"[CADQUERY-TRIMESH] Warning: Unusual bounds: {extents}")
+                
+                # ✅ Use alternative validation methods
+                try:
+                    # Check if mesh is watertight (instead of is_valid)
+                    if hasattr(mesh, 'is_watertight'):
+                        is_watertight = mesh.is_watertight
+                        print(f"[CADQUERY-TRIMESH] Watertight: {is_watertight}")
+                    
+                    # Check if winding is consistent
+                    if hasattr(mesh, 'is_winding_consistent'):
+                        is_consistent = mesh.is_winding_consistent
+                        print(f"[CADQUERY-TRIMESH] Winding consistent: {is_consistent}")
+                    
+                    # Check if mesh is empty
+                    if hasattr(mesh, 'is_empty'):
+                        if mesh.is_empty:
+                            print("[CADQUERY-TRIMESH] Warning: Mesh is empty")
+                            return None
+                            
+                except Exception as check_error:
+                    print(f"[CADQUERY-TRIMESH] Validation check skipped: {check_error}")
+                
+                # Clean up mesh (safely)
+                try:
+                    if hasattr(mesh, 'remove_degenerate_faces'):
+                        mesh.remove_degenerate_faces()
+                    if hasattr(mesh, 'remove_duplicate_faces'):
+                        mesh.remove_duplicate_faces()
+                    if hasattr(mesh, 'remove_unreferenced_vertices'):
+                        mesh.remove_unreferenced_vertices()
+                    print("[CADQUERY-TRIMESH] Mesh cleanup completed")
+                except Exception as cleanup_error:
+                    print(f"[CADQUERY-TRIMESH] Mesh cleanup skipped: {cleanup_error}")
+                
+                print(f"[CADQUERY-TRIMESH] ✅ Success: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
                 return mesh
-            else:
-                print(f"[TRIMESH] ⚠️ Invalid mesh created, attempting repair...")
-                mesh.fix_normals()
-                return mesh
-            
+                
+            except Exception as mesh_error:
+                print(f"[CADQUERY-TRIMESH] Trimesh creation error: {mesh_error}")
+                
+                # ✅ FALLBACK: Try without any processing or validation
+                try:
+                    mesh = trimesh.Trimesh(
+                        vertices=vertices_np,
+                        faces=faces_np,
+                        process=False,  # No post-processing
+                        validate=False  # No validation
+                    )
+                    
+                    if len(mesh.vertices) > 0 and len(mesh.faces) > 0:
+                        print(f"[CADQUERY-TRIMESH] ✅ Fallback success (no processing): {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+                        return mesh
+                    else:
+                        print("[CADQUERY-TRIMESH] Fallback also resulted in empty mesh")
+                        return None
+                        
+                except Exception as fallback_error:
+                    print(f"[CADQUERY-TRIMESH] Fallback also failed: {fallback_error}")
+                    return None
+        
+        except ImportError as e:
+            print(f"[CADQUERY-TRIMESH] Import error: {e}")
+            print("[CADQUERY-TRIMESH] Required packages: trimesh, numpy")
+            return None
+        
         except Exception as e:
-            print(f"[TRIMESH] ❌ CadQuery to trimesh conversion failed: {e}")
+            print(f"[CADQUERY-TRIMESH] Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _calculate_model_statistics(self, shape):
