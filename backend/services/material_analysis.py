@@ -2198,65 +2198,250 @@ class MaterialAnalysisServiceOptimized:
         }
 
     def _extract_step_from_pdf_lightning(self, pdf_path):
-        """Fast STEP extraction"""
+        """Fast STEP extraction - ENHANCED VERSION"""
         try:
             extracted = []
             start_time = time.time()
-            TIMEOUT_SECONDS = 3.0
+            TIMEOUT_SECONDS = 10.0  # Artırıldı
             
-            print(f"[STEP-EXTRACT] Starting STEP search: {os.path.basename(pdf_path)}")
+            print(f"[STEP-EXTRACT] Starting enhanced STEP search: {os.path.basename(pdf_path)}")
             
             with pikepdf.open(pdf_path) as pdf:
                 
-                # METHOD 1: Embedded Files
+                # METHOD 1: Embedded Files (mevcut kod geliştirildi)
                 try:
                     print("[STEP-EXTRACT] Method 1: Embedded Files...")
                     root = pdf.trailer.get("/Root", {})
-                    names = root.get("/Names", {})
-                    embedded = names.get("/EmbeddedFiles", {})
-                    files = embedded.get("/Names", [])
-                    
-                    for i in range(0, min(len(files), 20), 2):
+                    if root:
+                        names = root.get("/Names", {})
+                        if names:
+                            embedded = names.get("/EmbeddedFiles", {})
+                            if embedded:
+                                files = embedded.get("/Names", [])
+                                print(f"[STEP-EXTRACT] Found {len(files)//2} embedded files")
+                                
+                                for i in range(0, min(len(files), 20), 2):
+                                    if time.time() - start_time > TIMEOUT_SECONDS:
+                                        break
+                                    
+                                    if i + 1 < len(files):
+                                        try:
+                                            file_spec = files[i + 1]
+                                            file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
+                                            print(f"[STEP-EXTRACT] Checking embedded: {file_name}")
+                                            
+                                            if file_name.lower().endswith(('.stp', '.step')):
+                                                ef = file_spec.get('/EF', {})
+                                                if ef and '/F' in ef:
+                                                    file_data = ef['/F'].read_bytes()
+                                                    
+                                                    temp_dir = os.path.join(os.getcwd(), "temp")
+                                                    os.makedirs(temp_dir, exist_ok=True)
+                                                    
+                                                    safe_filename = f"embedded_{int(time.time())}.step"
+                                                    output_path = os.path.join(temp_dir, safe_filename)
+                                                    
+                                                    with open(output_path, 'wb') as f:
+                                                        f.write(file_data)
+                                                    
+                                                    if os.path.getsize(output_path) > 100:
+                                                        extracted.append(output_path)
+                                                        print(f"[STEP-EXTRACT] ✅ Embedded STEP found: {file_name}")
+                                                        return extracted
+                                                    else:
+                                                        os.remove(output_path)
+                                                
+                                        except Exception as e:
+                                            print(f"[STEP-EXTRACT] Embedded file error: {e}")
+                                            continue
+                            else:
+                                print("[STEP-EXTRACT] No EmbeddedFiles found")
+                        else:
+                            print("[STEP-EXTRACT] No Names dictionary found")
+                    else:
+                        print("[STEP-EXTRACT] No Root found")
+                                        
+                except Exception as e:
+                    print(f"[STEP-EXTRACT] Embedded files method error: {e}")
+                
+                # METHOD 2: FileAttachment Annotations
+                try:
+                    print("[STEP-EXTRACT] Method 2: FileAttachment annotations...")
+                    for page_num, page in enumerate(pdf.pages):
                         if time.time() - start_time > TIMEOUT_SECONDS:
                             break
-                        
-                        if i + 1 < len(files):
-                            try:
-                                file_spec = files[i + 1]
-                                file_name = str(file_spec.get("/UF") or file_spec.get("/F") or files[i]).strip("()")
+                            
+                        if "/Annots" in page:
+                            annotations = page["/Annots"]
+                            print(f"[STEP-EXTRACT] Page {page_num+1} has {len(annotations)} annotations")
+                            
+                            for annot_ref in annotations:
+                                try:
+                                    annot_obj = pdf.get_object(annot_ref)
+                                    subtype = annot_obj.get("/Subtype")
+                                    
+                                    if subtype == "/FileAttachment":
+                                        file_spec = annot_obj.get("/FS")
+                                        if file_spec:
+                                            file_name = str(file_spec.get("/UF", file_spec.get("/F", ""))).strip("()")
+                                            print(f"[STEP-EXTRACT] Found attachment: {file_name}")
+                                            
+                                            if file_name.lower().endswith(('.stp', '.step')):
+                                                ef = file_spec.get("/EF")
+                                                if ef and "/F" in ef:
+                                                    stream = ef["/F"]
+                                                    file_data = stream.read_bytes()
+                                                    
+                                                    temp_dir = os.path.join(os.getcwd(), "temp")
+                                                    os.makedirs(temp_dir, exist_ok=True)
+                                                    output_path = os.path.join(temp_dir, f"attachment_{int(time.time())}.step")
+                                                    
+                                                    with open(output_path, 'wb') as f:
+                                                        f.write(file_data)
+                                                    
+                                                    if os.path.getsize(output_path) > 100:
+                                                        extracted.append(output_path)
+                                                        print(f"[STEP-EXTRACT] ✅ Extracted STEP from annotation: {file_name}")
+                                                        return extracted
+                                                    else:
+                                                        os.remove(output_path)
+                                except Exception as annot_error:
+                                    print(f"[STEP-EXTRACT] Annotation error: {annot_error}")
+                                    continue
+                                    
+                except Exception as e:
+                    print(f"[STEP-EXTRACT] Annotation method error: {e}")
+                
+                # METHOD 3: Scan all objects for STEP data
+                try:
+                    print("[STEP-EXTRACT] Method 3: Scanning objects for STEP data...")
+                    max_objects_to_check = min(len(pdf.objects), 500)  # Check first 500 objects
+                    
+                    for obj_num in range(max_objects_to_check):
+                        if time.time() - start_time > TIMEOUT_SECONDS:
+                            break
+                            
+                        try:
+                            obj = pdf.objects[obj_num]
+                            if obj and hasattr(obj, 'read_bytes'):
+                                data = obj.read_bytes()
                                 
-                                if file_name.lower().endswith(('.stp', '.step')):
-                                    file_data = file_spec['/EF']['/F'].read_bytes()
+                                # Check if this is STEP data
+                                if self._is_step_data_fast(data):
+                                    print(f"[STEP-EXTRACT] Found STEP data in object {obj_num}")
                                     
                                     temp_dir = os.path.join(os.getcwd(), "temp")
                                     os.makedirs(temp_dir, exist_ok=True)
-                                    
-                                    safe_filename = f"embedded_{int(time.time())}.step"
-                                    output_path = os.path.join(temp_dir, safe_filename)
+                                    output_path = os.path.join(temp_dir, f"object_{obj_num}_{int(time.time())}.step")
                                     
                                     with open(output_path, 'wb') as f:
-                                        f.write(file_data)
+                                        f.write(data)
                                     
                                     if os.path.getsize(output_path) > 100:
                                         extracted.append(output_path)
-                                        print(f"[STEP-EXTRACT] Embedded STEP found: {file_name}")
+                                        print(f"[STEP-EXTRACT] ✅ Extracted STEP from object {obj_num}")
                                         return extracted
                                     else:
                                         os.remove(output_path)
-                                        
-                            except Exception as e:
-                                continue
-                                
+                        except:
+                            continue
+                            
                 except Exception as e:
-                    print(f"[STEP-EXTRACT] Embedded files method error: {e}")
-            
-            print(f"[STEP-EXTRACT] No STEP files found")
-            return extracted
-            
+                    print(f"[STEP-EXTRACT] Object scanning error: {e}")
+                
+                # METHOD 4: Check 3D annotations
+                try:
+                    print("[STEP-EXTRACT] Method 4: 3D annotations...")
+                    for page_num, page in enumerate(pdf.pages):
+                        if time.time() - start_time > TIMEOUT_SECONDS:
+                            break
+                            
+                        if "/Annots" in page:
+                            for annot_ref in page["/Annots"]:
+                                try:
+                                    annot = pdf.get_object(annot_ref)
+                                    if annot.get("/Subtype") == "/3D":
+                                        print(f"[STEP-EXTRACT] Found 3D annotation on page {page_num+1}")
+                                        
+                                        # Check for 3DD stream
+                                        streams = annot.get("/3DD")
+                                        if streams:
+                                            stream_data = streams.read_bytes()
+                                            
+                                            if self._is_step_data_fast(stream_data):
+                                                temp_dir = os.path.join(os.getcwd(), "temp")
+                                                os.makedirs(temp_dir, exist_ok=True)
+                                                output_path = os.path.join(temp_dir, f"3d_model_{int(time.time())}.step")
+                                                
+                                                with open(output_path, 'wb') as f:
+                                                    f.write(stream_data)
+                                                
+                                                if os.path.getsize(output_path) > 100:
+                                                    extracted.append(output_path)
+                                                    print(f"[STEP-EXTRACT] ✅ Extracted STEP from 3D annotation")
+                                                    return extracted
+                                                else:
+                                                    os.remove(output_path)
+                                except:
+                                    continue
+                                    
+                except Exception as e:
+                    print(f"[STEP-EXTRACT] 3D annotation method error: {e}")
+                
+                # METHOD 5: Check for U3D or PRC data (can contain STEP)
+                try:
+                    print("[STEP-EXTRACT] Method 5: U3D/PRC data...")
+                    for obj_num in range(min(len(pdf.objects), 200)):
+                        if time.time() - start_time > TIMEOUT_SECONDS:
+                            break
+                            
+                        try:
+                            obj = pdf.objects[obj_num]
+                            if obj and hasattr(obj, 'get'):
+                                subtype = obj.get("/Subtype")
+                                if subtype in ["/U3D", "/PRC"]:
+                                    print(f"[STEP-EXTRACT] Found {subtype} object")
+                                    
+                                    if hasattr(obj, 'read_bytes'):
+                                        data = obj.read_bytes()
+                                        
+                                        # Check if contains STEP data
+                                        if b'STEP' in data or b'ISO-10303' in data:
+                                            # Try to extract STEP portion
+                                            step_start = data.find(b'ISO-10303-21')
+                                            if step_start >= 0:
+                                                step_data = data[step_start:]
+                                                
+                                                temp_dir = os.path.join(os.getcwd(), "temp")
+                                                os.makedirs(temp_dir, exist_ok=True)
+                                                output_path = os.path.join(temp_dir, f"u3d_step_{int(time.time())}.step")
+                                                
+                                                with open(output_path, 'wb') as f:
+                                                    f.write(step_data)
+                                                
+                                                if os.path.getsize(output_path) > 100:
+                                                    extracted.append(output_path)
+                                                    print(f"[STEP-EXTRACT] ✅ Extracted STEP from {subtype}")
+                                                    return extracted
+                        except:
+                            continue
+                            
+                except Exception as e:
+                    print(f"[STEP-EXTRACT] U3D/PRC method error: {e}")
+                
+                # Final summary
+                if not extracted:
+                    print(f"[STEP-EXTRACT] ❌ No STEP files found after checking all methods")
+                    print(f"[STEP-EXTRACT] Total time: {time.time() - start_time:.2f}s")
+                
+                return extracted
+                
         except Exception as e:
-            print(f"[STEP-EXTRACT] STEP extraction failed: {e}")
+            print(f"[STEP-EXTRACT] Fatal STEP extraction error: {e}")
+            import traceback
+            traceback.print_exc()
             return []
-    
+
     def _is_step_data_fast(self, data):
         """Check if data is STEP format"""
         try:
