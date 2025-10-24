@@ -81,29 +81,39 @@ def extract_numbers_from_filename(filename: str) -> List[str]:
     numbers = re.findall(r'\d+', filename)
     return numbers
 
+def extract_part_number(filename: str) -> str:
+    """Dosya adından parça numarasını çıkar"""
+    patterns = [
+        r'(\d{10,12}-\d{2})',      # 1203030301-06
+        r'(\d{9}_[a-zA-Z])',       # 132200718_b
+        r'(\d{8,}[-_][a-zA-Z0-9]+)', # Genel format
+        r'(\d{8,})',               # Sadece sayı
+    ]
+    
+    filename_lower = filename.lower()
+    
+    for pattern in patterns:
+        match = re.search(pattern, filename_lower)
+        if match:
+            return match.group(1).lower()
+    
+    return None
+
 def calculate_filename_similarity(name1: str, name2: str) -> float:
-    """İki dosya adı arasındaki benzerlik oranını hesapla"""
-    # Normalize edilmiş adları karşılaştır
+    """
+    ✅ STRICT: Sadece TAM eşleşme 1.0, diğer her şey 0.0
+    
+    Tek karakter bile farklıysa eşleşme YOK!
+    """
+    # Normalize et
     norm1 = normalize_filename(name1)
     norm2 = normalize_filename(name2)
     
-    # Sequence matcher ile genel benzerlik
-    similarity = SequenceMatcher(None, norm1, norm2).ratio()
-    
-    # Sayısal benzerlik kontrolü
-    numbers1 = extract_numbers_from_filename(name1)
-    numbers2 = extract_numbers_from_filename(name2)
-    
-    # Ortak sayılar varsa bonus ver
-    if numbers1 and numbers2:
-        common_numbers = set(numbers1) & set(numbers2)
-        if common_numbers:
-            # En büyük ortak sayıyı bul
-            max_common = max(common_numbers, key=len) if common_numbers else ""
-            if len(max_common) >= 3:  # En az 3 haneli sayı
-                similarity += 0.3  # Bonus
-    
-    return min(similarity, 1.0)  # 1.0'ı geçmesin
+    # TAM EŞLEŞME KONTROLÜ
+    if norm1 == norm2:
+        return 1.0
+    else:
+        return 0.0  # ✅ Farklıysa 0.0
 
 def match_pdf_to_step_files(pdf_files: List[Dict], step_files: List[Dict]) -> List[Dict]:
     """PDF dosyalarını STEP dosyalarıyla eşleştir"""
@@ -123,10 +133,10 @@ def match_pdf_to_step_files(pdf_files: List[Dict], step_files: List[Dict]) -> Li
                 best_score = score
                 best_match = step_info
         
-        # Eşleştirme sonucunu kaydet
+        # ✅ DÜZELTME: Sadece tam eşleşmede step_file ekle
         match_result = {
             "pdf_file": pdf_info,
-            "step_file": best_match,
+            "step_file": best_match if best_score >= 1.0 else None,  # ✅ Bu satır önemli
             "match_score": round(best_score * 100, 1),
             "match_quality": get_match_quality(best_score),
             "analysis_strategy": determine_analysis_strategy(pdf_info, best_match, best_score)
@@ -134,7 +144,7 @@ def match_pdf_to_step_files(pdf_files: List[Dict], step_files: List[Dict]) -> Li
         
         matches.append(match_result)
         
-        print(f"[MATCH] 📄 {pdf_filename} ↔ {best_match['original_filename'] if best_match else 'None'} "
+        print(f"[MATCH] 📄 {pdf_filename} ↔ {best_match['original_filename'] if best_score >= 1.0 else 'EŞLEŞME YOK'} "
               f"(Score: {match_result['match_score']}% - {match_result['match_quality']})")
     
     return matches
@@ -565,93 +575,99 @@ def analyze_uploaded_file_enhanced(analysis_id):
         print(f"[ANALYZE-TIMING] 📊 Analysis starting for: {analysis['original_filename']}")
         analysis_start_time = time.time()
         
-        # ✅ 3. CORE ANALYSIS - TIMED
+        # ✅ 3. GET MATCHED STEP PATH
+        matched_step_path = analysis.get('matched_step_path')
+        analysis_strategy = analysis.get('analysis_strategy', 'default')
+        
+        print(f"[ANALYZE-TIMING] 📋 Strategy: {analysis_strategy}")
+        if matched_step_path:
+            print(f"[ANALYZE-TIMING] 🔗 Matched STEP: {matched_step_path}")
+            print(f"[ANALYZE-TIMING] 📊 STEP exists: {os.path.exists(matched_step_path)}")
+        
+        # ✅ 4. CORE ANALYSIS - CRITICAL FIX
         core_analysis_start = time.time()
         try:
             material_service = MaterialAnalysisService()
             
-            matched_step_path = analysis.get('matched_step_path')
-            analysis_strategy = analysis.get('analysis_strategy', 'default')
-            
-            print(f"[ANALYZE-TIMING] 📋 Strategy: {analysis_strategy}")
-            if matched_step_path:
-                print(f"[ANALYZE-TIMING] 🔗 Matched STEP: {matched_step_path}")
-            
-            # Analysis execution with detailed timing
-            if analysis['file_type'] == 'pdf' and matched_step_path and os.path.exists(matched_step_path):
-                print(f"[ANALYZE-TIMING] 🎯 PDF with matched STEP - using special analysis")
+            # ✅ CRITICAL: Pass matched_step_path to analyze_document_ultra_fast
+            if analysis['file_type'] == 'pdf':
+                print(f"[ANALYZE-TIMING] 🎯 PDF Analysis with matched_step_path: {matched_step_path}")
                 
-                pdf_analysis_start = time.time()
+                # ✅ PASS matched_step_path TO THE SERVICE
                 result = material_service.analyze_document_ultra_fast(
                     analysis['file_path'], 
                     'pdf',
-                    current_user['id']
+                    current_user['id'],
+                    matched_step_path=matched_step_path  # ✅ CRITICAL: Pass this parameter
                 )
-                timing_log['pdf_analysis_time'] = time.time() - pdf_analysis_start
+                
+                timing_log['pdf_analysis_time'] = time.time() - core_analysis_start
                 print(f"[ANALYZE-TIMING] ⏱️ PDF analysis: {timing_log['pdf_analysis_time']:.3f}s")
                 
-                # STEP analysis integration with timing
-                if not result.get('step_analysis') or result.get('step_analysis', {}).get('Prizma Hacmi (mm³)', 0) == 0:
-                    print(f"[ANALYZE-TIMING] 🔄 Analyzing matched STEP separately: {matched_step_path}")
+                # ✅ VERIFY: Check if STEP analysis is present and valid
+                step_analysis = result.get('step_analysis', {})
+                prizma_hacim = step_analysis.get('Prizma Hacmi (mm³)', 0)
+                step_method = step_analysis.get('method', 'unknown')
+                
+                print(f"[ANALYZE-TIMING] 📊 STEP Analysis Result:")
+                print(f"   - Prizma Hacmi: {prizma_hacim} mm³")
+                print(f"   - Method: {step_method}")
+                print(f"   - Step Source: {result.get('step_source', 'unknown')}")
+                print(f"   - Matched STEP Used: {result.get('matched_step_used', False)}")
+                
+                # ✅ CRITICAL VERIFICATION: Check if we got default values
+                if prizma_hacim == 15000 and step_method == 'estimated_defaults':
+                    print(f"[ANALYZE-TIMING] ❌ WARNING: Got default estimated values!")
+                    print(f"[ANALYZE-TIMING] 🔄 This should NOT happen with matched STEP")
                     
-                    step_analysis_start = time.time()
-                    try:
-                        step_result = material_service.analyze_step_file_ultra_fast(matched_step_path)
-                        timing_log['step_analysis_time'] = time.time() - step_analysis_start
-                        print(f"[ANALYZE-TIMING] ⏱️ STEP analysis: {timing_log['step_analysis_time']:.3f}s")
-                        
-                        if step_result and not step_result.get('error'):
-                            result['step_analysis'] = step_result
-                            result['step_source'] = 'matched'
-                            result['matched_step_used'] = True
-                            result['extracted_step_path'] = matched_step_path
+                    # ✅ FORCE RE-ANALYSIS if we got defaults but have matched STEP
+                    if matched_step_path and os.path.exists(matched_step_path):
+                        print(f"[ANALYZE-TIMING] 🔄 FORCING direct STEP analysis...")
+                        try:
+                            forced_step_result = material_service.analyze_step_file_ultra_fast(matched_step_path)
                             
-                            prizma_hacim = step_result.get('Prizma Hacmi (mm³)', 0)
-                            if prizma_hacim > 0:
-                                print(f"[ANALYZE-TIMING] 🔄 Recalculating material options with volume: {prizma_hacim}")
+                            # Check if forced result is valid
+                            if forced_step_result.get('Prizma Hacmi (mm³)', 0) > 0:
+                                print(f"[ANALYZE-TIMING] ✅ Forced STEP analysis successful!")
+                                result['step_analysis'] = forced_step_result
+                                result['matched_step_used'] = True
+                                result['step_source'] = 'matched_forced'
+                                result['extracted_step_path'] = matched_step_path
                                 
-                                material_calc_start = time.time()
-                                result["material_options"] = material_service._calculate_top_materials_database_only(
-                                    prizma_hacim, limit=0
-                                )
-                                timing_log['material_options_calc_time'] = time.time() - material_calc_start
-                                print(f"[ANALYZE-TIMING] ⏱️ Material options calc: {timing_log['material_options_calc_time']:.3f}s")
-                                
-                                if result.get("material_matches"):
-                                    cost_calc_start = time.time()
-                                    cost_service = CostEstimationService()
-                                    result["cost_estimation"] = cost_service.calculate_cost_lightning(
-                                        step_result, result["material_matches"]
+                                # Recalculate material options with correct volume
+                                prizma_hacim = forced_step_result.get('Prizma Hacmi (mm³)', 0)
+                                if prizma_hacim > 0:
+                                    print(f"[ANALYZE-TIMING] 🔄 Recalculating materials with {prizma_hacim} mm³")
+                                    result["material_options"] = material_service._calculate_top_materials_database_only(
+                                        prizma_hacim, limit=0
                                     )
-                                    timing_log['cost_estimation_time'] = time.time() - cost_calc_start
-                                    print(f"[ANALYZE-TIMING] ⏱️ Cost estimation: {timing_log['cost_estimation_time']:.3f}s")
-                            
-                            print(f"[ANALYZE-TIMING] ✅ Matched STEP analysis integrated successfully")
-                        else:
-                            print(f"[ANALYZE-TIMING] ❌ Matched STEP analysis failed: {step_result.get('error', 'Unknown error')}")
-                            
-                    except Exception as step_error:
-                        timing_log['step_analysis_error_time'] = time.time() - step_analysis_start
-                        print(f"[ANALYZE-TIMING] ❌ Matched STEP analysis error: {step_error}")
-                        import traceback
-                        traceback.print_exc()
-                else:
-                    print(f"[ANALYZE-TIMING] ✅ PDF already has valid STEP analysis from extraction")
+                                    
+                                    if result.get("material_matches"):
+                                        cost_service = CostEstimationService()
+                                        result["cost_estimation"] = cost_service.calculate_cost_lightning(
+                                            forced_step_result, result["material_matches"]
+                                        )
+                            else:
+                                print(f"[ANALYZE-TIMING] ❌ Forced STEP analysis also returned invalid values")
+                                
+                        except Exception as forced_error:
+                            print(f"[ANALYZE-TIMING] ❌ Forced STEP analysis error: {forced_error}")
+                            import traceback
+                            traceback.print_exc()
                 
             else:
-                # Normal analysis with timing
-                normal_analysis_start = time.time()
+                # Normal analysis for non-PDF files
                 result = material_service.analyze_document_ultra_fast(
                     analysis['file_path'], 
                     analysis['file_type'],
-                    current_user['id']
+                    current_user['id'],
+                    matched_step_path=matched_step_path
                 )
-                timing_log['normal_analysis_time'] = time.time() - normal_analysis_start
+                timing_log['normal_analysis_time'] = time.time() - core_analysis_start
                 print(f"[ANALYZE-TIMING] ⏱️ Normal analysis: {timing_log['normal_analysis_time']:.3f}s")
             
             timing_log['core_analysis_time'] = time.time() - core_analysis_start
             print(f"[ANALYZE-TIMING] ⏱️ CORE ANALYSIS TOTAL: {timing_log['core_analysis_time']:.3f}s")
-            print(f"[ANALYZE-TIMING] 📊 Core analysis completed: {bool(result.get('material_matches'))}")
             
         except Exception as analysis_error:
             timing_log['core_analysis_error_time'] = time.time() - core_analysis_start

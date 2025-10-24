@@ -1663,21 +1663,84 @@ class MaterialAnalysisServiceOptimized:
         
         print(f"[PDF-ENHANCED] Prioritized PDF analysis: {os.path.basename(file_path)}")
         
-        # MATCHED STEP HANDLING
+        # ✅ CRITICAL FIX: MATCHED STEP HANDLING with better error handling
         if matched_step_path and os.path.exists(matched_step_path):
-            print(f"[PDF-ENHANCED] Using matched STEP: {matched_step_path}")
+            print(f"[PDF-ENHANCED] 🔗 Using matched STEP: {matched_step_path}")
+            print(f"[PDF-ENHANCED] 📊 STEP file size: {os.path.getsize(matched_step_path)} bytes")
             result["processing_log"].append(f"🔗 Using matched STEP: {os.path.basename(matched_step_path)}")
             
             try:
-                result["step_analysis"] = self.analyze_step_file_ultra_fast(matched_step_path)
-                result["matched_step_used"] = True
-                result["step_source"] = "matched"
-                result["extracted_step_path"] = matched_step_path
-                result["pdf_step_extracted"] = False
-                print(f"[PDF-ENHANCED] Matched STEP analyzed")
-            except Exception as e:
-                print(f"[PDF-ENHANCED] Matched STEP error: {e}")
+                print(f"[PDF-ENHANCED] 🔧 Starting STEP analysis...")
+                step_analysis_result = self.analyze_step_file_ultra_fast(matched_step_path)
+                
+                # ✅ VERIFICATION: Check if analysis is valid
+                print(f"[PDF-ENHANCED] 📋 STEP analysis result:")
+                print(f"   - Method: {step_analysis_result.get('method', 'unknown')}")
+                print(f"   - X: {step_analysis_result.get('X (mm)', 0)} mm")
+                print(f"   - Y: {step_analysis_result.get('Y (mm)', 0)} mm")
+                print(f"   - Z: {step_analysis_result.get('Z (mm)', 0)} mm")
+                print(f"   - Prizma Hacmi: {step_analysis_result.get('Prizma Hacmi (mm³)', 0)} mm³")
+                print(f"   - Error: {step_analysis_result.get('error', 'None')}")
+                
+                # ✅ CRITICAL: Check if result is valid (not default values)
+                is_valid_result = (
+                    step_analysis_result.get('Prizma Hacmi (mm³)', 0) > 0 and
+                    step_analysis_result.get('X (mm)', 0) > 0 and
+                    step_analysis_result.get('Y (mm)', 0) > 0 and
+                    step_analysis_result.get('Z (mm)', 0) > 0 and
+                    step_analysis_result.get('method') != 'prioritized_zero_defaults' and
+                    not step_analysis_result.get('error')
+                )
+                
+                if is_valid_result:
+                    result["step_analysis"] = step_analysis_result
+                    result["matched_step_used"] = True
+                    result["step_source"] = "matched"
+                    result["extracted_step_path"] = matched_step_path
+                    result["pdf_step_extracted"] = False
+                    print(f"[PDF-ENHANCED] ✅ Matched STEP analyzed successfully")
+                    print(f"[PDF-ENHANCED] 📊 Valid result: {step_analysis_result.get('Prizma Hacmi (mm³)', 0)} mm³")
+                else:
+                    print(f"[PDF-ENHANCED] ⚠️ STEP analysis returned invalid/default values")
+                    print(f"[PDF-ENHANCED] 🔄 Will try to re-analyze or use alternative...")
+                    
+                    # ✅ TRY AGAIN with more verbose logging
+                    try:
+                        print(f"[PDF-ENHANCED] 🔄 Attempting re-analysis with verbose mode...")
+                        step_analysis_result = self.analyze_step_file_ultra_fast(matched_step_path)
+                        
+                        # Check again
+                        is_valid_result = (
+                            step_analysis_result.get('Prizma Hacmi (mm³)', 0) > 0 and
+                            step_analysis_result.get('method') != 'prioritized_zero_defaults'
+                        )
+                        
+                        if is_valid_result:
+                            result["step_analysis"] = step_analysis_result
+                            result["matched_step_used"] = True
+                            result["step_source"] = "matched"
+                            result["extracted_step_path"] = matched_step_path
+                            print(f"[PDF-ENHANCED] ✅ Re-analysis successful!")
+                        else:
+                            print(f"[PDF-ENHANCED] ❌ Re-analysis also failed, clearing matched_step_path")
+                            matched_step_path = None
+                            
+                    except Exception as retry_error:
+                        print(f"[PDF-ENHANCED] ❌ Re-analysis error: {retry_error}")
+                        import traceback
+                        traceback.print_exc()
+                        matched_step_path = None
+                        
+            except Exception as step_error:
+                print(f"[PDF-ENHANCED] ❌ Matched STEP analysis error: {step_error}")
+                import traceback
+                traceback.print_exc()
                 matched_step_path = None
+        else:
+            if matched_step_path:
+                print(f"[PDF-ENHANCED] ⚠️ Matched STEP path provided but file doesn't exist: {matched_step_path}")
+            else:
+                print(f"[PDF-ENHANCED] ℹ️ No matched STEP provided")
         
         # PRIORITIZED MATERIAL DETECTION
         materials = []
@@ -2406,43 +2469,80 @@ class MaterialAnalysisServiceOptimized:
             return ""
 
     def analyze_step_file_ultra_fast(self, step_path):
-        """STEP analysis - FIXED"""
+        """STEP analysis - FIXED with VERBOSE LOGGING"""
         try:
+            print(f"[STEP-ANALYSIS] 🔧 Starting analysis: {os.path.basename(step_path)}")
+            print(f"[STEP-ANALYSIS] 📁 File path: {step_path}")
+            print(f"[STEP-ANALYSIS] 📊 File exists: {os.path.exists(step_path)}")
+            print(f"[STEP-ANALYSIS] 📏 File size: {os.path.getsize(step_path) if os.path.exists(step_path) else 0} bytes")
+            
             start_time = time.time()
             
+            # ✅ CRITICAL: Import check
             try:
+                print(f"[STEP-ANALYSIS] 📦 Importing STEP file...")
                 assembly = cq.importers.importStep(step_path)
+                print(f"[STEP-ANALYSIS] ✅ Import successful")
+                
                 if not assembly.objects:
-                    return self._get_zero_step_defaults("Empty STEP file")
+                    print(f"[STEP-ANALYSIS] ❌ No objects in assembly")
+                    return self._get_zero_step_defaults("Empty STEP file - no objects")
+                else:
+                    print(f"[STEP-ANALYSIS] 📊 Assembly has {len(assembly.objects)} objects")
+                    
             except Exception as import_error:
+                print(f"[STEP-ANALYSIS] ❌ Import failed: {str(import_error)}")
+                import traceback
+                print(f"[STEP-ANALYSIS] 📋 Import traceback:")
+                traceback.print_exc()
                 return self._get_zero_step_defaults(f"Import failed: {str(import_error)}")
             
             shapes = assembly.objects
             if not shapes:
+                print(f"[STEP-ANALYSIS] ❌ No shapes found in objects")
                 return self._get_zero_step_defaults("No shapes found")
             
+            print(f"[STEP-ANALYSIS] 🔍 Finding main shape from {len(shapes)} shapes...")
             main_shape = max(shapes, key=lambda s: s.Volume())
+            print(f"[STEP-ANALYSIS] 📐 Main shape volume: {main_shape.Volume()} mm³")
+            
             main_bbox = main_shape.BoundingBox()
+            print(f"[STEP-ANALYSIS] 📦 Bounding box calculated")
             
             # ✅ DOĞRU: Float olarak al
             x = float(main_bbox.xlen)
             y = float(main_bbox.ylen)
             z = float(main_bbox.zlen)
             
+            print(f"[STEP-ANALYSIS] 📏 Raw dimensions: {x} × {y} × {z} mm")
+            
+            # ✅ VALIDATION: Check if dimensions are valid
+            if x <= 0 or y <= 0 or z <= 0:
+                print(f"[STEP-ANALYSIS] ❌ Invalid dimensions detected!")
+                return self._get_zero_step_defaults("Invalid bounding box dimensions")
+            
             # ✅ DOĞRU: Float olarak hesapla, SONRA yuvarla
             x_pad = round(x + 10, 1) if x > 0 else 0
             y_pad = round(y + 10, 1) if y > 0 else 0
             z_pad = round(z + 10, 1) if z > 0 else 0
             
+            print(f"[STEP-ANALYSIS] 📏 Padded dimensions: {x_pad} × {y_pad} × {z_pad} mm")
+            
             # ✅ DOĞRU: Tam değerlerle çarp
             volume_padded = x_pad * y_pad * z_pad if x_pad > 0 and y_pad > 0 and z_pad > 0 else 0
+            
+            print(f"[STEP-ANALYSIS] 📊 Padded volume: {volume_padded} mm³")
             
             try:
                 product_volume = main_shape.Volume()
                 total_surface_area = main_shape.Area()
-            except:
+                print(f"[STEP-ANALYSIS] 📐 Product volume: {product_volume} mm³")
+                print(f"[STEP-ANALYSIS] 📐 Surface area: {total_surface_area} mm²")
+            except Exception as vol_error:
+                print(f"[STEP-ANALYSIS] ⚠️ Volume/Area calculation failed: {vol_error}")
                 product_volume = x * y * z * 0.75 if x > 0 and y > 0 and z > 0 else 0
                 total_surface_area = 2 * (x*y + y*z + x*z) * 1.2 if x > 0 and y > 0 and z > 0 else 0
+                print(f"[STEP-ANALYSIS] 📊 Using estimated values: vol={product_volume}, area={total_surface_area}")
             
             waste_volume = max(volume_padded - product_volume, 0) if volume_padded > 0 else 0
             waste_ratio = (waste_volume / volume_padded * 100) if volume_padded > 0 else 0
@@ -2462,24 +2562,29 @@ class MaterialAnalysisServiceOptimized:
                 "X+Pad (mm)": x_pad,
                 "Y+Pad (mm)": y_pad,
                 "Z+Pad (mm)": z_pad,
-                "Prizma Hacmi (mm³)": round(volume_padded, 2),  # Daha hassas
+                "Prizma Hacmi (mm³)": round(volume_padded, 2),
                 "Ürün Hacmi (mm³)": round(product_volume, 2),
                 "Talaş Hacmi (mm³)": round(waste_volume, 2),
                 "Talaş Oranı (%)": round(waste_ratio, 1),
                 "Toplam Yüzey Alanı (mm²)": round(total_surface_area, 2),
                 "analysis_time": analysis_time,
-                "method": "prioritized_optimized_fixed"
+                "method": "prioritized_optimized_fixed_verbose"
             }
             
-            print(f"[STEP-ENHANCED-FIXED] Analysis completed in {analysis_time:.3f}s")
-            print(f"[STEP-ENHANCED-FIXED] Dimensions: {x:.2f} × {y:.2f} × {z:.2f} mm")
-            print(f"[STEP-ENHANCED-FIXED] Padded: {x_pad} × {y_pad} × {z_pad} mm")
-            print(f"[STEP-ENHANCED-FIXED] Volume: {volume_padded:.2f} mm³")
+            print(f"[STEP-ANALYSIS] ✅ Analysis completed in {analysis_time:.3f}s")
+            print(f"[STEP-ANALYSIS] 📊 FINAL RESULT:")
+            print(f"   - Dimensions: {x:.2f} × {y:.2f} × {z:.2f} mm")
+            print(f"   - Padded: {x_pad} × {y_pad} × {z_pad} mm")
+            print(f"   - Volume: {volume_padded:.2f} mm³")
+            print(f"   - Method: {result['method']}")
             
             return result
             
         except Exception as e:
-            print(f"[STEP-ENHANCED-FIXED] Analysis failed: {str(e)}")
+            print(f"[STEP-ANALYSIS] ❌ FATAL ERROR: {str(e)}")
+            import traceback
+            print(f"[STEP-ANALYSIS] 📋 Full traceback:")
+            traceback.print_exc()
             return self._get_zero_step_defaults(f"Analysis failed: {str(e)}")
 
     def _get_zero_step_defaults(self, error_msg=""):
