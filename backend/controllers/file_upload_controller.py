@@ -19,6 +19,8 @@ import threading
 import queue
 import re
 from difflib import SequenceMatcher
+import concurrent.futures
+import multiprocessing
 
 # Blueprint oluştur
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
@@ -34,37 +36,56 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("static", exist_ok=True)
 
 class OptimizedBackgroundProcessor:
-    def __init__(self):
-        self.task_queue = queue.Queue()
+    def __init__(self, max_workers=None):
+        if max_workers is None:
+            max_workers = max(1, multiprocessing.cpu_count() - 1)
+            
+        self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=max_workers)
         self.results = {}
-        self.worker_thread = threading.Thread(target=self._worker, daemon=True)
-        self.worker_thread.start()
-        
-    def _worker(self):
-        while True:
-            try:
-                task = self.task_queue.get(timeout=1)
-                if task:
-                    task_id, func, args, kwargs = task
-                    try:
-                        result = func(*args, **kwargs)
-                        self.results[task_id] = {"success": True, "result": result}
-                    except Exception as e:
-                        self.results[task_id] = {"success": False, "error": str(e)}
-                    self.task_queue.task_done()
-            except queue.Empty:
-                continue
+        print(f"[PROCESSOR] 🚀 Multiprocessing başlatıldı. Worker sayısı: {max_workers}")
                 
     def add_task(self, func, args=(), kwargs=None):
         task_id = str(uuid.uuid4())
-        self.task_queue.put((task_id, func, args, kwargs or {}))
+        kwargs = kwargs or {}
+        
+        future = self.executor.submit(func, *args, **kwargs)
+        
+        self.results[task_id] = {
+            "status": "processing",
+            "future": future
+        }
+        
+        future.add_done_callback(lambda f: self._on_task_complete(task_id, f))
+        
         return task_id
         
+    def _on_task_complete(self, task_id, future):
+        try:
+            result = future.result()
+            self.results[task_id]["status"] = "completed"
+            self.results[task_id]["result"] = result
+        except Exception as e:
+            print(f"[PROCESSOR] ❌ Görev hatası ({task_id}): {e}")
+            self.results[task_id]["status"] = "failed"
+            self.results[task_id]["error"] = str(e)
+
     def get_result(self, task_id):
-        return self.results.get(task_id)
+        task_info = self.results.get(task_id)
+        if not task_info:
+            return None
+            
+        # Eğer işlem hala devam ediyorsa
+        if task_info["status"] == "processing":
+            return {"status": "processing"}
+            
+        return {
+            "success": task_info["status"] == "completed",
+            "result": task_info.get("result"),
+            "error": task_info.get("error")
+        }
 
 # Global background processor
-bg_processor = OptimizedBackgroundProcessor()
+bg_processor = OptimizedBackgroundProcessor(max_workers=4)
 
 # ===== PDF-STEP MATCHING UTILITIES =====
 
