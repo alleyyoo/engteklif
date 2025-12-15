@@ -21,6 +21,7 @@ import re
 from difflib import SequenceMatcher
 import concurrent.futures
 import multiprocessing
+import PyPDF2
 
 # Blueprint oluştur
 upload_bp = Blueprint('upload', __name__, url_prefix='/api/upload')
@@ -182,6 +183,58 @@ def get_match_quality(score: float) -> str:
         return "Poor"
     else:
         return "None"
+    
+def extract_step_from_pdf_annotations(pdf_path: str, output_folder: str) -> str:
+    """
+    PDF içindeki yorumlarda (Annotations) gömülü STEP dosyasını arar ve çıkarır.
+    Dönüş: Çıkarılan dosyanın yolu veya None
+    """
+    try:
+        reader = PyPDF2.PdfReader(pdf_path)
+        
+        for i, page in enumerate(reader.pages):
+            if "/Annots" in page:
+                for annot in page["/Annots"]:
+                    try:
+                        obj = annot.get_object()
+                        
+                        # Annotation tipi FileAttachment mı?
+                        if obj.get("/Subtype") == "/FileAttachment":
+                            
+                            # Dosya özelliklerine (File Specification) eriş
+                            if "/FS" in obj:
+                                fs = obj["/FS"].get_object()
+                                filename = fs.get("/F", "embedded_from_comment.step")
+                                
+                                # Sadece STEP dosyalarını al
+                                if not filename.lower().endswith(('.step', '.stp')):
+                                    continue
+                                    
+                                # Gömülü dosya akışına (Embedded File Stream) eriş
+                                if "/EF" in fs:
+                                    ef = fs["/EF"].get_object()
+                                    # 'F' key'i genelde asıl dosya stream'ini tutar
+                                    if "/F" in ef:
+                                        f_stream = ef["/F"].get_object()
+                                        data = f_stream.get_data()
+                                        
+                                        # Dosyayı kaydet
+                                        unique_name = f"comment_extracted_{uuid.uuid4().hex[:8]}_{filename}"
+                                        save_path = os.path.join(output_folder, unique_name)
+                                        
+                                        with open(save_path, "wb") as f:
+                                            f.write(data)
+                                            
+                                        print(f"[PDF-EXTRACT] ✅ Yorumlardan STEP çıkarıldı: {save_path}")
+                                        return save_path
+                    except Exception as inner_e:
+                        print(f"[PDF-EXTRACT] ⚠️ Annotation okuma hatası: {inner_e}")
+                        continue
+                        
+        return None
+    except Exception as e:
+        print(f"[PDF-EXTRACT] ❌ Yorum analizi hatası: {str(e)}")
+        return None
 
 def determine_analysis_strategy(pdf_info: Dict, step_info: Dict, score: float) -> str:
     """Analiz stratejisini belirle"""
@@ -551,7 +604,7 @@ def upload_multiple_files_with_matching():
 @upload_bp.route('/analyze/<analysis_id>', methods=['POST'])
 @jwt_required()
 def analyze_uploaded_file_enhanced(analysis_id):
-    """✅ ENHANCED - OCR Position Ordering with DETAILED TIMING"""
+    """✅ ENHANCED - OCR Position Ordering with DETAILED TIMING + PDF Comment Extraction"""
     endpoint_start_time = time.time()
     timing_log = {}
     
@@ -596,9 +649,32 @@ def analyze_uploaded_file_enhanced(analysis_id):
         print(f"[ANALYZE-TIMING] 📊 Analysis starting for: {analysis['original_filename']}")
         analysis_start_time = time.time()
         
-        # ✅ 3. GET MATCHED STEP PATH
+        # ✅ 3. GET MATCHED STEP PATH & CHECK COMMENTS
         matched_step_path = analysis.get('matched_step_path')
         analysis_strategy = analysis.get('analysis_strategy', 'default')
+        step_source = analysis.get('step_source', 'none')
+        
+        # --- [NEW] PDF YORUM TARAMASI BAŞLANGICI ---
+        # Eğer normal yolla (attachment veya ayrı yükleme) bir STEP bulunamadıysa
+        # ve dosya PDF ise, yorumların içine bak.
+        if not matched_step_path and analysis['file_type'] == 'pdf':
+            print(f"[ANALYZE-TIMING] 🔍 Checking PDF comments for embedded STEP files...")
+            extracted_from_comment = extract_step_from_pdf_annotations(analysis['file_path'], UPLOAD_FOLDER)
+            
+            if extracted_from_comment:
+                print(f"[ANALYZE-TIMING] 🎯 STEP file found in PDF comments: {extracted_from_comment}")
+                matched_step_path = extracted_from_comment
+                step_source = 'extracted_from_comments'
+                
+                # Database'i güncelle ki bir sonraki işlemde bilinsin
+                FileAnalysis.update_analysis(analysis_id, {
+                    "matched_step_path": matched_step_path,
+                    "step_source": step_source,
+                    "used_matched_step": True,
+                    "pdf_step_extracted": True,
+                    "extracted_step_path": matched_step_path
+                })
+        # --- [NEW] PDF YORUM TARAMASI SONU ---
         
         print(f"[ANALYZE-TIMING] 📋 Strategy: {analysis_strategy}")
         if matched_step_path:
@@ -621,6 +697,11 @@ def analyze_uploaded_file_enhanced(analysis_id):
                     current_user['id'],
                     matched_step_path=matched_step_path  # ✅ CRITICAL: Pass this parameter
                 )
+                
+                # Eğer step_source comment ise result'a işle
+                if step_source == 'extracted_from_comments':
+                    result['step_source'] = step_source
+                    result['matched_step_used'] = True
                 
                 timing_log['pdf_analysis_time'] = time.time() - core_analysis_start
                 print(f"[ANALYZE-TIMING] ⏱️ PDF analysis: {timing_log['pdf_analysis_time']:.3f}s")
@@ -735,7 +816,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 if positions and keyword:
                     first_position = min(positions) if isinstance(positions, list) else positions
                     position_mapping[keyword.upper()] = first_position
-                    print(f"[ANALYZE-TIMING] 📍 OCR Keyword: '{keyword}' -> Position: {first_position}")
             timing_log['position_mapping_time'] = time.time() - position_mapping_start
             print(f"[ANALYZE-TIMING] ⏱️ Position mapping: {timing_log['position_mapping_time']:.3f}s")
             
@@ -750,7 +830,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 # Exact match
                 if material_name in position_mapping:
                     found_position = position_mapping[material_name]
-                    print(f"[ANALYZE-TIMING] ✅ Exact match: '{material_name}' -> Position: {found_position}")
                 else:
                     # Partial match
                     for ocr_keyword, position in position_mapping.items():
@@ -759,10 +838,8 @@ def analyze_uploaded_file_enhanced(analysis_id):
                             
                             if position < found_position:
                                 found_position = position
-                                print(f"[ANALYZE-TIMING] 🔍 Partial match: '{material_name}' matches OCR '{ocr_keyword}' -> Position: {position}")
                 
                 material_position_pairs.append((material_match, found_position))
-                print(f"[ANALYZE-TIMING] 📋 Material: '{material_match}' -> Final Position: {found_position}")
             
             # Position'a göre sırala
             sorted_pairs = sorted(material_position_pairs, key=lambda x: x[1])
@@ -798,10 +875,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
             timing_log['material_sorting_time'] = time.time() - material_sorting_start
             print(f"[ANALYZE-TIMING] ⏱️ Material sorting: {timing_log['material_sorting_time']:.3f}s")
             
-            print(f"[ANALYZE-TIMING] 🎯 OCR POSITION ORDERING COMPLETED:")
-            print(f"[ANALYZE-TIMING] 📊 Original order: {[m.split('(')[0].strip() for m in original_material_matches]}")
-            print(f"[ANALYZE-TIMING] 📊 New order: {[m.split('(')[0].strip() for m in final_ordered_materials]}")
-            
             # ✅ RECALCULATE all_material_calculations WITH REORDERED MATERIALS - TIMED
             recalc_start = time.time()
             step_analysis = result.get('step_analysis', {})
@@ -814,11 +887,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 result["all_material_calculations"] = material_service._calculate_found_materials_database_only(
                     prizma_hacim, final_ordered_materials  # ✅ ORDERED materials
                 )
-                
-                print(f"[ANALYZE-TIMING] ✅ all_material_calculations recalculated with OCR position order:")
-                if result.get("all_material_calculations"):
-                    for i, calc in enumerate(result["all_material_calculations"][:3]):  # Show first 3
-                        print(f"[ANALYZE-TIMING]   #{i+1}: {calc.get('material', 'Unknown')} ({calc.get('confidence', 'N/A')})")
             
             timing_log['material_recalc_time'] = time.time() - recalc_start
             print(f"[ANALYZE-TIMING] ⏱️ Material recalculation: {timing_log['material_recalc_time']:.3f}s")
@@ -830,9 +898,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             ocr_data['reordered_material_count'] = len(final_ordered_materials)
             
         else:
-            print(f"[ANALYZE-TIMING] ⚠️ OCR position ordering skipped:")
-            print(f"   - Material matches: {len(original_material_matches)}")
-            print(f"   - OCR keywords: {len(ocr_data.get('material_keywords_found', []))}")
+            print(f"[ANALYZE-TIMING] ⚠️ OCR position ordering skipped")
             ocr_data['position_ordering_applied'] = False
             
             # ✅ FALLBACK: Calculate all_material_calculations with original order - TIMED
@@ -841,19 +907,16 @@ def analyze_uploaded_file_enhanced(analysis_id):
             prizma_hacim = step_analysis.get('Prizma Hacmi (mm³)', 0)
             
             if prizma_hacim > 0 and original_material_matches and not result.get("all_material_calculations"):
-                print(f"[ANALYZE-TIMING] 🔄 Calculating all_material_calculations with original order...")
                 result["all_material_calculations"] = material_service._calculate_found_materials_database_only(
                     prizma_hacim, original_material_matches
                 )
             timing_log['fallback_calc_time'] = time.time() - fallback_calc_start
-            print(f"[ANALYZE-TIMING] ⏱️ Fallback calculation: {timing_log['fallback_calc_time']:.3f}s")
         
         timing_log['position_ordering_total_time'] = time.time() - position_ordering_start
         print(f"[ANALYZE-TIMING] ⏱️ POSITION ORDERING TOTAL: {timing_log['position_ordering_total_time']:.3f}s")
         
         processing_time = time.time() - analysis_start_time
         timing_log['total_processing_time'] = processing_time
-        print(f"[ANALYZE-TIMING] ⏱️ Analysis completed: {processing_time:.2f}s")
         
         if not result.get('error'):
             # ✅ 6. DATABASE UPDATE - TIMED
@@ -871,23 +934,19 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 "processing_log": result.get('processing_log', []),
                 # Enhanced fields
                 "used_matched_step": bool(matched_step_path and result.get('matched_step_used', False)),
-                "step_source": result.get('step_source', 'none'),
+                "step_source": result.get('step_source', step_source),
                 "material_confidence": result.get('material_confidence', 0),
                 # Render fields
                 "render_status": "pending",
                 "enhanced_renders": {},
                 "isometric_view": None,
                 "stl_generated": False,
-                # ✅ OCR DATA FIELDS WITH POSITION INFO
+                # ✅ OCR DATA FIELDS
                 "raw_ocr_output": ocr_data.get('raw_text', ''),
                 "ocr_confidence": ocr_data.get('confidence', 0),
                 "ocr_method_used": ocr_data.get('method', 'unknown'),
                 "ocr_processing_time": ocr_data.get('processing_time', 0),
-                "ocr_normalization_applied": ocr_data.get('normalization_applied', False),
-                "ocr_debug_info": ocr_data.get('debug_info', {}),
                 "material_keywords_found": ocr_data.get('material_keywords_found', []),
-                "ocr_errors_corrected": ocr_data.get('errors_corrected', []),
-                "ocr_quality_metrics": ocr_data.get('quality_metrics', {}),
                 # ✅ Position ordering fields
                 "material_position_mapping": ocr_data.get('material_position_mapping', {}),
                 "position_ordering_applied": ocr_data.get('position_ordering_applied', False),
@@ -897,15 +956,13 @@ def analyze_uploaded_file_enhanced(analysis_id):
             # PDF specific fields
             if analysis['file_type'] == 'pdf':
                 update_data.update({
-                    "pdf_step_extracted": bool(result.get('step_file_hash')),
-                    "extracted_step_path": result.get('extracted_step_path'),
+                    "pdf_step_extracted": bool(result.get('step_file_hash')) or step_source == 'extracted_from_comments',
+                    "extracted_step_path": result.get('extracted_step_path') or matched_step_path,
                     "step_file_hash": result.get('step_file_hash')
                 })
             
             FileAnalysis.update_analysis(analysis_id, update_data)
             timing_log['db_update_time'] = time.time() - db_update_start
-            print(f"[ANALYZE-TIMING] ⏱️ Database update: {timing_log['db_update_time']:.3f}s")
-            print(f"[ANALYZE-TIMING] 💾 Database updated successfully with OCR data + position ordering + ordered calculations")
             
             # ✅ 7. RENDER DECISION - TIMED
             render_decision_start = time.time()
@@ -919,13 +976,9 @@ def analyze_uploaded_file_enhanced(analysis_id):
             elif analysis['file_type'] in ['step', 'stp']:
                 should_render = True
                 render_path = analysis['file_path']
-                print(f"[ANALYZE-TIMING] 🎨 Will render: Direct STEP - {render_path}")
             elif result.get('extracted_step_path') and os.path.exists(result['extracted_step_path']):
                 should_render = True
                 render_path = result['extracted_step_path']
-                print(f"[ANALYZE-TIMING] 🎨 Will render: Extracted STEP - {render_path}")
-            else:
-                print(f"[ANALYZE-TIMING] ⚠️ No STEP file available for rendering")
             
             if should_render and render_path:
                 task_id = bg_processor.add_task(
@@ -942,21 +995,10 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 print(f"[ANALYZE-TIMING] 🎨 Enhanced render queued: {task_id}")
             
             timing_log['render_decision_time'] = time.time() - render_decision_start
-            print(f"[ANALYZE-TIMING] ⏱️ Render decision: {timing_log['render_decision_time']:.3f}s")
             
-            # ✅ 8. RESPONSE PREPARATION - TIMED
+            # ✅ 8. RESPONSE PREPARATION
             response_prep_start = time.time()
             updated_analysis = FileAnalysis.find_by_id(analysis_id)
-            
-            print(f"[ANALYZE-TIMING] 📊 Final material_matches count: {len(updated_analysis.get('material_matches', []))}")
-            print(f"[ANALYZE-TIMING] 📊 Final all_material_calculations count: {len(updated_analysis.get('all_material_calculations', []))}")
-            
-            if updated_analysis.get('material_matches'):
-                print(f"[ANALYZE-TIMING] 🥇 First material (position-ordered): {updated_analysis['material_matches'][0]}")
-            
-            if updated_analysis.get('all_material_calculations'):
-                first_calc = updated_analysis['all_material_calculations'][0]
-                print(f"[ANALYZE-TIMING] 🥇 First calculation (position-ordered): {first_calc.get('material', 'Unknown')}")
             
             response_data = {
                 "success": True,
@@ -966,94 +1008,40 @@ def analyze_uploaded_file_enhanced(analysis_id):
                 "render_status": "processing" if should_render else "not_applicable",
                 "enhancement_details": {
                     "used_matched_step": bool(matched_step_path and result.get('matched_step_used', False)),
-                    "step_source": result.get('step_source', 'none'),
+                    "step_source": result.get('step_source', step_source),
                     "material_confidence": result.get('material_confidence', 0),
                     "analysis_strategy": analysis_strategy,
-                    "match_score": analysis.get('match_score'),
-                    "pdf_step_extracted": analysis['file_type'] == 'pdf' and bool(result.get('step_file_hash')),
-                    # ✅ Position ordering info
                     "position_ordering_applied": ocr_data.get('position_ordering_applied', False),
-                    "material_reordered": len(ocr_data.get('original_material_order', [])) != len(result.get('material_matches', [])),
-                    "calculations_reordered": bool(result.get('all_material_calculations'))
+                    "material_reordered": len(ocr_data.get('original_material_order', [])) != len(result.get('material_matches', []))
                 },
                 "analysis_details": {
                     "material_matches_count": len(result.get('material_matches', [])),
                     "step_analysis_available": bool(result.get('step_analysis')),
-                    "cost_estimation_available": bool(result.get('cost_estimation')),
-                    "material_calculations_count": len(result.get('all_material_calculations', [])),
-                    "material_options_count": len(updated_analysis.get('material_options', [])),
                     "render_will_be_available": should_render,
                     "estimated_render_time": "30-60 seconds" if should_render else "N/A"
                 },
-                # ✅ ENHANCED OCR DATA
                 "ocr_data": {
-                    "raw_text_length": len(ocr_data.get('raw_text', '')),
                     "raw_text_preview": ocr_data.get('raw_text', '')[:500],
-                    "full_raw_text": ocr_data.get('raw_text', ''),
                     "confidence": ocr_data.get('confidence', 0),
-                    "method_used": ocr_data.get('method', 'unknown'),
-                    "processing_time": ocr_data.get('processing_time', 0),
-                    "normalization_applied": ocr_data.get('normalization_applied', False),
-                    "material_keywords_found": ocr_data.get('material_keywords_found', []),
-                    "errors_corrected": ocr_data.get('errors_corrected', []),
-                    "quality_metrics": ocr_data.get('quality_metrics', {}),
-                    "text_blocks": ocr_data.get('text_blocks', []),
-                    "confidence_distribution": ocr_data.get('confidence_distribution', {}),
-                    "language_detected": ocr_data.get('language_detected', 'unknown'),
-                    "has_turkish_content": ocr_data.get('has_turkish_content', False),
-                    # ✅ Position ordering data
-                    "position_ordering_applied": ocr_data.get('position_ordering_applied', False),
-                    "material_position_mapping": ocr_data.get('material_position_mapping', {}),
-                    "original_material_order": ocr_data.get('original_material_order', []),
-                    "reordered_material_count": ocr_data.get('reordered_material_count', 0)
+                    "position_ordering_applied": ocr_data.get('position_ordering_applied', False)
                 },
-                # ✅ PERFORMANCE TIMING DATA
-                "performance_timing": timing_log,
-                "performance_summary": {
-                    "total_time": timing_log.get('total_processing_time', 0),
-                    "core_analysis_time": timing_log.get('core_analysis_time', 0),
-                    "ocr_extraction_time": timing_log.get('ocr_extraction_time', 0),
-                    "position_ordering_time": timing_log.get('position_ordering_total_time', 0),
-                    "db_update_time": timing_log.get('db_update_time', 0),
-                    "slowest_operation": max(timing_log.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
-                }
+                "performance_timing": timing_log
             }
             timing_log['response_prep_time'] = time.time() - response_prep_start
-            print(f"[ANALYZE-TIMING] ⏱️ Response preparation: {timing_log['response_prep_time']:.3f}s")
-            
             timing_log['total_endpoint_time'] = time.time() - endpoint_start_time
+            
             print(f"[ANALYZE-TIMING] ⏱️ TOTAL ENDPOINT TIME: {timing_log['total_endpoint_time']:.3f}s")
-            
-            # Print timing summary
-            print(f"[ANALYZE-TIMING] 📊 PERFORMANCE SUMMARY:")
-            print(f"[ANALYZE-TIMING]   - Validation: {timing_log.get('validation_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - Status Update: {timing_log.get('status_update_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - Core Analysis: {timing_log.get('core_analysis_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - OCR Extraction: {timing_log.get('ocr_extraction_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - Position Ordering: {timing_log.get('position_ordering_total_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - DB Update: {timing_log.get('db_update_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - Render Decision: {timing_log.get('render_decision_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - Response Prep: {timing_log.get('response_prep_time', 0):.3f}s")
-            print(f"[ANALYZE-TIMING]   - TOTAL: {timing_log['total_endpoint_time']:.3f}s")
-            
-            print(f"[ANALYZE-TIMING] 📤 Enhanced response sent with detailed timing")
-            print(f"[ANALYZE-TIMING] 🎯 Position ordering applied: {ocr_data.get('position_ordering_applied', False)}")
-            print(f"[ANALYZE-TIMING] ✅ Both lists now follow OCR position order!")
             
             return jsonify(response_data), 200
             
         else:
-            # Error handling with timing
+            # Error handling
             error_msg = result.get('error', 'Bilinmeyen analiz hatası')
-            print(f"[ANALYZE-TIMING] ❌ Analysis error: {error_msg}")
-            
             FileAnalysis.update_analysis(analysis_id, {
                 "analysis_status": "failed",
                 "error_message": error_msg,
                 "processing_time": time.time() - analysis_start_time
             })
-            
-            timing_log['total_endpoint_time'] = time.time() - endpoint_start_time
             
             return jsonify({
                 "success": False,
@@ -1062,7 +1050,6 @@ def analyze_uploaded_file_enhanced(analysis_id):
             }), 500
         
     except Exception as e:
-        timing_log['total_endpoint_time'] = time.time() - endpoint_start_time
         print(f"[ANALYZE-TIMING] ❌ Global error: {str(e)}")
         try:
             FileAnalysis.update_analysis(analysis_id, {
@@ -1077,7 +1064,7 @@ def analyze_uploaded_file_enhanced(analysis_id):
             "message": f"Beklenmeyen hata: {str(e)}",
             "performance_timing": timing_log
         }), 500
-
+    
 
 def fast_position_ordering(materials, keywords):
     """⚡ 10x daha hızlı position ordering"""
